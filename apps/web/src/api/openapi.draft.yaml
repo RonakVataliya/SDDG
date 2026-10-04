@@ -1,0 +1,298 @@
+# FE DRAFT of the H1 / X16 contract — NOT the source of truth.
+# The frontend's stubs (src/mocks) and generated types (src/api/schema.d.ts) are built from this file
+# until the backend publishes its FastAPI OpenAPI schema. Then run:
+#   OPENAPI_URL=https://<api-host>/openapi.json npm run gen:api
+# and delete this file. Every shape here is a proposal for BE to accept, rename or reject.
+openapi: 3.1.0
+info:
+  title: SDDG API (frontend draft)
+  version: 0.1.0-draft
+servers:
+  - url: /api/v1
+security:
+  - bearer: []
+paths:
+  /health:
+    get:
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Health' } } } }
+  /me/consent:
+    get:
+      summary: Current AI-processing consent (NFR5d)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Consent' } } } }
+    post:
+      summary: Record consent with timestamp and policy version (X8)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ConsentCreate' } } }
+      responses:
+        '201': { description: Recorded, content: { application/json: { schema: { $ref: '#/components/schemas/Consent' } } } }
+  /projects:
+    get:
+      summary: Projects the caller is a member of (FR3c)
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Project' } } } }
+    post:
+      summary: Create a project; the creator becomes Owner (FR3a)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCreate' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '409': { description: Name already used by this owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Invalid name, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { description: Not found or no access (NFR4), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/inputs:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: Submit pasted requirement text (FR1a) and start extraction
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InputCreate' } } }
+      responses:
+        '202': { description: Extraction queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        '403': { description: No AI consent recorded (X8), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/statements:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Requirement statements R-001… (FR4g)
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RequirementStatement' } } } }
+  /projects/{project_id}/items:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Extracted items, paginated (FR5a)
+      parameters:
+        - { name: category, in: query, schema: { $ref: '#/components/schemas/ItemCategory' } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 200 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ItemPage' } } } }
+  /projects/{project_id}/items/{item_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: item_id, in: path, required: true, schema: { type: string } }
+    patch:
+      summary: Edit an item; origin becomes user-edited (FR5b) and confirmation is cleared (FR5e)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ItemUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ExtractedItem' } } } }
+  /projects/{project_id}/confirmation:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: Confirm the current extraction (FR5e)
+      responses:
+        '201': { description: Confirmed, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+  /projects/{project_id}/generations:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: Start a generation run with a locked diagram-type selection (FR9d)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/GenerationCreate' } } }
+      responses:
+        '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        '409': { description: Extraction not confirmed (FR5e), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/diagrams:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DiagramSummary' } } } }
+  /jobs/{job_id}:
+    parameters: [{ name: job_id, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: Job status, polled by the progress indicator (FR10g)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+  /diagrams/{diagram_id}:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: One diagram version. The picture itself is the PNG from /export.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+  /diagrams/{diagram_id}/revisions:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post:
+      summary: Edit a diagram in plain language ("rename Browse canteen menu to Browse menu card"). Returns the new version; the old one is kept.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RevisionCreate' } } }
+      responses:
+        '201': { description: New version, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+        '422': { description: The instruction could not be applied, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/export:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px)
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [png] } }
+      responses:
+        '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, description: Supabase access token }
+  parameters:
+    ProjectId: { name: project_id, in: path, required: true, schema: { type: string } }
+    DiagramId: { name: diagram_id, in: path, required: true, schema: { type: string } }
+  schemas:
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string, description: Plain-language message safe to show the user }
+        code: { type: string }
+    Health:
+      type: object
+      required: [status]
+      properties: { status: { type: string, enum: [ok] } }
+    Consent:
+      type: object
+      required: [consented, current_policy_version]
+      properties:
+        consented: { type: boolean, description: True only if consent matches the current AI section of the policy }
+        policy_version: { type: [string, 'null'] }
+        consented_at: { type: [string, 'null'], format: date-time }
+        current_policy_version: { type: string }
+    ConsentCreate:
+      type: object
+      required: [policy_version]
+      properties: { policy_version: { type: string } }
+    Role: { type: string, enum: [owner, editor, viewer] }
+    Project:
+      type: object
+      required: [id, name, role, created_at, updated_at, statement_count, item_count, extraction, confirmed, diagram_count]
+      properties:
+        id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        role: { $ref: '#/components/schemas/Role' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        statement_count: { type: integer }
+        item_count: { type: integer }
+        extraction: { oneOf: [{ $ref: '#/components/schemas/Job' }, { type: 'null' }], description: Latest extraction job }
+        confirmed: { type: boolean, description: Current extraction is confirmed (cleared by any change) }
+        confirmed_at: { type: [string, 'null'], format: date-time }
+        diagram_count: { type: integer }
+    ProjectCreate:
+      type: object
+      required: [name]
+      properties: { name: { type: string, minLength: 1, maxLength: 100 } }
+    InputCreate:
+      type: object
+      required: [text]
+      properties: { text: { type: string, minLength: 1 } }
+    SourceLocation:
+      type: object
+      required: [document]
+      properties:
+        document: { type: string }
+        page: { type: [integer, 'null'] }
+        paragraph: { type: [integer, 'null'] }
+    RequirementStatement:
+      type: object
+      required: [id, ref, text, source]
+      properties:
+        id: { type: string }
+        ref: { type: string, description: Project-unique, never reused, e.g. R-001 }
+        text: { type: string }
+        label: { type: [string, 'null'], description: Label the input already carried, e.g. FR3 }
+        source: { $ref: '#/components/schemas/SourceLocation' }
+    ItemCategory:
+      type: string
+      enum: [actor, entity, process, data_flow, data_store, interaction, relationship]
+    ItemOrigin:
+      type: string
+      enum: [system-extracted, user-added, user-edited]
+    ItemQualifier:
+      type: string
+      enum: [minimal, low-confidence, incomplete, order-uncertain, needs-review]
+    ExtractedItem:
+      type: object
+      required: [id, category, name, origin, qualifiers, statement_ids]
+      properties:
+        id: { type: string }
+        category: { $ref: '#/components/schemas/ItemCategory' }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        origin: { $ref: '#/components/schemas/ItemOrigin' }
+        qualifiers: { type: array, items: { $ref: '#/components/schemas/ItemQualifier' } }
+        statement_ids: { type: array, items: { type: string }, description: Source requirement statement IDs }
+        source_item_id: { type: [string, 'null'], description: For flows, interactions, relationships }
+        target_item_id: { type: [string, 'null'] }
+        relation_type: { type: [string, 'null'], description: e.g. association, include, extend, generalization }
+    ItemPage:
+      type: object
+      required: [items, total, page, page_size, counts]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ExtractedItem' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+        counts: { type: object, additionalProperties: { type: integer }, description: Item count per category }
+    ItemUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+    DiagramType:
+      type: string
+      enum: [use_case, class, activity, sequence, dfd, component]
+    GenerationCreate:
+      type: object
+      required: [diagram_types]
+      properties:
+        diagram_types: { type: array, minItems: 1, items: { $ref: '#/components/schemas/DiagramType' } }
+    JobStatus: { type: string, enum: [queued, running, succeeded, failed] }
+    Job:
+      type: object
+      required: [id, kind, status, progress]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [extraction, generation] }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        queue_position: { type: [integer, 'null'] }
+        progress:
+          type: object
+          required: [step, total, label]
+          properties:
+            step: { type: integer }
+            total: { type: integer }
+            label: { type: string, description: 'e.g. "Generating diagram 1 of 1"' }
+        diagram_types: { type: array, items: { $ref: '#/components/schemas/DiagramType' } }
+        diagram_ids: { type: array, items: { type: string } }
+        error: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+    DiagramSummary:
+      type: object
+      required: [id, type, title, created_at, parent_id, instruction]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/DiagramType' }
+        title: { type: string }
+        created_at: { type: string, format: date-time }
+        parent_id: { type: [string, 'null'], description: The version this one was edited from; null for a fresh generation }
+        instruction: { type: [string, 'null'], description: The edit request that produced this version; null for a fresh generation }
+    Diagram:
+      $ref: '#/components/schemas/DiagramSummary'
+    RevisionCreate:
+      type: object
+      required: [instruction]
+      properties:
+        instruction: { type: string, minLength: 1, maxLength: 500 }
