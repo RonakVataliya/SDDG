@@ -26,21 +26,21 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     API_V1_PREFIX: str = "/api/v1"
 
-    # --- LLM provider toggle (TE4) -------------------------------------------
+    # --- LLM provider toggle -------------------------------------------
     # Which client _get_llm() builds. "gemini" or "groq". Swapping this (and
     # the matching *_API_KEY / *_MODEL below) is the only change needed to
     # switch providers -- nodes, prompts, schemas, retries and logging are
     # all provider-agnostic.
     LLM_PROVIDER: str = "groq"
 
-    # --- Gemini / LangChain (TE4) ------------------------------------------
+    # --- Gemini / LangChain Previous Model used ------------------------------------------
     # Server-side only. Never echoed in responses or logs.
     GOOGLE_API_KEY: str = Field(default="", repr=False)
     GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_TEMPERATURE: float = 0.1
     GEMINI_MAX_OUTPUT_TOKENS: int = 8192
 
-    # --- Groq / LangChain (TE4) -----------------------------------------------
+    # --- Groq / LangChain Latest model -----------------------------------------------
     # Server-side only. Never echoed in responses or logs. Free tier:
     # https://console.groq.com/docs/rate-limits
     GROQ_API_KEY: str = Field(default="", repr=False)
@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     GROQ_TEMPERATURE: float = 0.1
     GROQ_MAX_OUTPUT_TOKENS: int = 8192
 
-    # --- Retry hooks (TE4) --------------------------------------------------
+    # --- Retry hooks --------------------------------------------------
     MAX_RETRIES: int = 3
     RETRY_MIN_WAIT_SECONDS: float = 1.0
     RETRY_MAX_WAIT_SECONDS: float = 8.0
@@ -56,11 +56,11 @@ class Settings(BaseSettings):
     # --- Timeouts ------------------------------------------------------------
     REQUEST_TIMEOUT_SECONDS: float = 60.0
 
-    # --- Timing check (X11) --------------------------------------------------
+    # --- Timing check --------------------------------------------------
     # Median target for a full split -> extract -> merge run.
     EXTRACTION_TIMING_TARGET_SECONDS: float = 60.0
 
-    # --- Logging (metadata-only, per TE4) ------------------------------------
+    # --- Logging (metadata-only) ------------------------------------
     LOG_LEVEL: str = "INFO"
 
     # --- CORS (so a frontend / gateway can call this later) ------------------
