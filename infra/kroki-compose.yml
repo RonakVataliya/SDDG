@@ -1,0 +1,27 @@
+version: "3.8"
+
+# Diagram-rendering stack for the /usecase/generate and /usecase/render
+# endpoints. Run `docker compose up -d` before calling those endpoints;
+# the FastAPI app talks to it over HTTP at KROKI_BASE_URL (default
+# http://localhost:8000 -- see .env.example).
+services:
+  core:
+    image: yuzutech/kroki
+    ports:
+      # Host 8080 -> container 8000. NOT 8000:8000 -- your FastAPI app
+      # (uvicorn) already defaults to host port 8000, so that would
+      # collide. Matches KROKI_BASE_URL=http://localhost:8080 in .env.example.
+      - "8080:8000"
+    environment:
+      # PlantUML/Graphviz are built into the core image. Mermaid needs its
+      # own companion container (it runs a headless browser internally) --
+      # this tells core where to find it. Not used by the use-case stage
+      # today (PlantUML only), kept for future diagram types (X10/FR4h+).
+      - KROKI_MERMAID_HOST=mermaid
+    depends_on:
+      - mermaid
+
+  mermaid:
+    image: yuzutech/kroki-mermaid
+    expose:
+      - "8002"
