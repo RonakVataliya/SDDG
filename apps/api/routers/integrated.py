@@ -522,3 +522,128 @@ def confirm_project(project_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(409, "Wait for extraction to finish before confirming the model.")
     return project_view(db.set_confirmed(project_id))
 
+
+@router.post("/projects/{project_id}/generations", status_code=202)
+def generate_diagram(
+    project_id: str,
+    payload: GenerationCreate,
+    bg: BackgroundTasks,
+    user: User = Depends(get_current_user),
+):
+    """Queues a background job to generate diagram(s) from the confirmed model."""
+    project = require_project(project_id, user)
+    if not project["confirmed_at"]:
+        raise HTTPException(409, "Confirm the extracted items before generating.")
+    if any(t != "use_case" for t in payload.diagram_types):
+        raise HTTPException(422, "Only the Use Case diagram is available in this version.")
+    job = db.create_job(project_id, "generation", 3, "Queued", diagram_types=["use_case"])
+    bg.add_task(generation_worker, job["id"], project_id, ["use_case"])
+    return job
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, user: User = Depends(get_current_user)):
+    """Polls the status and progress of an extraction or generation background job."""
+    job = db.owned_job(job_id, user.id)
+    if not job:
+        raise HTTPException(404, NOT_FOUND)
+    return job
+
+
+# ============================================================================
+# API Routes: Diagrams, Revisions & Exports
+# ============================================================================
+
+@router.get("/projects/{project_id}/diagrams")
+def list_diagrams(project_id: str, user: User = Depends(get_current_user)):
+    """Lists all diagrams generated for a given project."""
+    require_project(project_id, user)
+    return db.list_diagrams(project_id)
+
+
+@router.get("/diagrams/{diagram_id}")
+def get_diagram(diagram_id: str, user: User = Depends(get_current_user)):
+    """Retrieves full diagram details including SVG, PlantUML source, and requirement provenance."""
+    return diagram_view(require_diagram(diagram_id, user))
+
+
+@router.post("/diagrams/{diagram_id}/revisions", status_code=201)
+async def revise_diagram(
+    diagram_id: str,
+    payload: RevisionCreate,
+    user: User = Depends(get_current_user),
+):
+    """Applies natural language revision instructions to an existing diagram via AI."""
+    diagram = require_diagram(diagram_id, user)
+    instruction = payload.instruction.strip()
+    if not instruction:
+        raise HTTPException(422, "Describe the change you want.")
+    if not diagram["spec"]:
+        raise HTTPException(
+            422,
+            "This diagram was made before editing was available. Generate it again, then edit it.",
+        )
+
+    project_id = diagram["project_id"]
+    project = db.get_project(project_id)
+    _, actors, processes = approved_model(project_id)
+    try:
+        async with httpx.AsyncClient(timeout=180) as client:
+            response = await client.post(
+                f"{AI_URL}/usecase/revise",
+                json={
+                    "spec": diagram["spec"],
+                    "instruction": instruction,
+                    "system_name": project["name"],
+                    "actor_names": {a["id"]: a["name"] for a in actors},
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+    except httpx.HTTPStatusError as exc:
+        try:
+            detail = exc.response.json().get("detail", "The AI could not apply that change.")
+        except Exception:
+            detail = "The AI could not apply that change."
+        raise HTTPException(422, detail) from exc
+    except Exception as exc:
+        raise HTTPException(503, "AI revision service is not available.") from exc
+
+    created = store_diagram(
+        project_id,
+        diagram["title"],
+        result,
+        actors,
+        processes,
+        parent_id=diagram["id"],
+        instruction=instruction,
+    )
+    return diagram_view(created)
+
+
+@router.get("/diagrams/{diagram_id}/export")
+async def export_diagram_png(
+    diagram_id: str,
+    format: str = "png",
+    user: User = Depends(get_current_user),
+):
+    """Renders and exports the diagram as a PNG image using Kroki."""
+    diagram = require_diagram(diagram_id, user)
+    if format != "png":
+        raise HTTPException(422, "Only PNG export is supported.")
+    if not diagram["plantuml_source"]:
+        raise HTTPException(
+            409,
+            "This diagram was created by an older build and has no stored PlantUML source. Regenerate the diagram before exporting PNG.",
+        )
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{KROKI_URL}/plantuml/png",
+                content=diagram["plantuml_source"].encode("utf-8"),
+                headers={"Content-Type": "text/plain"},
+            )
+            response.raise_for_status()
+        return Response(response.content, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(502, f"PNG export failed because the Kroki renderer is unavailable: {e}")
