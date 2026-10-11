@@ -257,3 +257,124 @@ def store_diagram(project_id, title, result, actors, processes, **extra):
     )
 
 
+# ============================================================================
+# Asynchronous Background Workers
+# ============================================================================
+
+def fail_job(job_id, message):
+    """Updates a job record with failure status and error details."""
+    db.update_job(
+        job_id,
+        status="failed",
+        queue_position=None,
+        error=message,
+        finished_at=db.now(),
+        progress_step=3,
+        progress_total=3,
+        progress_label=message.split(":")[0],
+    )
+
+
+async def extraction_worker(job_id, project_id, text, project_name):
+    """Background worker that calls the AI service to extract requirements and models."""
+    try:
+        db.update_job(
+            job_id,
+            status="running",
+            queue_position=None,
+            started_at=db.now(),
+            progress_step=1,
+            progress_total=3,
+            progress_label="Sending requirements to AI extraction service",
+        )
+        async with httpx.AsyncClient(timeout=180) as client:
+            response = await client.post(
+                f"{AI_URL}/extraction/extract",
+                json={"text": text, "project_name": project_name},
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        db.update_job(
+            job_id,
+            progress_step=2,
+            progress_label="Saving requirement statements and modelling items",
+        )
+        raw = result.get("requirements", [])
+        saved_ids = db.insert_statements(project_id, raw)
+        statement_map = {r["id"]: sid for r, sid in zip(raw, saved_ids) if "id" in r}
+        db.replace_system_items(project_id, convert_extraction_to_items(result, statement_map))
+        db.touch_project(project_id, clear_confirmation=True)
+        db.update_job(
+            job_id,
+            status="succeeded",
+            queue_position=None,
+            progress_step=3,
+            progress_total=3,
+            progress_label="Extraction complete",
+            finished_at=db.now(),
+        )
+    except Exception as e:
+        fail_job(job_id, f"Extraction failed: {e}")
+
+
+async def generation_worker(job_id, project_id, diagram_types):
+    """Background worker that generates Use Case diagram specs and SVGs via AI."""
+    try:
+        db.update_job(
+            job_id,
+            status="running",
+            queue_position=None,
+            started_at=db.now(),
+            progress_step=1,
+            progress_total=3,
+            progress_label="Building approved diagram model",
+        )
+        project = db.get_project(project_id)
+        items, actors, processes = approved_model(project_id)
+        interactions = [
+            {
+                "id": i["id"],
+                "source_id": i["source_item_id"],
+                "target_id": i["target_item_id"],
+                "type": i["relation_type"] or "actor_to_process",
+                "description": i["description"],
+                "sequence_hint": None,
+                "source_refs": i["statement_ids"],
+            }
+            for i in items
+            if i["category"] == "interaction" and i["source_item_id"] and i["target_item_id"]
+        ]
+        db.update_job(
+            job_id,
+            progress_step=2,
+            progress_label="Generating and rendering Use Case diagram",
+        )
+        async with httpx.AsyncClient(timeout=180) as client:
+            response = await client.post(
+                f"{AI_URL}/usecase/generate",
+                json={
+                    "project_name": project["name"],
+                    "system_name": project["name"],
+                    "actors": actors,
+                    "processes": processes,
+                    "interactions": interactions,
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        diagram = store_diagram(project_id, f"{project['name']} · Use Case", result, actors, processes)
+        db.update_job(
+            job_id,
+            status="succeeded",
+            queue_position=None,
+            progress_step=3,
+            progress_total=3,
+            progress_label="Diagram ready",
+            diagram_ids=[diagram["id"]],
+            finished_at=db.now(),
+        )
+    except Exception as e:
+        fail_job(job_id, f"Generation failed: {e}")
+
