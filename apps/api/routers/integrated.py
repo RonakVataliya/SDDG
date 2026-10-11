@@ -378,3 +378,147 @@ async def generation_worker(job_id, project_id, diagram_types):
     except Exception as e:
         fail_job(job_id, f"Generation failed: {e}")
 
+
+# ============================================================================
+# API Routes: Consent Management
+# ============================================================================
+
+@router.get("/me/consent")
+def get_consent(user: User = Depends(get_current_user)):
+    """Retrieves the current user's consent record for AI processing."""
+    c = db.consent(user.id)
+    return {
+        "consented": bool(c and c["policy_version"] == POLICY_VERSION),
+        "policy_version": c["policy_version"] if c else None,
+        "consented_at": c["consented_at"] if c else None,
+        "current_policy_version": POLICY_VERSION,
+    }
+
+
+@router.post("/me/consent", status_code=201)
+def give_consent(payload: ConsentCreate, user: User = Depends(get_current_user)):
+    """Records the user's agreement to the current AI processing policy."""
+    if payload.policy_version != POLICY_VERSION:
+        raise HTTPException(409, "The policy version is no longer current.")
+    c = db.set_consent(user.id, POLICY_VERSION)
+    return {
+        "consented": True,
+        "policy_version": POLICY_VERSION,
+        "consented_at": c["consented_at"],
+        "current_policy_version": POLICY_VERSION,
+    }
+
+
+# ============================================================================
+# API Routes: Project Management
+# ============================================================================
+
+@router.get("/projects")
+def list_projects(user: User = Depends(get_current_user)):
+    """Lists all projects owned by the authenticated user."""
+    return [project_view(p) for p in db.project_rows(user.id)]
+
+
+@router.post("/projects", status_code=201)
+def create_project(payload: ProjectCreate, user: User = Depends(get_current_user)):
+    """Creates a new project with a unique name for the authenticated user."""
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(422, "Project name must not be empty.")
+    if any(p["name"].lower() == name.lower() for p in db.project_rows(user.id)):
+        raise HTTPException(409, "You already have a project with this name.")
+    return project_view(db.create_project(user.id, name))
+
+
+@router.get("/projects/{project_id}")
+def get_project(project_id: str, user: User = Depends(get_current_user)):
+    """Retrieves a single project by ID."""
+    return project_view(require_project(project_id, user))
+
+
+# ============================================================================
+# API Routes: Requirements Submission & Items Review
+# ============================================================================
+
+@router.post("/projects/{project_id}/inputs", status_code=202)
+def submit_input(
+    project_id: str,
+    payload: InputCreate,
+    bg: BackgroundTasks,
+    user: User = Depends(get_current_user),
+):
+    """Submits raw requirements text to trigger background AI extraction."""
+    project = require_project(project_id, user)
+    consent = db.consent(user.id)
+    if not consent or consent["policy_version"] != POLICY_VERSION:
+        raise HTTPException(403, "Agree to AI processing before submitting requirements.")
+    job = db.create_job(project_id, "extraction", 3, "Queued")
+    db.touch_project(project_id, clear_confirmation=True)
+    bg.add_task(extraction_worker, job["id"], project_id, payload.text, project["name"])
+    return job
+
+
+@router.get("/projects/{project_id}/statements")
+def get_statements(project_id: str, user: User = Depends(get_current_user)):
+    """Returns the individual requirement statements extracted from project input."""
+    require_project(project_id, user)
+    return db.get_statements(project_id)
+
+
+@router.get("/projects/{project_id}/items")
+def list_items(
+    project_id: str,
+    category: ItemCategory | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(200, ge=1, le=200),
+    user: User = Depends(get_current_user),
+):
+    """Returns paginated extracted model items for human review, optionally filtered by category."""
+    require_project(project_id, user)
+    all_items = db.get_items(project_id)
+    counts = {}
+    for i in all_items:
+        counts[i["category"]] = counts.get(i["category"], 0) + 1
+    shown = [i for i in all_items if category is None or i["category"] == category]
+    start = (page - 1) * page_size
+    return {
+        "items": shown[start:start + page_size],
+        "total": len(shown),
+        "page": page,
+        "page_size": page_size,
+        "counts": counts,
+    }
+
+
+@router.patch("/projects/{project_id}/items/{item_id}")
+def edit_item(
+    project_id: str,
+    item_id: str,
+    payload: ItemUpdate,
+    user: User = Depends(get_current_user),
+):
+    """Updates the name or description of an extracted model item during human-in-the-loop review."""
+    require_project(project_id, user)
+    name = payload.name.strip() if payload.name is not None else None
+    item = db.update_item(project_id, item_id, name, payload.description)
+    if not item:
+        raise HTTPException(404, NOT_FOUND)
+    db.touch_project(project_id, clear_confirmation=True)
+    return item
+
+
+# ============================================================================
+# API Routes: Model Confirmation & Diagram Generation
+# ============================================================================
+
+@router.post("/projects/{project_id}/confirmation", status_code=201)
+def confirm_project(project_id: str, user: User = Depends(get_current_user)):
+    """Marks extracted items as confirmed by the user, gating diagram generation."""
+    require_project(project_id, user)
+    if not db.get_items(project_id):
+        raise HTTPException(409, "There is nothing to confirm yet.")
+    latest = db.get_latest_extraction_job(project_id)
+    if not latest or latest["status"] != "succeeded":
+        raise HTTPException(409, "Wait for extraction to finish before confirming the model.")
+    return project_view(db.set_confirmed(project_id))
+
