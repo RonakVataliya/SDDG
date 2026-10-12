@@ -1,5 +1,5 @@
 """
-X10: LangGraph pipeline wiring split -> extract -> merge.
+LangGraph pipeline wiring split -> extract -> merge.
 
 Graph shape:
 

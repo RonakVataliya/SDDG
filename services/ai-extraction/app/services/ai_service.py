@@ -1,5 +1,5 @@
 """
-TE4: AI-service module.
+AI-service module.
 
 - Config-driven: model name, temperature, retries, timeouts all come from
   Settings (env vars / .env), never hardcoded.

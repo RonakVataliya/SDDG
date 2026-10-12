@@ -16,7 +16,7 @@ async def extract(request: ExtractionRequest) -> ExtractionResult:
     """
     Runs the full split -> extract -> merge pipeline (X10) over raw
     requirements/SRS text and returns every extracted design element plus
-    X11 timing metadata. Stateless: nothing is persisted server-side.
+    timing metadata. Stateless: nothing is persisted server-side.
     """
     try:
         # The LangGraph pipeline does synchronous, blocking LLM calls, so

@@ -1,4 +1,4 @@
-"""FR4g: Split raw input into labeled, IDed requirement statements."""
+"""Split raw input into labeled, IDed requirement statements."""
 from app.graph.prompts import SPLIT_SYSTEM_PROMPT
 from app.graph.state import ExtractionState
 from app.schemas.requirements import RequirementSplitResult
