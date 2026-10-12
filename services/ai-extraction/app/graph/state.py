@@ -1,5 +1,5 @@
 """
-X10: Shared state for the LangGraph split -> extract -> merge pipeline.
+Shared state for the LangGraph split -> extract -> merge pipeline.
 
 Fields written by exactly one node use the default "last write wins"
 reducer. Fields that multiple parallel branches may append to

@@ -1,7 +1,7 @@
 """
 Logging setup.
 
-Per TE4 ("metadata-only logs"), application code must never pass raw
+Per ("metadata-only logs"), application code must never pass raw
 requirement text, prompts, or LLM output content into a log call. Only
 structured metadata (node name, durations, counts, model name, status,
 retry attempt numbers) is logged. This module just wires up the format;

@@ -1,5 +1,5 @@
 """
-Schemas for FR4g: splitting raw input into atomic, IDed requirement
+Schemas for splitting raw input into atomic, IDed requirement
 statements with best-effort source location and classification labels.
 """
 from enum import Enum

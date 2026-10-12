@@ -1,5 +1,5 @@
 """
-X10 merge step. Doesn't call the LLM -- just validates that data flows,
+merge step. Doesn't call the LLM -- just validates that data flows,
 interactions and relationships only reference element ids that actually
 exist, and records any dangling references as non-fatal errors so callers
 (and the frontend) can flag them rather than silently rendering a broken

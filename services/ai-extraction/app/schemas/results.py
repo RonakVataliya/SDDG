@@ -1,5 +1,5 @@
 """
-Top-level API request/response schemas, including the X11 timing metadata
+Top-level API request/response schemas, including the timing metadata
 that reports the extraction run's duration against the 60s median target.
 """
 from typing import Dict, List, Optional
