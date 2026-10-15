@@ -68,7 +68,7 @@ export function GeneratePanel({ project }: { project: Project }) {
                 />
                 <span className="min-w-0">
                   <span className="block text-sm leading-5 font-medium">{t.label}</span>
-                  <span className="block text-xs leading-4 text-slate">{t.available ? 'Actors and goals' : 'Not available yet'}</span>
+                 <span className="block text-xs leading-4 text-slate">{t.available ? t.shows : 'Not available yet'}</span>
                 </span>
               </label>
             )
