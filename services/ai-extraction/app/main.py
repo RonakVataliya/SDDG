@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.logging_config import configure_logging, get_logger
+from app.rendering.engines import check_engine_config
+from app.routers.dfd import router as dfd_router
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
 from app.routers.usecase import router as usecase_router
@@ -43,6 +45,7 @@ app.add_middleware(
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(extraction_router, prefix=settings.API_V1_PREFIX)
 app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
+app.include_router(dfd_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")
@@ -53,6 +56,9 @@ async def on_startup() -> None:
             "/extraction/extract will return 503 until it is configured.",
             settings.LLM_PROVIDER,
         )
+    # Logs one error per ENGINE_FOR_DIAGRAM entry that names an engine the
+    # diagram type has no generator for (app/rendering/engines.py).
+    check_engine_config()
     logger.info(
         "service_started environment=%s provider=%s model=%s",
         settings.ENVIRONMENT,
