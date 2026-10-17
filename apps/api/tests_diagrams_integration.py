@@ -80,8 +80,24 @@ def fake_dfd(p):
     return spec, 'digraph DFD {\n  "EE_001" -> "P_001";\n}', "Place Order"
 
 
+def fake_class(p):
+    spec = {
+        "system": p["system_name"],
+        "classes": [
+            {"id": "C-001", "name": "Order", "kind": "class", "attributes": [], "operations": [],
+             "enum_values": [], "source_entity_ids": [first(p, "entities")]},
+            {"id": "C-002", "name": "MenuItem", "kind": "class", "attributes": [], "operations": [],
+             "enum_values": [], "source_entity_ids": [p["entities"][1]["id"]]},
+        ],
+        "relations": [{"id": "CR-001", "source_id": "C-001", "target_id": "C-002", "type": "aggregation",
+                       "label": "contains", "source_relationship_ids": [first(p, "relationships")]}],
+    }
+    return spec, '@startuml\nclass "Order" as C_001\n@enduml', "Order"
+
+
 FAKE_RESULTS = {
     "dfd": fake_dfd,
+    "class": fake_class,
 }
 
 USECASE = {
@@ -130,6 +146,7 @@ class FakeClient:
                         return httpx.Response(503, json={"detail": "AI service is not available."}, request=request)
                     payload = kwargs["json"]
                     if action == "generate":
+                        FakeClient.generated[pipeline.endpoint] = payload
                         spec, source, label = FAKE_RESULTS[diagram_type](payload)
                     else:
                         spec, label = payload["spec"], "Revised"
@@ -143,6 +160,7 @@ class FakeClient:
 
 
 FakeClient.last_source = {}
+FakeClient.generated = {}
 
 
 def main():
@@ -180,7 +198,7 @@ def main():
                 assert 'data-element-id="' in d["svg"]
 
                 # The AI request carried the approved items and the requirement text.
-                sent = next(body for url, body in FakeClient.calls if url.endswith(f"/{pipeline.endpoint}/generate"))
+                sent = FakeClient.generated[pipeline.endpoint]
                 assert {"project_name", "system_name", *pipeline.fields} == set(sent)
                 if "requirements" in sent:
                     assert sent["requirements"][0]["id"] == "R-001"

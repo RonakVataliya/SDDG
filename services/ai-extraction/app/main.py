@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.logging_config import configure_logging, get_logger
 from app.rendering.engines import check_engine_config
+from app.routers.class_diagram import router as class_router
 from app.routers.dfd import router as dfd_router
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
@@ -46,6 +47,7 @@ app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(extraction_router, prefix=settings.API_V1_PREFIX)
 app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
 app.include_router(dfd_router, prefix=settings.API_V1_PREFIX)
+app.include_router(class_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")

@@ -153,4 +153,13 @@ DIAGRAM_PIPELINES: Dict[str, DiagramPipeline] = {
             ("flows", "data_flow", "label", ["source_data_flow_ids"]),
         ]),
     ),
+    "class": DiagramPipeline(
+        label="Class",
+        endpoint="class",
+        fields=("entities", "relationships", "processes", "actors", "requirements"),
+        elements=flat_elements([
+            ("classes", "class", "name", ["source_entity_ids"]),
+            ("relations", "relationship", "label", ["source_relationship_ids"]),
+        ]),
+    ),
 }
