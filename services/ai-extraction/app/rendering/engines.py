@@ -40,6 +40,7 @@ MERMAID = "mermaid"
 ENGINE_FOR_DIAGRAM: Dict[str, str] = {
     "dfd": GRAPHVIZ,         # allowed: graphviz | plantuml | mermaid
     "class": PLANTUML,       # allowed: plantuml | mermaid | graphviz
+    "sequence": PLANTUML,    # allowed: plantuml | mermaid   (graphviz has no lifelines)
 }
 # ------------------------------------------------------------------------------------
 

@@ -16,6 +16,7 @@ from app.routers.class_diagram import router as class_router
 from app.routers.dfd import router as dfd_router
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
+from app.routers.sequence import router as sequence_router
 from app.routers.usecase import router as usecase_router
 
 configure_logging()
@@ -48,6 +49,7 @@ app.include_router(extraction_router, prefix=settings.API_V1_PREFIX)
 app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
 app.include_router(dfd_router, prefix=settings.API_V1_PREFIX)
 app.include_router(class_router, prefix=settings.API_V1_PREFIX)
+app.include_router(sequence_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")

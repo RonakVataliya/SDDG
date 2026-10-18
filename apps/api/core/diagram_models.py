@@ -100,6 +100,17 @@ def flat_elements(layout):
     return build
 
 
+def sequence_elements(spec: dict, items_by_id: dict) -> List[dict]:
+    out = [element(p.get("id"), "participant", p.get("name"), p.get("source_ids"), items_by_id)
+           for p in spec.get("participants") or []]
+    for step in spec.get("steps") or []:
+        messages = [step["message"]] if step.get("message") else [
+            m for b in step.get("branches") or [] for m in b.get("messages") or []]
+        out += [element(m.get("id"), "message", m.get("label"), m.get("source_interaction_ids"), items_by_id)
+                for m in messages]
+    return out
+
+
 # ============================================================================
 # Diagram source -> Kroki engine (for PNG export)
 # ============================================================================
@@ -161,5 +172,11 @@ DIAGRAM_PIPELINES: Dict[str, DiagramPipeline] = {
             ("classes", "class", "name", ["source_entity_ids"]),
             ("relations", "relationship", "label", ["source_relationship_ids"]),
         ]),
+    ),
+    "sequence": DiagramPipeline(
+        label="Sequence",
+        endpoint="sequence",
+        fields=("actors", "processes", "entities", "interactions", "requirements"),
+        elements=sequence_elements,
     ),
 }

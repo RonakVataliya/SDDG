@@ -95,9 +95,30 @@ def fake_class(p):
     return spec, '@startuml\nclass "Order" as C_001\n@enduml', "Order"
 
 
+def fake_sequence(p):
+    def msg(mid, a, b, label, source):
+        return {"id": mid, "from_id": a, "to_id": b, "label": label, "kind": "sync", "source_interaction_ids": source}
+    spec = {
+        "system": p["system_name"],
+        "participants": [
+            {"id": "PT-001", "name": "Student", "kind": "actor", "source_ids": [first(p, "actors")]},
+            {"id": "PT-002", "name": "Canteen System", "kind": "system", "source_ids": [first(p, "processes")]},
+        ],
+        "steps": [
+            {"kind": "message", "message": msg("M-001", "PT-001", "PT-002", "place order", [first(p, "interactions")]),
+             "branches": []},
+            {"kind": "alt", "message": None, "branches": [
+                {"condition": "ok", "messages": [msg("M-002", "PT-002", "PT-001", "confirmation", [])]},
+                {"condition": "else", "messages": [msg("M-003", "PT-002", "PT-001", "error", [])]}]},
+        ],
+    }
+    return spec, "@startuml\nactor Student\n@enduml", "place order"
+
+
 FAKE_RESULTS = {
     "dfd": fake_dfd,
     "class": fake_class,
+    "sequence": fake_sequence,
 }
 
 USECASE = {
