@@ -131,3 +131,47 @@ def test_full_pipeline_with_fake_ai_service(monkeypatch):
     assert result.metadata.met_timing_target is True
     assert len(result.metadata.node_timings) == 7  # one per AI-calling node
     assert result.metadata.project_name == "Test Project"
+
+
+def _patch_ai(monkeypatch):
+    """Every node gets one shared fake that records which nodes were called, in order."""
+    import app.graph.nodes.extract_actors as actors_mod
+    import app.graph.nodes.extract_dataflows as dataflows_mod
+    import app.graph.nodes.extract_entities as entities_mod
+    import app.graph.nodes.extract_interactions as interactions_mod
+    import app.graph.nodes.extract_processes as processes_mod
+    import app.graph.nodes.extract_relationships as relationships_mod
+    import app.graph.nodes.split as split_mod
+
+    calls = []
+
+    class Recording(FakeAIService):
+        def structured_extract(self, *, node_name, system_prompt, user_content, schema):
+            calls.append((node_name, system_prompt, user_content))
+            return super().structured_extract(
+                node_name=node_name, system_prompt=system_prompt, user_content=user_content, schema=schema
+            )
+
+    fake = Recording()
+    for mod in (split_mod, actors_mod, entities_mod, processes_mod, dataflows_mod, interactions_mod, relationships_mod):
+        monkeypatch.setattr(mod, "get_ai_service", lambda: fake)
+    return calls
+
+
+REQUIREMENTS = [RequirementStatement(id="R-001", text="The user shall log in.")]
+
+
+def test_split_alone_and_with_feedback(monkeypatch):
+    from app.services.extraction_service import run_split
+
+    calls = _patch_ai(monkeypatch)
+    first = run_split("The user shall log in.", "Shop")
+    assert [c[0] for c in calls] == ["split"] and first.metadata.requirement_count == 1
+    assert "FEEDBACK" not in calls[0][2]
+
+    calls.clear()
+    run_split("The user shall log in.", "Shop", feedback="split login and logout", previous=REQUIREMENTS)
+    _, system_prompt, user_content = calls[0]
+    assert "FEEDBACK:\nsplit login and logout" in user_content
+    assert "R-001 [unknown]: The user shall log in." in user_content
+    assert "revising an earlier split" in system_prompt

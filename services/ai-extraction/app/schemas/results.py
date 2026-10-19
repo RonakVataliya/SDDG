@@ -36,6 +36,29 @@ class NodeTiming(BaseModel):
     status: str = "ok"  # "ok" | "error"
 
 
+class SplitRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    project_name: Optional[str] = None
+    feedback: Optional[str] = Field(
+        default=None, max_length=2000, description="What to change in the previous split."
+    )
+    previous: List[RequirementStatement] = Field(
+        default_factory=list, description="The statements the feedback refers to."
+    )
+
+
+class SplitMetadata(BaseModel):
+    model_used: str
+    requirement_count: int
+    total_duration_seconds: float
+    node_timings: List[NodeTiming] = Field(default_factory=list)
+
+
+class SplitResult(BaseModel):
+    requirements: List[RequirementStatement] = Field(default_factory=list)
+    metadata: SplitMetadata
+
+
 class ExtractionMetadata(BaseModel):
     model_used: str
     requirement_count: int

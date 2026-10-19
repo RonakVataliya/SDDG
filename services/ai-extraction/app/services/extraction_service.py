@@ -1,16 +1,63 @@
 """
-Runs the full split -> extract -> merge pipeline and assembles the public
-ExtractionResult, including X11 timing metadata (total duration vs the
-configured target).
+Runs the extraction pipeline and assembles the public results, including X11 timing metadata (total duration
+vs the configured target).
+
+Two entry points:
+- run_split: only the split node (with optional reviewer feedback), for the requirements review step.
+- run_extraction_pipeline: the full split -> extract -> merge pipeline.
 """
 from app.config import get_settings
+from app.graph.nodes.split import split_requirements
 from app.graph.pipeline import build_graph
 from app.graph.state import ExtractionState
 from app.logging_config import get_logger
-from app.schemas.results import ExtractionMetadata, ExtractionResult, NodeTiming
+from app.schemas.requirements import RequirementStatement
+from app.schemas.results import (
+    ExtractionMetadata,
+    ExtractionResult,
+    NodeTiming,
+    SplitMetadata,
+    SplitResult,
+)
 from app.utils.timing import TimingTracker
 
 logger = get_logger("extraction_service")
+
+
+def _timings(raw: list[dict]) -> list[NodeTiming]:
+    return [
+        NodeTiming(
+            node=t.get("node", "unknown"),
+            duration_seconds=t.get("duration_seconds", 0.0),
+            attempts=t.get("attempts", 1),
+            status=t.get("status", "ok"),
+        )
+        for t in raw
+    ]
+
+
+def run_split(
+    text: str,
+    project_name: str | None = None,
+    feedback: str | None = None,
+    previous: list[RequirementStatement] | None = None,
+) -> SplitResult:
+    tracker = TimingTracker()
+    state: ExtractionState = {"raw_input": text, "project_name": project_name}
+    if feedback:
+        state["feedback"] = feedback
+        state["previous_requirements"] = previous or []
+    out = split_requirements(state)
+    requirements = out["requirements"]
+    return SplitResult(
+        requirements=requirements,
+        metadata=SplitMetadata(
+            model_used=get_settings().active_model,
+            requirement_count=len(requirements),
+            total_duration_seconds=tracker.total_duration_seconds,
+            node_timings=_timings(out["node_timings"]),
+        ),
+    )
 
 
 def run_extraction_pipeline(text: str, project_name: str | None = None) -> ExtractionResult:
@@ -31,15 +78,7 @@ def run_extraction_pipeline(text: str, project_name: str | None = None) -> Extra
     total_duration = tracker.total_duration_seconds
     met_target = total_duration <= settings.EXTRACTION_TIMING_TARGET_SECONDS
 
-    node_timings = [
-        NodeTiming(
-            node=t.get("node", "unknown"),
-            duration_seconds=t.get("duration_seconds", 0.0),
-            attempts=t.get("attempts", 1),
-            status=t.get("status", "ok"),
-        )
-        for t in final_state.get("node_timings", [])
-    ]
+    node_timings = _timings(final_state.get("node_timings", []))
 
     requirements = final_state.get("requirements", [])
 

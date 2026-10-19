@@ -25,11 +25,14 @@ class ExtractionState(TypedDict, total=False):
     # Input
     raw_input: str
     project_name: str | None
+    # Re-split with reviewer feedback: the statements to revise and what to change.
+    feedback: str | None
+    previous_requirements: List[RequirementStatement]
 
-    # FR4g output
+    # output
     requirements: List[RequirementStatement]
 
-    # FR4a-f outputs
+    # outputs
     actors: List[Actor]
     entities: List[Entity]
     processes: List[Process]
@@ -38,6 +41,6 @@ class ExtractionState(TypedDict, total=False):
     interactions: List[Interaction]
     relationships: List[Relationship]
 
-    # Observability (X11 / TE4), accumulated across parallel branches
+    # Observability, accumulated across parallel branches
     node_timings: Annotated[List[dict], operator.add]
     errors: Annotated[List[str], operator.add]
