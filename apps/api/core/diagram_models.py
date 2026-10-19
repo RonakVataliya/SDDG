@@ -111,6 +111,17 @@ def sequence_elements(spec: dict, items_by_id: dict) -> List[dict]:
     return out
 
 
+def activity_elements(spec: dict, items_by_id: dict) -> List[dict]:
+    out = [element(lane.get("id"), "swimlane", lane.get("name"), lane.get("source_actor_ids"), items_by_id)
+           for lane in spec.get("lanes") or []]
+    for step in spec.get("steps") or []:
+        actions = [step["action"]] if step.get("action") else [
+            a for b in step.get("branches") or [] for a in b.get("actions") or []]
+        out += [element(a.get("id"), "action", a.get("label"), a.get("source_process_ids"), items_by_id)
+                for a in actions]
+    return out
+
+
 # ============================================================================
 # Diagram source -> Kroki engine (for PNG export)
 # ============================================================================
@@ -178,5 +189,11 @@ DIAGRAM_PIPELINES: Dict[str, DiagramPipeline] = {
         endpoint="sequence",
         fields=("actors", "processes", "entities", "interactions", "requirements"),
         elements=sequence_elements,
+    ),
+    "activity": DiagramPipeline(
+        label="Activity",
+        endpoint="activity",
+        fields=("actors", "processes", "interactions", "requirements"),
+        elements=activity_elements,
     ),
 }

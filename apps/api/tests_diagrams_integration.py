@@ -115,10 +115,29 @@ def fake_sequence(p):
     return spec, "@startuml\nactor Student\n@enduml", "place order"
 
 
+def fake_activity(p):
+    def act(aid, label, lane, source):
+        return {"id": aid, "label": label, "lane_id": lane, "source_process_ids": source}
+    spec = {
+        "system": p["system_name"],
+        "lanes": [{"id": "L-001", "name": "Student", "source_actor_ids": [first(p, "actors")]},
+                  {"id": "L-002", "name": "System", "source_actor_ids": []}],
+        "steps": [
+            {"kind": "action", "action": act("AC-001", "Place order", "L-001", [first(p, "processes")]),
+             "question": None, "branches": []},
+            {"kind": "decision", "action": None, "question": "In stock?", "branches": [
+                {"condition": "no", "actions": [act("AC-002", "Show error", "L-002", [])], "ends_flow": True},
+                {"condition": "yes", "actions": [], "ends_flow": False}]},
+        ],
+    }
+    return spec, "@startuml\nstart\n:Place order;\nstop\n@enduml", "Place order"
+
+
 FAKE_RESULTS = {
     "dfd": fake_dfd,
     "class": fake_class,
     "sequence": fake_sequence,
+    "activity": fake_activity,
 }
 
 USECASE = {
