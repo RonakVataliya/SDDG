@@ -305,6 +305,8 @@ async def extraction_worker(job_id, project_id, text, project_name):
         statement_map = {r["id"]: sid for r, sid in zip(raw, saved_ids) if "id" in r}
         db.replace_system_items(project_id, convert_extraction_to_items(result, statement_map))
         db.touch_project(project_id, clear_confirmation=True)
+        from routers.flags import detect
+        detect(project_id)  # quality flags; skipped if the checker is not reachable
         db.update_job(
             job_id,
             status="succeeded",
