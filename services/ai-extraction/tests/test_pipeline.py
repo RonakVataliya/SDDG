@@ -161,6 +161,57 @@ def _patch_ai(monkeypatch):
 REQUIREMENTS = [RequirementStatement(id="R-001", text="The user shall log in.")]
 
 
+def test_use_case_run_skips_split_and_unneeded_nodes(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["use_case"])
+
+    assert sorted(c[0] for c in calls) == ["extract_actors", "extract_interactions", "extract_processes"]
+    assert result.actors and result.processes and result.interactions
+    assert not result.entities and not result.data_flows and not result.relationships
+    assert result.metadata.nodes_run == ["actors", "interactions", "processes"]
+
+
+def test_class_run_extracts_entities_before_relationships(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["class"])
+
+    assert [c[0] for c in calls] == ["extract_entities", "extract_relationships"]
+    assert result.entities and result.relationships and not result.actors
+
+
+def test_adding_a_diagram_only_runs_the_missing_nodes(monkeypatch):
+    from app.schemas.elements import Actor, Process
+    from app.schemas.results import KnownElements
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    known = KnownElements(actors=[Actor(id="A-001", name="User")], processes=[Process(id="P-001", name="Login")])
+    result = run_extraction_pipeline(
+        requirements=REQUIREMENTS,
+        diagram_types=["use_case", "sequence"],
+        done_nodes=["actors", "processes", "interactions"],
+        known=known,
+    )
+
+    assert [c[0] for c in calls] == ["extract_entities"]
+    assert result.entities and not result.actors and not result.interactions
+    assert result.metadata.nodes_needed == ["actors", "entities", "interactions", "processes"]
+
+
+def test_nothing_new_to_extract_makes_no_ai_calls(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["activity"], done_nodes=["processes"])
+
+    assert calls == [] and result.metadata.nodes_run == []
+
+
+
 def test_split_alone_and_with_feedback(monkeypatch):
     from app.services.extraction_service import run_split
 

@@ -28,6 +28,8 @@ class ExtractionState(TypedDict, total=False):
     # Re-split with reviewer feedback: the statements to revise and what to change.
     feedback: str | None
     previous_requirements: List[RequirementStatement]
+    # Nodes this run is for (including ones extracted earlier); merge only suggests what applies to them.
+    active_nodes: List[str]
 
     # output
     requirements: List[RequirementStatement]

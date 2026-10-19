@@ -32,16 +32,22 @@ async def split(request: SplitRequest) -> SplitResult:
 @router.post("/extract", response_model=ExtractionResult)
 async def extract(request: ExtractionRequest) -> ExtractionResult:
     """
-    Runs the full split -> extract -> merge pipeline (X10) over raw
-    requirements/SRS text and returns every extracted design element plus
-    timing metadata. Stateless: nothing is persisted server-side.
+    Runs the split -> extract -> merge pipeline over raw text, or just the extract -> merge nodes the given
+    `diagram_types` need over already-split `requirements`. Nodes in `done_nodes` are skipped. Stateless:
+    nothing is persisted server-side.
     """
     try:
         # The LangGraph pipeline does synchronous, blocking LLM calls, so
         # run it off the event loop to keep the API responsive under
         # concurrent requests.
         result = await run_in_threadpool(
-            run_extraction_pipeline, request.text, request.project_name
+            run_extraction_pipeline,
+            request.text,
+            request.project_name,
+            requirements=request.requirements,
+            diagram_types=request.diagram_types,
+            done_nodes=request.done_nodes,
+            known=request.known,
         )
         return result
     except AIServiceError as exc:

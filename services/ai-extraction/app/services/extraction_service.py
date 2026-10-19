@@ -4,9 +4,11 @@ vs the configured target).
 
 Two entry points:
 - run_split: only the split node (with optional reviewer feedback), for the requirements review step.
-- run_extraction_pipeline: the full split -> extract -> merge pipeline.
+- run_extraction_pipeline: [split ->] the extract nodes the requested diagrams need -> merge. Nodes listed in
+  `done_nodes` are skipped and their elements come in through `known`.
 """
 from app.config import get_settings
+from app.graph.node_sets import NODE_FIELDS, nodes_for
 from app.graph.nodes.split import split_requirements
 from app.graph.pipeline import build_graph
 from app.graph.state import ExtractionState
@@ -15,6 +17,7 @@ from app.schemas.requirements import RequirementStatement
 from app.schemas.results import (
     ExtractionMetadata,
     ExtractionResult,
+    KnownElements,
     NodeTiming,
     SplitMetadata,
     SplitResult,
@@ -60,36 +63,57 @@ def run_split(
     )
 
 
-def run_extraction_pipeline(text: str, project_name: str | None = None) -> ExtractionResult:
+def run_extraction_pipeline(
+    text: str | None = None,
+    project_name: str | None = None,
+    *,
+    requirements: list[RequirementStatement] | None = None,
+    diagram_types: list[str] | None = None,
+    done_nodes: list[str] | tuple[str, ...] = (),
+    known: KnownElements | None = None,
+) -> ExtractionResult:
     settings = get_settings()
-    graph = build_graph()
-
     tracker = TimingTracker()
 
-    initial_state: ExtractionState = {
-        "raw_input": text,
+    needed = nodes_for(diagram_types)
+    to_run = needed - set(done_nodes)
+    with_split = requirements is None
+
+    state: ExtractionState = {
+        "raw_input": text or "",
         "project_name": project_name,
         "node_timings": [],
-        "errors": [],
+        "active_nodes": sorted(needed),
     }
+    if requirements is not None:
+        state["requirements"] = list(requirements)
+    if known is not None:
+        state.update(
+            actors=known.actors,
+            entities=known.entities,
+            processes=known.processes,
+            data_stores=known.data_stores,
+        )
 
-    final_state = graph.invoke(initial_state)
+    if with_split or to_run:
+        final_state = build_graph(frozenset(to_run), with_split).invoke(state)
+    else:  # everything asked for was extracted earlier: nothing to call
+        final_state = state
 
     total_duration = tracker.total_duration_seconds
     met_target = total_duration <= settings.EXTRACTION_TIMING_TARGET_SECONDS
-
-    node_timings = _timings(final_state.get("node_timings", []))
-
     requirements = final_state.get("requirements", [])
 
     metadata = ExtractionMetadata(
         model_used=settings.active_model,
         requirement_count=len(requirements),
-        node_timings=node_timings,
+        node_timings=_timings(final_state.get("node_timings", [])),
         total_duration_seconds=total_duration,
         timing_target_seconds=settings.EXTRACTION_TIMING_TARGET_SECONDS,
         met_timing_target=met_target,
         project_name=project_name,
+        nodes_run=sorted(to_run),
+        nodes_needed=sorted(needed),
     )
 
     if not met_target:
@@ -99,20 +123,17 @@ def run_extraction_pipeline(text: str, project_name: str | None = None) -> Extra
             settings.EXTRACTION_TIMING_TARGET_SECONDS,
         )
 
-    if final_state.get("errors"):
+    errors = final_state.get("errors", [])
+    if errors:
         logger.warning(
             "extraction_completed_with_validation_errors error_count=%d",
-            len(final_state["errors"]),
+            len(errors),
         )
 
+    # Only what this call extracted: elements passed in through `known` are not echoed back.
+    extracted = {field: final_state.get(field, []) for node in to_run for field in NODE_FIELDS[node]}
     return ExtractionResult(
         requirements=requirements,
-        actors=final_state.get("actors", []),
-        entities=final_state.get("entities", []),
-        processes=final_state.get("processes", []),
-        data_flows=final_state.get("data_flows", []),
-        data_stores=final_state.get("data_stores", []),
-        interactions=final_state.get("interactions", []),
-        relationships=final_state.get("relationships", []),
         metadata=metadata,
+        **extracted,
     )
