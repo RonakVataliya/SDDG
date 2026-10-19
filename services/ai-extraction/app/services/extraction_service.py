@@ -123,17 +123,20 @@ def run_extraction_pipeline(
             settings.EXTRACTION_TIMING_TARGET_SECONDS,
         )
 
-    errors = final_state.get("errors", [])
-    if errors:
+    issues = final_state.get("issues", [])
+    suggestions = final_state.get("suggestions", [])
+    if issues:
         logger.warning(
             "extraction_completed_with_validation_errors error_count=%d",
-            len(errors),
+            len(issues),
         )
 
     # Only what this call extracted: elements passed in through `known` are not echoed back.
     extracted = {field: final_state.get(field, []) for node in to_run for field in NODE_FIELDS[node]}
     return ExtractionResult(
         requirements=requirements,
+        issues=issues,
+        suggestions=suggestions,
         metadata=metadata,
         **extracted,
     )

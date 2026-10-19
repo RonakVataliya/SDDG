@@ -211,6 +211,14 @@ def test_nothing_new_to_extract_makes_no_ai_calls(monkeypatch):
     assert calls == [] and result.metadata.nodes_run == []
 
 
+def test_suggestions_only_cover_what_the_run_was_for(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["class"])
+
+    assert "name-an-actor" not in [s.id for s in result.suggestions]
+
 
 def test_split_alone_and_with_feedback(monkeypatch):
     from app.services.extraction_service import run_split

@@ -106,6 +106,22 @@ class ExtractionMetadata(BaseModel):
     nodes_needed: List[str] = Field(default_factory=list)
 
 
+class ExtractionIssue(BaseModel):
+    """A non-fatal consistency issue that must be reviewed before use."""
+
+    code: str
+    message: str
+    element_ids: List[str] = Field(default_factory=list)
+    requirement_ids: List[str] = Field(default_factory=list)
+
+
+class ExtractionSuggestion(BaseModel):
+    """An actionable hint for making an incomplete input more useful."""
+
+    id: str
+    message: str
+
+
 class ExtractionResult(BaseModel):
     requirements: List[RequirementStatement] = Field(default_factory=list)
     actors: List[Actor] = Field(default_factory=list)
@@ -115,6 +131,8 @@ class ExtractionResult(BaseModel):
     data_stores: List[DataStore] = Field(default_factory=list)
     interactions: List[Interaction] = Field(default_factory=list)
     relationships: List[Relationship] = Field(default_factory=list)
+    issues: List[ExtractionIssue] = Field(default_factory=list)
+    suggestions: List[ExtractionSuggestion] = Field(default_factory=list)
     metadata: ExtractionMetadata
 
     def element_index(self) -> Dict[str, str]:
