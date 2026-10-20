@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.logging_config import configure_logging, get_logger
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
+from app.routers.quality import router as quality_router
 from app.routers.usecase import router as usecase_router
 
 configure_logging()
@@ -42,6 +43,7 @@ app.add_middleware(
 
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(extraction_router, prefix=settings.API_V1_PREFIX)
+app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
 app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
 
 
