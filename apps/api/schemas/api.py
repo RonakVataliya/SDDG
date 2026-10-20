@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 ItemCategory = Literal["actor", "entity", "process", "data_flow", "data_store", "interaction", "relationship"]
-DiagramType = Literal["use_case", "class", "activity", "sequence", "dfd", "component"]
+DiagramType = Literal["use_case", "class", "activity", "sequence", "dfd", "component", "state"]
 
 
 class ConsentCreate(BaseModel):
