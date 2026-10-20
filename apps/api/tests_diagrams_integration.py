@@ -133,11 +133,27 @@ def fake_activity(p):
     return spec, "@startuml\nstart\n:Place order;\nstop\n@enduml", "Place order"
 
 
+def fake_component(p):
+    spec = {
+        "system": p["system_name"],
+        "components": [
+            {"id": "CMP-001", "name": "Order Service", "kind": "component", "layer": "Application",
+             "provided_interfaces": ["IOrders"], "source_ids": [first(p, "processes")]},
+            {"id": "CMP-002", "name": "Orders DB", "kind": "database", "layer": "Data",
+             "provided_interfaces": [], "source_ids": [first(p, "data_stores")]},
+        ],
+        "dependencies": [{"id": "DEP-001", "source_id": "CMP-001", "target_id": "CMP-002", "interface": None,
+                          "label": "reads/writes", "source_ids": [first(p, "data_flows")]}],
+    }
+    return spec, "@startuml\ncomponent X\n@enduml", "Order Service"
+
+
 FAKE_RESULTS = {
     "dfd": fake_dfd,
     "class": fake_class,
     "sequence": fake_sequence,
     "activity": fake_activity,
+    "component": fake_component,
 }
 
 USECASE = {

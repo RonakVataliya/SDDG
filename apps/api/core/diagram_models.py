@@ -196,4 +196,14 @@ DIAGRAM_PIPELINES: Dict[str, DiagramPipeline] = {
         fields=("actors", "processes", "interactions", "requirements"),
         elements=activity_elements,
     ),
+    "component": DiagramPipeline(
+        label="Component",
+        endpoint="component",
+        fields=("actors", "processes", "entities", "data_stores", "interactions", "data_flows",
+                "relationships", "requirements"),
+        elements=flat_elements([
+            ("components", "component", "name", ["source_ids"]),
+            ("dependencies", "dependency", "label", ["source_ids"]),
+        ]),
+    ),
 }
