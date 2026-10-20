@@ -19,6 +19,7 @@ from app.routers.dfd import router as dfd_router
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
 from app.routers.sequence import router as sequence_router
+from app.routers.state import router as state_router
 from app.routers.usecase import router as usecase_router
 
 configure_logging()
@@ -34,7 +35,7 @@ app = FastAPI(
         "statements and extracts actors, entities, processes, data flows, "
         "data stores, interactions, and relationships for downstream "
         "diagram generation (DFD, use-case, sequence, activity, class, "
-        "component, flow)."
+        "component, state)."
     ),
 )
 
@@ -54,6 +55,7 @@ app.include_router(class_router, prefix=settings.API_V1_PREFIX)
 app.include_router(sequence_router, prefix=settings.API_V1_PREFIX)
 app.include_router(activity_router, prefix=settings.API_V1_PREFIX)
 app.include_router(component_router, prefix=settings.API_V1_PREFIX)
+app.include_router(state_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")

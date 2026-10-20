@@ -43,6 +43,7 @@ ENGINE_FOR_DIAGRAM: Dict[str, str] = {
     "sequence": PLANTUML,    # allowed: plantuml | mermaid   (graphviz has no lifelines)
     "activity": PLANTUML,    # allowed: plantuml | mermaid | graphviz
     "component": PLANTUML,   # allowed: plantuml | graphviz   (mermaid has no component diagram)
+    "state": PLANTUML,       # allowed: plantuml | mermaid | graphviz
 }
 # ------------------------------------------------------------------------------------
 

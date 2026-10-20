@@ -206,4 +206,14 @@ DIAGRAM_PIPELINES: Dict[str, DiagramPipeline] = {
             ("dependencies", "dependency", "label", ["source_ids"]),
         ]),
     ),
+    # "state" is not in the frontend's DIAGRAM_TYPES yet (apps/web/src/features/generate/diagram-types.ts).
+    "state": DiagramPipeline(
+        label="State",
+        endpoint="state",
+        fields=("entities", "processes", "actors", "interactions", "requirements"),
+        elements=flat_elements([
+            ("states", "state", "name", ["source_ids"]),
+            ("transitions", "transition", "event", ["source_ids"]),
+        ]),
+    ),
 }

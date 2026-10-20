@@ -148,12 +148,35 @@ def fake_component(p):
     return spec, "@startuml\ncomponent X\n@enduml", "Order Service"
 
 
+def fake_state(p):
+    spec = {
+        "system": p["system_name"],
+        "subject": "Order",
+        "states": [
+            {"id": "S-001", "name": "Initial", "kind": "initial", "parent_id": None, "entry_action": None,
+             "exit_action": None, "source_ids": []},
+            {"id": "S-002", "name": "Placed", "kind": "state", "parent_id": None, "entry_action": None,
+             "exit_action": None, "source_ids": [first(p, "entities")]},
+            {"id": "S-003", "name": "Done", "kind": "final", "parent_id": None, "entry_action": None,
+             "exit_action": None, "source_ids": []},
+        ],
+        "transitions": [
+            {"id": "T-001", "source_id": "S-001", "target_id": "S-002", "event": "place order", "guard": None,
+             "action": None, "source_ids": [first(p, "processes")]},
+            {"id": "T-002", "source_id": "S-002", "target_id": "S-003", "event": "collect", "guard": None,
+             "action": None, "source_ids": []},
+        ],
+    }
+    return spec, "@startuml\nstate Placed\n@enduml", "Placed"
+
+
 FAKE_RESULTS = {
     "dfd": fake_dfd,
     "class": fake_class,
     "sequence": fake_sequence,
     "activity": fake_activity,
     "component": fake_component,
+    "state": fake_state,
 }
 
 USECASE = {
