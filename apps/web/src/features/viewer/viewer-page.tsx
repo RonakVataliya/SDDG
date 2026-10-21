@@ -1,4 +1,5 @@
 import { ArrowUpIcon, DownloadIcon, MaximizeIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
+import { StylePanel } from './style-panel'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
@@ -12,6 +13,7 @@ import { typeLabel } from '@/features/generate/diagram-types'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
+
 
 const MAX_INSTRUCTION = 500
 
@@ -45,6 +47,7 @@ export function ViewerPage() {
   const revise = useReviseDiagram(project.id)
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
+  const [stylePreviewUrl, setStylePreviewUrl] = useState<string | null>(null)
   const threadRef = useRef<HTMLOListElement>(null)
 
   useEffect(() => {
@@ -118,11 +121,16 @@ export function ViewerPage() {
       )}
 
       <div className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
-        {src ? (
+        {stylePreviewUrl || src ? (
           <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
             <ZoomControls />
             <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
-              <img src={src} alt={`${diagram.title}, version ${index + 1}`} className="m-auto block h-full w-full object-contain p-4" draggable={false} />
+                           <img
+                src={stylePreviewUrl ?? src!}
+                alt={`${diagram.title}, version ${index + 1}${stylePreviewUrl ? ', style preview' : ''}`}
+                className="m-auto block h-full w-full object-contain p-4"
+                draggable={false}
+              />
             </TransformComponent>
           </TransformWrapper>
         ) : image.isError ? (
@@ -145,6 +153,12 @@ export function ViewerPage() {
         )}
         {src && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
       </div>
+              <StylePanel
+              key={diagram.id}
+  diagramId={diagram.id}
+  diagramType={diagram.type}
+  onPreviewChange={setStylePreviewUrl}
+/>
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (
         <ol ref={threadRef} aria-label="Changes to this diagram" aria-live="polite" className="mx-5 mt-3 max-h-48 space-y-2.5 overflow-y-auto pr-1 text-sm">
