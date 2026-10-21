@@ -20,6 +20,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from core import db
 from core.auth import User, get_current_user
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
+from core.styling import apply_style, style_for
 from schemas.api import (
     ConsentCreate,
     GenerationCreate,
@@ -741,24 +742,30 @@ async def export_diagram_png(
     format: str = "png",
     user: User = Depends(get_current_user),
 ):
-    """Renders and exports the diagram as a PNG image using Kroki.
-
-    The Kroki engine is read from the stored source itself (PlantUML, DOT or
-    Mermaid), so it stays correct even if ENGINE_FOR_DIAGRAM changes later."""
+    """Renders and exports the diagram as a PNG image using Kroki, drawn with its saved style (#38)."""
     diagram = require_diagram(diagram_id, user)
     if format != "png":
         raise HTTPException(422, "Only PNG export is supported.")
+    return await render_png(diagram, style_for(diagram["id"]))
+
+
+async def render_png(diagram, style):
+    """Draws a diagram as a PNG with Kroki, applying the style only to this drawing.
+
+    The Kroki engine is read from the stored source itself (PlantUML, DOT or
+    Mermaid), so it stays correct even if ENGINE_FOR_DIAGRAM changes later."""
     if not diagram["plantuml_source"]:
         raise HTTPException(
             409,
             "This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting PNG.",
         )
     engine = kroki_engine_for_source(diagram["plantuml_source"])
+    source = apply_style(diagram["plantuml_source"], engine, style, diagram["type"])
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 f"{KROKI_URL}/{engine}/png",
-                content=diagram["plantuml_source"].encode("utf-8"),
+                content=source.encode("utf-8"),
                 headers={"Content-Type": "text/plain"},
             )
             response.raise_for_status()

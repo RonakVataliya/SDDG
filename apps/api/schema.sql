@@ -43,3 +43,6 @@ ALTER TABLE statements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE diagrams ENABLE ROW LEVEL SECURITY;
+
+-- Diagram look chosen by the user (#38): JSON, see core/styling.py. NULL = inherit from parent_id, else default.
+ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS style text;
