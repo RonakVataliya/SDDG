@@ -1,8 +1,9 @@
 /** MOCK ONLY. MSW handlers for the FE draft contract (src/api/openapi.draft.yaml). Delete once H3 is live. */
 import { delay, http, HttpResponse, type HttpResponseResolver } from 'msw'
 import { AI_SECTION_VERSION } from '@/features/privacy/policy'
+import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, projectView, publicJob, save, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, projectView, publicJob, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { applyInstruction } from './edit'
 import { renderUseCase } from './render'
 
@@ -249,6 +250,7 @@ export const handlers = [
         instruction: text,
         model: result.model,
         svg: renderUseCase(result.model),
+        style: undefined, // #38: inherits the look from the version it came from
       }
       getDb().diagrams.push(row)
       touch(d.project_id)
@@ -261,10 +263,64 @@ export const handlers = [
     authed(async ({ email, params }) => {
       const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
       if (!d || !ownedProject(email, d.project_id)) return notFound()
-      return new HttpResponse(await svgToPng(d.svg), { headers: { 'Content-Type': 'image/png' } })
+      return png(await svgToPng(styledSvg(d, styleFor(d))))
+    }),
+  ),
+
+  /* ---------- visual customisation (#38) ---------- */
+
+  http.get(
+    u('/diagrams/:diagram_id/style'),
+    authed(({ email, params }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      return HttpResponse.json(styleFor(d))
+    }),
+  ),
+  http.put(
+    u('/diagrams/:diagram_id/style'),
+    authed(async ({ email, params, request }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      const style = await readStyle(request)
+      if (typeof style === 'string') return fail(422, style)
+      d.style = style // drawing only: the model, and so the diagram's structure, is untouched
+      save()
+      return HttpResponse.json(style)
+    }),
+  ),
+  http.post(
+    u('/diagrams/:diagram_id/preview'),
+    authed(async ({ email, params, request }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      const style = await readStyle(request)
+      if (typeof style === 'string') return fail(422, style)
+      return png(await svgToPng(styledSvg(d, style)))
     }),
   ),
 ]
+
+const png = (blob: Blob) => new HttpResponse(blob, { headers: { 'Content-Type': 'image/png' } })
+
+/** The request's style with only the known fields, or the first problem with it in plain language. */
+async function readStyle(request: Request): Promise<DiagramStyle | string> {
+  const body = (await request.json().catch(() => null)) as Partial<DiagramStyle> | null
+  if (!body) return 'Send a style.'
+  const style: DiagramStyle = {
+    preset: body.preset ?? null,
+    background: body.background ?? '',
+    fill: body.fill ?? '',
+    text: body.text ?? '',
+    line: body.line ?? '',
+    direction: body.direction ?? 'auto',
+    font_size: body.font_size ?? NaN,
+  }
+  return styleProblems(style)[0] ?? style
+}
+
+/** Redraws from the model with the style; diagrams from before editing have no model and keep their stored drawing. */
+export const styledSvg = (d: DiagramRow, style: DiagramStyle) => (d.model ? renderUseCase(d.model, style) : d.svg)
 
 /** Stand-in for the backend's PNG export (FR18a): 2x scale, longest side capped at 8,000 px. */
 async function svgToPng(svg: string): Promise<Blob> {

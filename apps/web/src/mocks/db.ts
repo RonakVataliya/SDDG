@@ -1,5 +1,6 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
 import type { Diagram, ExtractedItem, Job, RequirementStatement } from '@/api/client'
+import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
 import { buildUseCaseModel, renderUseCase, type UseCaseModel } from './render'
@@ -14,7 +15,7 @@ type ProjectRow = {
 }
 type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
 /** The server keeps the model and drawing; the API only exposes the summary fields and the PNG. */
-export type DiagramRow = Diagram & { project_id: string; model?: UseCaseModel; svg: string }
+export type DiagramRow = Diagram & { project_id: string; model?: UseCaseModel; svg: string; style?: DiagramStyle }
 
 export type MockDb = {
   consent: Record<string, { version: string; at: string }>
@@ -172,6 +173,16 @@ export function createJob(projectId: string, kind: Job['kind'], extra: Partial<J
 
 export function publicJob({ project_id: _p, payload: _t, applied: _a, ...job }: JobRow): Job {
   return job
+}
+
+/** #38: a version's own style, else the nearest earlier version's, else the default. */
+export function styleFor(d: DiagramRow): DiagramStyle {
+  const seen = new Set<string>()
+  for (let v: DiagramRow | undefined = d; v && !seen.has(v.id); v = db.diagrams.find((x) => x.id === v!.parent_id)) {
+    if (v.style) return v.style
+    seen.add(v.id)
+  }
+  return DEFAULT_STYLE
 }
 
 export function diagramView(d: DiagramRow): Diagram {

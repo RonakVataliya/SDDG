@@ -138,11 +138,35 @@ paths:
   /diagrams/{diagram_id}/export:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
-      summary: The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px)
+      summary: The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px). Drawn with the diagram's saved style (#38).
       parameters:
         - { name: format, in: query, required: true, schema: { type: string, enum: [png] } }
       responses:
         '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+  /diagrams/{diagram_id}/style:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: The diagram's look (#38). A version with no saved style uses the nearest earlier version's, else the default.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } } }
+    put:
+      summary: Save the diagram's look. Only drawing changes; the diagram's elements and relationships never do, so no new version is made.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } }
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } } }
+        '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/preview:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post:
+      summary: Draw the diagram with a style that is not saved yet, for the live preview while customising (#38)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } }
+      responses:
+        '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+        '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -296,3 +320,18 @@ components:
       required: [instruction]
       properties:
         instruction: { type: string, minLength: 1, maxLength: 500 }
+    LayoutDirection:
+      type: string
+      enum: [auto, TB, LR]
+      description: auto keeps the direction the generator chose; TB is top to bottom, LR left to right
+    DiagramStyle:
+      type: object
+      required: [preset, background, fill, text, line, direction, font_size]
+      properties:
+        preset: { type: [string, 'null'], description: Preset the colours came from; null once a colour is edited by hand }
+        background: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Canvas }
+        fill: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Element boxes }
+        text: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: All labels }
+        line: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Borders and arrows }
+        direction: { $ref: '#/components/schemas/LayoutDirection' }
+        font_size: { type: integer, minimum: 8, maximum: 24, description: Points }
