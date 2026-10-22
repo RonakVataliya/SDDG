@@ -721,6 +721,7 @@ async def revise_diagram(
             processes,
             parent_id=diagram["id"],
             instruction=instruction,
+            layout=diagram.get("layout"),  # keep the user's positions
         )
     else:
         created = store_generated_diagram(
@@ -731,6 +732,7 @@ async def revise_diagram(
             load_ai_model(project_id, with_statements=False),
             parent_id=diagram["id"],
             instruction=instruction,
+            layout=diagram.get("layout"),  # keep the user's positions
         )
     return diagram_view(created)
 
