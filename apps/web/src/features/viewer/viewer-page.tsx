@@ -1,6 +1,6 @@
 import { ArrowUpIcon, DownloadIcon, MaximizeIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
-import { StylePanel } from '@/features/viewer/style-panel'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { StylePanel } from '@/features/viewer/style-panel'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
 import type { Diagram } from '@/api/client'
@@ -125,7 +125,7 @@ export function ViewerPage() {
           <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
             <ZoomControls />
             <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
-                           <img
+              <img
                 src={stylePreviewUrl ?? src!}
                 alt={`${diagram.title}, version ${index + 1}${stylePreviewUrl ? ', style preview' : ''}`}
                 className="m-auto block h-full w-full object-contain p-4"
@@ -153,7 +153,7 @@ export function ViewerPage() {
         )}
         {src && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
       </div>
-                      <StylePanel
+        <StylePanel
           key={diagram.id}
           diagramId={diagram.id}
           diagramType={diagram.type}

@@ -68,6 +68,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
   }, [preview.data, previewStyle, onPreviewChange])
 
   function changeColour(key: keyof StyleColours, value: string) {
+    setShowContrastConfirm(false)
     setDraft((current) => ({
       ...current,
       [key]: value,
@@ -321,7 +322,6 @@ function saveStyle() {
         <div
           className="mt-4 rounded-md border border-amber p-4"
           role="alertdialog"
-          aria-modal="true"
           aria-labelledby="contrast-confirm-title"
           aria-describedby="contrast-confirm-description"
         >
