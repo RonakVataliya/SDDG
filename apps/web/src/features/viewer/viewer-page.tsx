@@ -1,5 +1,5 @@
 import { ArrowUpIcon, DownloadIcon, MaximizeIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
-import { StylePanel } from './style-panel'
+import { StylePanel } from '@/features/viewer/style-panel'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
@@ -153,12 +153,12 @@ export function ViewerPage() {
         )}
         {src && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
       </div>
-              <StylePanel
-              key={diagram.id}
-  diagramId={diagram.id}
-  diagramType={diagram.type}
-  onPreviewChange={setStylePreviewUrl}
-/>
+                      <StylePanel
+          key={diagram.id}
+          diagramId={diagram.id}
+          diagramType={diagram.type}
+          onPreviewChange={setStylePreviewUrl}
+        />
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (
         <ol ref={threadRef} aria-label="Changes to this diagram" aria-live="polite" className="mx-5 mt-3 max-h-48 space-y-2.5 overflow-y-auto pr-1 text-sm">

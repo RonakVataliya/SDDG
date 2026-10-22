@@ -40,9 +40,8 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
   const save = useSaveDiagramStyle(diagramId)
 
   const [draft, setDraft] = useState<DiagramStyle>(DEFAULT_STYLE)
+  const [showContrastConfirm, setShowContrastConfirm] = useState(false)
   const [previewStyle, setPreviewStyle] = useState<DiagramStyle | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-
   const preview = useStylePreview(diagramId, previewStyle)
   const problems = styleProblems(draft)
   const contrastWarnings = lowContrastPairs(draft)
@@ -53,40 +52,47 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
     }
   }, [saved.data])
 
- useEffect(() => {
-  if (!previewStyle || !preview.data) {
-    setPreviewUrl(null)
-    onPreviewChange(null)
-    return
-  }
+   useEffect(() => {
+    if (!previewStyle || !preview.data) {
+      onPreviewChange(null)
+      return
+    }
 
-  const url = URL.createObjectURL(preview.data)
-  setPreviewUrl(url)
-  onPreviewChange(url)
+    const url = URL.createObjectURL(preview.data)
+    onPreviewChange(url)
 
-  return () => {
-    URL.revokeObjectURL(url)
-    onPreviewChange(null)
-  }
-}, [preview.data, previewStyle, onPreviewChange])
+    return () => {
+      URL.revokeObjectURL(url)
+      onPreviewChange(null)
+    }
+  }, [preview.data, previewStyle, onPreviewChange])
 
   function changeColour(key: keyof StyleColours, value: string) {
     setDraft((current) => ({
       ...current,
       [key]: value,
-      preset: 'custom',
+      preset: null,
     }))
   }
 
-  async function saveStyle() {
-    try {
-      const result = await save.mutateAsync(draft)
-      setDraft(result)
-      setPreviewStyle(null)
-    } catch {
-      // The mutation error is displayed below.
-    }
+  async function applyStyle() {
+  try {
+    const result = await save.mutateAsync(draft)
+    setDraft(result)
+    setPreviewStyle(null)
+  } catch {
+    // The mutation error is displayed below.
   }
+}
+
+function saveStyle() {
+  if (contrastWarnings.length > 0) {
+    setShowContrastConfirm(true)
+    return
+  }
+
+  void applyStyle()
+}
 
   if (saved.isPending) {
     return (
@@ -250,7 +256,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
       )}
 
       {contrastWarnings.length > 0 && (
-        <div className="mt-4 rounded-md border border-amber-500 p-3">
+        <div className="mt-4 rounded-md border border-amber p-3">
           <p className="text-sm font-semibold text-ink">
             Contrast warning
           </p>
@@ -292,7 +298,6 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
   variant="ghost"
   onClick={() => {
     setPreviewStyle(null)
-    setPreviewUrl(null)
     onPreviewChange(null)
   }}
 >
@@ -312,21 +317,42 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
           Save failed: {errorMessage(save.error)}
         </p>
       )}
-
-      {previewUrl && previewStyle && (
-        <div className="mt-5">
-          <h3 className="mb-2 text-sm font-semibold text-ink">
-            Preview image
+            {showContrastConfirm && (
+        <div
+          className="mt-4 rounded-md border border-amber p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="contrast-confirm-title"
+          aria-describedby="contrast-confirm-description"
+        >
+          <h3 id="contrast-confirm-title" className="font-semibold text-ink">
+            Low contrast warning
           </h3>
-          <div className="overflow-hidden rounded-md border border-rule bg-white p-2">
-            <img
-              src={previewUrl}
-              alt="Preview of the diagram with your unsaved style"
-              className="mx-auto max-h-96 w-full object-contain"
-            />
+          <p id="contrast-confirm-description" className="mt-2 text-sm text-slate">
+            Text might be hard to read. Apply anyway?
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowContrastConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setShowContrastConfirm(false)
+                void applyStyle()
+              }}
+              disabled={save.isPending}
+            >
+              Apply anyway
+            </Button>
           </div>
         </div>
       )}
-    </section>
-  )
+
+            </section>
+    )
 }
