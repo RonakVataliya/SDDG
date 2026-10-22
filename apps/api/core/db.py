@@ -13,7 +13,7 @@ pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec")
+JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout")
 
 
 def now():
@@ -245,12 +245,13 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None):
+                   parent_id=None, instruction=None, spec=None, layout=None):
     return one(
         "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-        "plantuml_source, parent_id, instruction, spec) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
         uid("dg"), pid, dtype, title, now(), svg, json.dumps(elements), json.dumps(statement_ids),
         plantuml_source, parent_id, instruction, json.dumps(spec) if spec is not None else None,
+        json.dumps(layout) if layout else None,
     )
 
 
