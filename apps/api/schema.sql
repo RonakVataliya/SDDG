@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS diagrams (
   svg text NOT NULL, elements text NOT NULL, statement_ids text NOT NULL,
   plantuml_source text, parent_id text, instruction text, spec text);
 CREATE INDEX IF NOT EXISTS diagrams_project_idx ON diagrams (project_id);
+ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS layout text;  -- element positions {id: [x, y]} (issue #37)
 
 -- Insertion order for statements/items (Postgres has no rowid; ids are random).
 ALTER TABLE statements ADD COLUMN IF NOT EXISTS seq bigint GENERATED ALWAYS AS IDENTITY;
