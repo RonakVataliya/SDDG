@@ -715,6 +715,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/diagrams/{diagram_id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: components["parameters"]["DiagramId"];
+            };
+            cookie?: never;
+        };
+        /** Element positions and the lines between them, for moving elements by hand (#37). Positions are element centres. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiagramLayout"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Save moved elements. Returns the new version; the one it came from is kept. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LayoutUpdate"];
+                };
+            };
+            responses: {
+                /** @description New version */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Diagram"];
+                    };
+                };
+                /** @description Not an element of this diagram */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -857,6 +932,43 @@ export interface components {
         Diagram: components["schemas"]["DiagramSummary"];
         RevisionCreate: {
             instruction: string;
+        };
+        Point: {
+            x: number;
+            y: number;
+        };
+        LayoutElement: {
+            id: string;
+            /** @description e.g. actor, use_case, class, process, start, decision */
+            kind: string;
+            label: string;
+            /** @description Centre of the element */
+            x: number;
+            /** @description Centre of the element */
+            y: number;
+        };
+        LayoutLine: {
+            id: string;
+            /** @description e.g. association, include, extend, message, data_flow, flow, or a class relation type */
+            kind: string;
+            /** @description Element id the line starts at */
+            source: string;
+            /** @description Element id the line ends at */
+            target: string;
+        };
+        DiagramLayout: {
+            diagram_id: string;
+            type: components["schemas"]["DiagramType"];
+            /** @description True when this version has positions moved by hand; false means the default grid */
+            saved: boolean;
+            elements: components["schemas"]["LayoutElement"][];
+            lines: components["schemas"]["LayoutLine"][];
+        };
+        LayoutUpdate: {
+            /** @description Only the elements that moved */
+            positions: {
+                [key: string]: components["schemas"]["Point"];
+            };
         };
     };
     responses: never;

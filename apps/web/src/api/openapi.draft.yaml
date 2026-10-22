@@ -143,6 +143,20 @@ paths:
         - { name: format, in: query, required: true, schema: { type: string, enum: [png] } }
       responses:
         '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+  /diagrams/{diagram_id}/layout:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: Element positions and the lines between them, for moving elements by hand (#37). Positions are element centres.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramLayout' } } } }
+    post:
+      summary: Save moved elements. Returns the new version; the one it came from is kept.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LayoutUpdate' } } }
+      responses:
+        '201': { description: New version, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+        '422': { description: Not an element of this diagram, or a position is not a number, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -296,3 +310,40 @@ components:
       required: [instruction]
       properties:
         instruction: { type: string, minLength: 1, maxLength: 500 }
+    Point:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+    LayoutElement:
+      type: object
+      required: [id, kind, label, x, y]
+      properties:
+        id: { type: string }
+        kind: { type: string, description: 'e.g. actor, use_case, class, process, start, decision' }
+        label: { type: string }
+        x: { type: number, description: Centre of the element }
+        y: { type: number, description: Centre of the element }
+    LayoutLine:
+      type: object
+      required: [id, kind, source, target]
+      properties:
+        id: { type: string }
+        kind: { type: string, description: 'e.g. association, include, extend, message, data_flow, flow, or a class relation type' }
+        source: { type: string, description: Element id the line starts at }
+        target: { type: string, description: Element id the line ends at }
+    DiagramLayout:
+      type: object
+      required: [diagram_id, type, saved, elements, lines]
+      properties:
+        diagram_id: { type: string }
+        type: { $ref: '#/components/schemas/DiagramType' }
+        saved: { type: boolean, description: True when this version has positions moved by hand; false means the default grid }
+        elements: { type: array, items: { $ref: '#/components/schemas/LayoutElement' } }
+        lines: { type: array, items: { $ref: '#/components/schemas/LayoutLine' } }
+    LayoutUpdate:
+      type: object
+      required: [positions]
+      properties:
+        positions: { type: object, description: Only the elements that moved, by element id, additionalProperties: { $ref: '#/components/schemas/Point' } }

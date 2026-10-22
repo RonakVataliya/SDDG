@@ -14,7 +14,13 @@ type ProjectRow = {
 }
 type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
 /** The server keeps the model and drawing; the API only exposes the summary fields and the PNG. */
-export type DiagramRow = Diagram & { project_id: string; model?: UseCaseModel; svg: string }
+export type DiagramRow = Diagram & {
+  project_id: string
+  model?: UseCaseModel
+  svg: string
+  /** Positions moved by hand (#37), element id → centre [x, y]. Like the backend, the PNG export ignores them. */
+  layout?: Record<string, [number, number]>
+}
 
 export type MockDb = {
   consent: Record<string, { version: string; at: string }>

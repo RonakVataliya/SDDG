@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, unwrap, type DiagramType, type ItemCategory, type Job } from './client'
+import { api, unwrap, type DiagramType, type ItemCategory, type Job, type Point } from './client'
 
 export const keys = {
   projects: ['projects'] as const,
@@ -11,6 +11,7 @@ export const keys = {
   diagrams: (id: string) => ['projects', id, 'diagrams'] as const,
   diagram: (id: string) => ['diagrams', id] as const,
   diagramImage: (id: string) => ['diagrams', id, 'png'] as const,
+  diagramLayout: (id: string) => ['diagrams', id, 'layout'] as const,
   job: (id: string) => ['jobs', id] as const,
   consent: ['me', 'consent'] as const,
 }
@@ -183,6 +184,34 @@ export function useReviseDiagram(projectId: string) {
         api.POST('/diagrams/{diagram_id}/revisions', {
           params: { path: { diagram_id: diagramId } },
           body: { instruction },
+        }),
+      ),
+    onSuccess: (diagram) => {
+      qc.setQueryData(keys.diagram(diagram.id), diagram)
+      void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+    },
+  })
+}
+
+/** #37: element positions (centres) and the lines between them, for drawing the diagram in the browser. */
+export function useDiagramLayout(diagramId: string) {
+  return useQuery({
+    queryKey: keys.diagramLayout(diagramId),
+    queryFn: () => unwrap(api.GET('/diagrams/{diagram_id}/layout', { params: { path: { diagram_id: diagramId } } })),
+    staleTime: Infinity, // positions belong to a version; moving elements creates a new one
+  })
+}
+
+/** Saves moved elements. Like an edit, the server returns a new version and keeps the one it came from. */
+export function useSaveLayout(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ diagramId, positions }: { diagramId: string; positions: Record<string, Point> }) =>
+      unwrap(
+        api.POST('/diagrams/{diagram_id}/layout', {
+          params: { path: { diagram_id: diagramId } },
+          body: { positions },
         }),
       ),
     onSuccess: (diagram) => {

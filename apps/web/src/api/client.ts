@@ -13,6 +13,10 @@ export type ItemCategory = Schemas['ItemCategory']
 export type RequirementStatement = Schemas['RequirementStatement']
 export type Diagram = Schemas['Diagram']
 export type DiagramType = Schemas['DiagramType']
+export type DiagramLayout = Schemas['DiagramLayout']
+export type LayoutElement = Schemas['LayoutElement']
+export type LayoutLine = Schemas['LayoutLine']
+export type Point = Schemas['Point']
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {
