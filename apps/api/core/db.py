@@ -26,8 +26,6 @@ def uid(prefix):
 
 def init_db():
     pool.open(wait=True)  # fail fast if the database is unreachable
-    with pool.connection() as c:
-        c.execute((Path(__file__).parent.parent / "schema.sql").read_text())
 
 
 def _decode(r):
