@@ -44,7 +44,7 @@ app.add_middleware(
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(extraction_router, prefix=settings.API_V1_PREFIX)
 app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
-app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
+app.include_router(quality_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")
