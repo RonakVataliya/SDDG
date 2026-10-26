@@ -28,6 +28,13 @@ CREATE TABLE IF NOT EXISTS diagrams (
   plantuml_source text, parent_id text, instruction text, spec text);
 CREATE INDEX IF NOT EXISTS diagrams_project_idx ON diagrams (project_id);
 ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS layout text;  -- element positions {id: [x, y]} (issue #37)
+-- Validation warnings the user accepted as-is (per diagram version, copied to edited versions).
+CREATE TABLE IF NOT EXISTS accepted_warnings (
+  diagram_id text NOT NULL REFERENCES diagrams ON DELETE CASCADE,
+  warning_id text NOT NULL,
+  accepted_by text NOT NULL, accepted_at timestamptz NOT NULL,
+  PRIMARY KEY (diagram_id, warning_id));
+ALTER TABLE accepted_warnings ENABLE ROW LEVEL SECURITY;
 
 -- Insertion order for statements/items (Postgres has no rowid; ids are random).
 ALTER TABLE statements ADD COLUMN IF NOT EXISTS seq bigint GENERATED ALWAYS AS IDENTITY;
