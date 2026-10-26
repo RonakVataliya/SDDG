@@ -246,13 +246,25 @@ def update_job(jid, **fields):
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
                    parent_id=None, instruction=None, spec=None, layout=None):
-    return one(
+    d = one(
         "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
         "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
         uid("dg"), pid, dtype, title, now(), svg, json.dumps(elements), json.dumps(statement_ids),
         plantuml_source, parent_id, instruction, json.dumps(spec) if spec is not None else None,
         json.dumps(layout) if layout else None,
     )
+    if parent_id:  # accepted warnings stay accepted on versions made from this one
+        run("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
+            "FROM accepted_warnings WHERE diagram_id=%s", d["id"], parent_id)
+    return d
+
+
+def accepted_warnings(did):
+    return {r["warning_id"]: r for r in many("SELECT * FROM accepted_warnings WHERE diagram_id=%s", did)}
+
+
+def accept_warning(did, warning_id, email):
+    run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
 
 
 def owned_diagram(did, user_id):
