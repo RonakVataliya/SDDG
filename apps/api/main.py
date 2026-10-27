@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from core import db  # noqa: E402
 from routers.layout import router as layout_router  # noqa: E402
+from routers.validation import router as validation_router  # noqa: E402
 from routers.integrated import router  # noqa: E402
 
 
@@ -29,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(layout_router, prefix="/api/v1")
+app.include_router(validation_router, prefix="/api/v1")
 app.include_router(router, prefix="/api/v1")
 
 
