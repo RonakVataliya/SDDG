@@ -11,9 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.logging_config import configure_logging, get_logger
+from app.rendering.engines import check_engine_config
+from app.routers.activity import router as activity_router
+from app.routers.class_diagram import router as class_router
+from app.routers.component import router as component_router
+from app.routers.dfd import router as dfd_router
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
+<<<<<<< HEAD
 from app.routers.quality import router as quality_router
+=======
+from app.routers.sequence import router as sequence_router
+from app.routers.state import router as state_router
+>>>>>>> origin/main
 from app.routers.usecase import router as usecase_router
 
 configure_logging()
@@ -29,7 +39,7 @@ app = FastAPI(
         "statements and extracts actors, entities, processes, data flows, "
         "data stores, interactions, and relationships for downstream "
         "diagram generation (DFD, use-case, sequence, activity, class, "
-        "component, flow)."
+        "component, state)."
     ),
 )
 
@@ -44,7 +54,16 @@ app.add_middleware(
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(extraction_router, prefix=settings.API_V1_PREFIX)
 app.include_router(usecase_router, prefix=settings.API_V1_PREFIX)
+<<<<<<< HEAD
 app.include_router(quality_router, prefix=settings.API_V1_PREFIX)
+=======
+app.include_router(dfd_router, prefix=settings.API_V1_PREFIX)
+app.include_router(class_router, prefix=settings.API_V1_PREFIX)
+app.include_router(sequence_router, prefix=settings.API_V1_PREFIX)
+app.include_router(activity_router, prefix=settings.API_V1_PREFIX)
+app.include_router(component_router, prefix=settings.API_V1_PREFIX)
+app.include_router(state_router, prefix=settings.API_V1_PREFIX)
+>>>>>>> origin/main
 
 
 @app.on_event("startup")
@@ -55,6 +74,9 @@ async def on_startup() -> None:
             "/extraction/extract will return 503 until it is configured.",
             settings.LLM_PROVIDER,
         )
+    # Logs one error per ENGINE_FOR_DIAGRAM entry that names an engine the
+    # diagram type has no generator for (app/rendering/engines.py).
+    check_engine_config()
     logger.info(
         "service_started environment=%s provider=%s model=%s",
         settings.ENVIRONMENT,

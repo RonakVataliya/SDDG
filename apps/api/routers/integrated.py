@@ -5,7 +5,8 @@ This module coordinates the complete lifecycle of diagram generation:
 2. Project creation and management
 3. Requirement text submission and AI extraction
 4. Extracted model items and human-in-the-loop review/confirmation
-5. Automated Use Case diagram generation via the AI service
+5. Automated diagram generation via the AI service: Use Case (original path)
+   plus every type registered in core/diagram_models.py (DFD, ...)
 6. Diagram revision requests and PNG export via Kroki
 """
 
@@ -18,6 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from core import db
 from core.auth import User, get_current_user
+from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
 from schemas.api import (
     ConsentCreate,
     GenerationCreate,
@@ -38,6 +40,11 @@ AI_URL = os.getenv("AI_SERVICE_URL", "http://127.0.0.1:8001/api/v1")
 KROKI_URL = os.getenv("KROKI_URL", "http://127.0.0.1:8080")
 POLICY_VERSION = os.getenv("AI_POLICY_VERSION", "2026-09-01")
 NOT_FOUND = "Not found, or you do not have access to it."
+
+# use_case keeps its original code path below; every other type is driven by
+# its DIAGRAM_PIPELINES entry (core/diagram_models.py).
+SUPPORTED_DIAGRAM_TYPES = ("use_case", *DIAGRAM_PIPELINES)
+TYPE_LABELS = {"use_case": "Use Case", **{t: p.label for t, p in DIAGRAM_PIPELINES.items()}}
 
 CATEGORY_FIELDS = [
     ("actor", "actors"),
@@ -238,6 +245,33 @@ def inject_element_ids_into_svg(svg, elements):
     return svg
 
 
+def load_ai_model(project_id, with_statements=True):
+    """Approved items (and statements) in the AI service's request shape."""
+    items = db.get_items(project_id)
+    statements = db.get_statements(project_id) if with_statements else []
+    return build_ai_model(items, statements)
+
+
+def store_generated_diagram(project_id, diagram_type, title, result, model, **extra):
+    """Stores a non-use-case diagram. Its source may be PlantUML, DOT or Mermaid
+    (see result["engine"]); it goes in the plantuml_source column, which export reads."""
+    spec = result["spec"]
+    elements = DIAGRAM_PIPELINES[diagram_type].elements(spec, model["items_by_id"])
+    svg = inject_element_ids_into_svg(result["svg"], [e for e in elements if e["label"].strip()])
+    refs = list(dict.fromkeys(r for e in elements for r in e["statement_ids"]))
+    return db.create_diagram(
+        project_id,
+        diagram_type,
+        title,
+        svg,
+        elements,
+        refs,
+        plantuml_source=result.get("source"),
+        spec=spec,
+        **extra,
+    )
+
+
 def store_diagram(project_id, title, result, actors, processes, **extra):
     """Stores a generated or revised diagram with extracted provenance elements and SVG markers."""
     spec = result["spec"]
@@ -320,20 +354,26 @@ async def extraction_worker(job_id, project_id, text, project_name):
         fail_job(job_id, f"Extraction failed: {e}")
 
 
-async def generation_worker(job_id, project_id, diagram_types):
-    """Background worker that generates Use Case diagram specs and SVGs via AI."""
-    try:
-        db.update_job(
-            job_id,
-            status="running",
-            queue_position=None,
-            started_at=db.now(),
-            progress_step=1,
-            progress_total=3,
-            progress_label="Building approved diagram model",
-        )
-        project = db.get_project(project_id)
-        items, actors, processes = approved_model(project_id)
+def ai_error_detail(exc):
+    """Short user-facing reason for a failed AI service call."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        try:
+            detail = exc.response.json().get("detail")
+            if isinstance(detail, str) and detail:
+                return detail
+        except Exception:
+            pass
+        return f"the AI service returned HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.TimeoutException):
+        return "the AI service timed out"
+    if isinstance(exc, httpx.TransportError):
+        return "the AI service is unreachable"
+    return str(exc) or type(exc).__name__
+
+
+async def generate_one(client, project, diagram_type, items, actors, processes, model):
+    """Generates, renders and stores one diagram; returns the stored row."""
+    if diagram_type == "use_case":
         interactions = [
             {
                 "id": i["id"],
@@ -347,38 +387,91 @@ async def generation_worker(job_id, project_id, diagram_types):
             for i in items
             if i["category"] == "interaction" and i["source_item_id"] and i["target_item_id"]
         ]
-        db.update_job(
-            job_id,
-            progress_step=2,
-            progress_label="Generating and rendering Use Case diagram",
+        response = await client.post(
+            f"{AI_URL}/usecase/generate",
+            json={
+                "project_name": project["name"],
+                "system_name": project["name"],
+                "actors": actors,
+                "processes": processes,
+                "interactions": interactions,
+            },
         )
-        async with httpx.AsyncClient(timeout=180) as client:
-            response = await client.post(
-                f"{AI_URL}/usecase/generate",
-                json={
-                    "project_name": project["name"],
-                    "system_name": project["name"],
-                    "actors": actors,
-                    "processes": processes,
-                    "interactions": interactions,
-                },
-            )
-            response.raise_for_status()
-            result = response.json()
+        response.raise_for_status()
+        return store_diagram(project["id"], f"{project['name']} · Use Case", response.json(), actors, processes)
 
-        diagram = store_diagram(project_id, f"{project['name']} · Use Case", result, actors, processes)
+    pipeline = DIAGRAM_PIPELINES[diagram_type]
+    response = await client.post(
+        f"{AI_URL}/{pipeline.endpoint}/generate", json=pipeline.payload(project, model)
+    )
+    response.raise_for_status()
+    return store_generated_diagram(
+        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", response.json(), model
+    )
+
+
+async def generation_worker(job_id, project_id, diagram_types):
+    """Background worker: generates each requested diagram type in turn.
+
+    Types are generated sequentially (kinder to LLM rate limits). If some fail,
+    the others are still saved and the job fails with a message naming both.
+    """
+    total = len(diagram_types) + 2
+    try:
         db.update_job(
             job_id,
-            status="succeeded",
+            status="running",
             queue_position=None,
-            progress_step=3,
-            progress_total=3,
-            progress_label="Diagram ready",
-            diagram_ids=[diagram["id"]],
-            finished_at=db.now(),
+            started_at=db.now(),
+            progress_step=1,
+            progress_total=total,
+            progress_label="Building approved diagram model",
         )
+        project = db.get_project(project_id)
+        items, actors, processes = approved_model(project_id)
+        model = build_ai_model(items, db.get_statements(project_id))
     except Exception as e:
         fail_job(job_id, f"Generation failed: {e}")
+        return
+
+    saved, failures = [], []
+    async with httpx.AsyncClient(timeout=180) as client:
+        for step, diagram_type in enumerate(diagram_types, start=2):
+            label = TYPE_LABELS.get(diagram_type, diagram_type)
+            db.update_job(job_id, progress_step=step, progress_label=f"Generating and rendering {label} diagram")
+            try:
+                diagram = await generate_one(client, project, diagram_type, items, actors, processes, model)
+                saved.append((label, diagram["id"]))
+            except Exception as e:
+                failures.append(f"{label} ({ai_error_detail(e)})")
+
+    diagram_ids = [diagram_id for _, diagram_id in saved]
+    if failures:
+        message = "Generation failed: " + "; ".join(failures)
+        if saved:
+            message += ". Saved: " + ", ".join(label for label, _ in saved)
+        db.update_job(
+            job_id,
+            status="failed",
+            queue_position=None,
+            error=message,
+            finished_at=db.now(),
+            progress_step=total,
+            progress_total=total,
+            progress_label="Generation failed",
+            diagram_ids=diagram_ids,
+        )
+        return
+    db.update_job(
+        job_id,
+        status="succeeded",
+        queue_position=None,
+        progress_step=total,
+        progress_total=total,
+        progress_label="Diagram ready" if len(diagram_ids) == 1 else "Diagrams ready",
+        diagram_ids=diagram_ids,
+        finished_at=db.now(),
+    )
 
 
 # ============================================================================
@@ -536,10 +629,13 @@ def generate_diagram(
     project = require_project(project_id, user)
     if not project["confirmed_at"]:
         raise HTTPException(409, "Confirm the extracted items before generating.")
-    if any(t != "use_case" for t in payload.diagram_types):
-        raise HTTPException(422, "Only the Use Case diagram is available in this version.")
-    job = db.create_job(project_id, "generation", 3, "Queued", diagram_types=["use_case"])
-    bg.add_task(generation_worker, job["id"], project_id, ["use_case"])
+    diagram_types = list(dict.fromkeys(payload.diagram_types))  # de-duplicate, keep order
+    unsupported = [t for t in diagram_types if t not in SUPPORTED_DIAGRAM_TYPES]
+    if unsupported:
+        names = ", ".join(TYPE_LABELS.get(t, t) for t in unsupported)
+        raise HTTPException(422, f"Not available in this version: {names}.")
+    job = db.create_job(project_id, "generation", len(diagram_types) + 2, "Queued", diagram_types=diagram_types)
+    bg.add_task(generation_worker, job["id"], project_id, diagram_types)
     return job
 
 
@@ -586,20 +682,27 @@ async def revise_diagram(
             "This diagram was made before editing was available. Generate it again, then edit it.",
         )
 
+    diagram_type = diagram["type"]
+    if diagram_type != "use_case" and diagram_type not in DIAGRAM_PIPELINES:
+        raise HTTPException(422, "Editing is not available for this diagram type.")
+
     project_id = diagram["project_id"]
     project = db.get_project(project_id)
     _, actors, processes = approved_model(project_id)
+    if diagram_type == "use_case":
+        url = f"{AI_URL}/usecase/revise"
+        body = {
+            "spec": diagram["spec"],
+            "instruction": instruction,
+            "system_name": project["name"],
+            "actor_names": {a["id"]: a["name"] for a in actors},
+        }
+    else:
+        url = f"{AI_URL}/{DIAGRAM_PIPELINES[diagram_type].endpoint}/revise"
+        body = {"spec": diagram["spec"], "instruction": instruction, "system_name": project["name"]}
     try:
         async with httpx.AsyncClient(timeout=180) as client:
-            response = await client.post(
-                f"{AI_URL}/usecase/revise",
-                json={
-                    "spec": diagram["spec"],
-                    "instruction": instruction,
-                    "system_name": project["name"],
-                    "actor_names": {a["id"]: a["name"] for a in actors},
-                },
-            )
+            response = await client.post(url, json=body)
             response.raise_for_status()
             result = response.json()
     except httpx.HTTPStatusError as exc:
@@ -611,15 +714,26 @@ async def revise_diagram(
     except Exception as exc:
         raise HTTPException(503, "AI revision service is not available.") from exc
 
-    created = store_diagram(
-        project_id,
-        diagram["title"],
-        result,
-        actors,
-        processes,
-        parent_id=diagram["id"],
-        instruction=instruction,
-    )
+    if diagram_type == "use_case":
+        created = store_diagram(
+            project_id,
+            diagram["title"],
+            result,
+            actors,
+            processes,
+            parent_id=diagram["id"],
+            instruction=instruction,
+        )
+    else:
+        created = store_generated_diagram(
+            project_id,
+            diagram_type,
+            diagram["title"],
+            result,
+            load_ai_model(project_id, with_statements=False),
+            parent_id=diagram["id"],
+            instruction=instruction,
+        )
     return diagram_view(created)
 
 
@@ -629,19 +743,23 @@ async def export_diagram_png(
     format: str = "png",
     user: User = Depends(get_current_user),
 ):
-    """Renders and exports the diagram as a PNG image using Kroki."""
+    """Renders and exports the diagram as a PNG image using Kroki.
+
+    The Kroki engine is read from the stored source itself (PlantUML, DOT or
+    Mermaid), so it stays correct even if ENGINE_FOR_DIAGRAM changes later."""
     diagram = require_diagram(diagram_id, user)
     if format != "png":
         raise HTTPException(422, "Only PNG export is supported.")
     if not diagram["plantuml_source"]:
         raise HTTPException(
             409,
-            "This diagram was created by an older build and has no stored PlantUML source. Regenerate the diagram before exporting PNG.",
+            "This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting PNG.",
         )
+    engine = kroki_engine_for_source(diagram["plantuml_source"])
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
-                f"{KROKI_URL}/plantuml/png",
+                f"{KROKI_URL}/{engine}/png",
                 content=diagram["plantuml_source"].encode("utf-8"),
                 headers={"Content-Type": "text/plain"},
             )
