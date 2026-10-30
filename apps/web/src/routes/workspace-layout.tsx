@@ -162,6 +162,9 @@ export function WorkspaceLayout() {
         </Link>
         <span className="text-sm text-rule-strong">/</span>
         <h1 className="truncate text-lg font-semibold tracking-tight">{project.name}</h1>
+        <Link to="search" className="ml-auto shrink-0 text-sm font-medium text-teal hover:underline">
+          Search
+        </Link>
       </div>
       {/* Three panels: steps | current step | generate. Below xl the generate panel drops under the current step. */}
       <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:h-[calc(100dvh-7.5rem)] xl:min-h-[34rem] xl:grid-cols-[15rem_minmax(0,1fr)_19rem]">
