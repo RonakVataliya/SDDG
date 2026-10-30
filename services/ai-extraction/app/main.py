@@ -20,6 +20,7 @@ from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
 from app.routers.sequence import router as sequence_router
 from app.routers.state import router as state_router
+from app.routers.quality import router as quality_router
 from app.routers.usecase import router as usecase_router
 
 configure_logging()
@@ -51,6 +52,7 @@ for router in (
     activity_router,
     component_router,
     state_router,
+    quality_router,
 ):
     app.include_router(router, prefix=settings.API_V1_PREFIX, dependencies=[Depends(require_internal_key)])
 

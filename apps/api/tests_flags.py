@@ -32,7 +32,7 @@ class FakeAI(FakeAIClient):
         return FakeResponse(EXTRACTION) if url.endswith("/extract") else await super().post(url, **kwargs)
 
 
-def fake_checker(url, json, timeout):
+def fake_checker(url, json, timeout, headers=None):
     """Answers like the real quality checker (app/services/quality_checker.py)."""
     out = []
     for r in json["requirements"]:

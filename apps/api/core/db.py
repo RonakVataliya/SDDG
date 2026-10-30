@@ -312,3 +312,41 @@ def list_diagrams(pid):
         "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
         pid,
     )
+
+
+def list_flags(pid, status=None):
+    sql = ("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
+           "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s")
+    if status:
+        return many(sql + " AND f.status=%s ORDER BY f.seq", pid, status)
+    return many(sql + " ORDER BY f.seq", pid)
+
+
+def get_flag(pid, fid):
+    return next((f for f in list_flags(pid) if f["id"] == fid), None)
+
+
+def save_flags(pid, flags, statement_ids):
+    """Replaces the open flags of these statements; an open flag found again is kept (with its answer)."""
+    with pool.connection() as c:
+        old = c.execute("SELECT * FROM flags WHERE project_id=%s AND statement_id = ANY(%s) AND status='open'",
+                        (pid, list(statement_ids))).fetchall()
+        kept = {(f["statement_id"], f["type"], f["reason"]): f["id"] for f in old}
+        for f in flags:
+            if kept.pop((f["statement_id"], f["type"], f["reason"]), None) is None:
+                c.execute("INSERT INTO flags(id, project_id, statement_id, type, reason, trigger_text, "
+                          "related_statement_id, question, suggested_fix, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                          (uid("fl"), pid, f["statement_id"], f["type"], f["reason"], f.get("trigger_text"),
+                           f.get("related_statement_id"), f.get("question"), f.get("suggested_fix"), now()))
+        if kept:  # no longer found -> fixed
+            c.execute("UPDATE flags SET status='resolved', resolved_by='re-analysis', resolved_at=%s WHERE id = ANY(%s)",
+                      (now(), list(kept.values())))
+
+
+def update_flag(pid, fid, **fields):
+    sets = ", ".join(f"{k}=%s" for k in fields)
+    run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
+
+
+def set_statement_text(sid, text):
+    run("UPDATE statements SET text=%s WHERE id=%s", text, sid)

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from core import db
 from core.auth import User, get_current_user
-from routers.integrated import NOT_FOUND, require_project
+from routers.integrated import AI_HEADERS, NOT_FOUND, require_project
 
 router = APIRouter()
 AI_URL = os.getenv("AI_SERVICE_URL", "http://127.0.0.1:8001/api/v1")
@@ -31,7 +31,7 @@ def detect(project_id, statement_ids=None):
     statements = db.get_statements(project_id)
     by_ref = {s["ref"]: s for s in statements}
     try:
-        r = httpx.post(f"{AI_URL}/quality/check", timeout=15,
+        r = httpx.post(f"{AI_URL}/quality/check", timeout=15, headers=AI_HEADERS,
                        json={"requirements": [{"id": s["ref"], "text": s["text"]} for s in statements]})
         r.raise_for_status()
     except httpx.HTTPError:
