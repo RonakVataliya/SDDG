@@ -205,3 +205,46 @@ def test_endpoint_empty_input(client):
     assert response.status_code == 200
     data = response.json()
     assert data["flags"] == [] and data["total_flags"] == 0
+
+
+# ---------------------------------------------------------------------------
+# trigger_text and suggested_fix (used by the backend's flags)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("text, trigger, fix", [
+    ("The system responds quickly.", "responds quickly", "The system responds within 2 seconds."),
+    ("Search must be fast.", "fast", "Search must respond within 2 seconds."),
+    ("Must send a reminder.", "Must", "The system must send a reminder."),
+    ("Someone can approve refunds.", "Someone", "An authorized user can approve refunds."),
+    ("The system must export logs, reports, etc.", "etc", "The system must export logs, reports."),
+    ("The system must export data including but not limited to logs.", "including but not limited to",
+     "The system must export data including logs."),
+    # needs a human decision: no rewrite is guessed
+    ("Can view reports.", "Can", None),
+    ("The UI must be user-friendly.", "user-friendly", None),
+    ("The system must have low latency.", "low latency", None),
+])
+def test_trigger_text_and_suggested_fix(text, trigger, fix):
+    flags = analyze_requirements([{"id": "R-001", "text": text}]).flags
+    assert flags and flags[0].trigger_text == trigger and flags[0].suggested_fix == fix
+
+
+def test_conflict_flags_carry_their_own_value_as_trigger():
+    flags = detect_conflict_pairs([{"id": "R-001", "text": "A loan lasts 14 days."},
+                                   {"id": "R-002", "text": "A loan lasts 21 days."}])
+    assert {f.requirement_id: f.trigger_text for f in flags} == {"R-001": "14 days", "R-002": "21 days"}
+    # each side can adopt the other's value; the user decides which one to apply
+    assert {f.requirement_id: f.suggested_fix for f in flags} == {"R-001": "A loan lasts 21 days.",
+                                                                   "R-002": "A loan lasts 14 days."}
+
+
+def test_contradictions_get_no_guessed_fix():
+    flags = detect_contradiction_pairs([{"id": "R-001", "text": "Admins must delete orders."},
+                                        {"id": "R-002", "text": "Admins must not delete orders."}])
+    assert flags and all(f.suggested_fix is None for f in flags)
+
+
+def test_endpoint_returns_new_fields(client):
+    r = client.post("/api/v1/quality/check", json={"requirements": [{"id": "R-001", "text": "Must send a reminder."}]})
+    assert r.status_code == 200
+    flag = r.json()["flags"][0]
+    assert flag["trigger_text"] == "Must" and flag["suggested_fix"] == "The system must send a reminder."
