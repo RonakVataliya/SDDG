@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.auth import User, get_current_user
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
+from core.quality import detect
 from schemas.api import (
     ConsentCreate,
     GenerationCreate,
@@ -358,8 +359,7 @@ async def extraction_worker(job_id, project_id, text, project_name):
         statement_map = {r["id"]: sid for r, sid in zip(raw, saved_ids) if "id" in r}
         db.add_system_items(project_id, convert_extraction_to_items(result, statement_map))
         db.touch_project(project_id, clear_confirmation=True)
-        from routers.flags import detect
-        detect(project_id)  # quality flags; skipped if the checker is not reachable
+        await asyncio.to_thread(detect, project_id)  # quality flags, off the event loop; never fails the job
         db.update_job(
             job_id,
             status="succeeded",

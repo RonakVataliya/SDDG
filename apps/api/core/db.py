@@ -323,24 +323,40 @@ def list_flags(pid, status=None):
 
 
 def get_flag(pid, fid):
-    return next((f for f in list_flags(pid) if f["id"] == fid), None)
+    return one("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
+               "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s AND f.id=%s", pid, fid)
 
 
 def save_flags(pid, flags, statement_ids):
-    """Replaces the open flags of these statements; an open flag found again is kept (with its answer)."""
+    """Stores the checker's flags for these statements, matched to earlier flags by (statement, type, reason).
+
+    - An open flag found again stays open (with its answer).
+    - A flag the user resolved is not added again, even though the checker still finds it.
+    - A flag closed by re-analysis that comes back is reopened instead of duplicated.
+    - An open flag that is no longer found is resolved by re-analysis.
+    """
     with pool.connection() as c:
-        old = c.execute("SELECT * FROM flags WHERE project_id=%s AND statement_id = ANY(%s) AND status='open'",
-                        (pid, list(statement_ids))).fetchall()
-        kept = {(f["statement_id"], f["type"], f["reason"]): f["id"] for f in old}
+        old = c.execute("SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
+                        "WHERE project_id=%s AND statement_id = ANY(%s)", (pid, list(statement_ids))).fetchall()
+        known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
+        found = set()
         for f in flags:
-            if kept.pop((f["statement_id"], f["type"], f["reason"]), None) is None:
+            key = (f["statement_id"], f["type"], f["reason"])
+            if key in found:
+                continue
+            found.add(key)
+            prev = known.get(key)
+            if prev is None:
                 c.execute("INSERT INTO flags(id, project_id, statement_id, type, reason, trigger_text, "
                           "related_statement_id, question, suggested_fix, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                           (uid("fl"), pid, f["statement_id"], f["type"], f["reason"], f.get("trigger_text"),
                            f.get("related_statement_id"), f.get("question"), f.get("suggested_fix"), now()))
-        if kept:  # no longer found -> fixed
+            elif prev["status"] == "resolved" and prev["resolved_by"] == "re-analysis":
+                c.execute("UPDATE flags SET status='open', resolved_by=NULL, resolved_at=NULL WHERE id=%s", (prev["id"],))
+        gone = [f["id"] for k, f in known.items() if f["status"] == "open" and k not in found]
+        if gone:  # no longer found -> fixed
             c.execute("UPDATE flags SET status='resolved', resolved_by='re-analysis', resolved_at=%s WHERE id = ANY(%s)",
-                      (now(), list(kept.values())))
+                      (now(), gone))
 
 
 def update_flag(pid, fid, **fields):
