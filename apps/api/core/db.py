@@ -1,4 +1,4 @@
-"""Supabase Postgres access. Schema: apps/api/schema.sql (applied at startup)."""
+"""Supabase Postgres access. Schema: apps/api/schema.sql (apply it to the database yourself; see README)."""
 import json
 import os
 from datetime import datetime, timezone
@@ -26,6 +26,7 @@ def uid(prefix):
 
 def init_db():
     pool.open(wait=True)  # fail fast if the database is unreachable
+    
 
 
 def _decode(r):
@@ -116,8 +117,11 @@ def set_consent(user_id, version):
 def insert_statements(pid, statements):
     """Store extracted statements; returns their new ids in order."""
     with pool.connection() as c:
+        # Lock the project row so two extractions finishing together cannot both pick the next R-number;
+        # numbering continues from the highest ref, so a ref is never reused.
+        c.execute("SELECT 1 FROM projects WHERE id=%s FOR UPDATE", (pid,))
         n = c.execute(
-            "SELECT count(*) AS n FROM statements WHERE project_id=%s",
+            "SELECT COALESCE(max(substring(ref from 3)::int), 0) AS n FROM statements WHERE project_id=%s",
             (pid,)
         ).fetchone()["n"]
 
@@ -168,23 +172,52 @@ def get_statements(pid):
     ]
 
 
-def replace_system_items(pid, items):
+def _item_key(i):
+    """Same category and name (case-insensitive); a relation also needs the same ends."""
+    key = (i["category"], (i["name"] or "").strip().lower())
+    return key + (i["source_item_id"], i["target_item_id"]) if i.get("source_item_id") or i.get("target_item_id") else key
+
+
+def add_system_items(pid, items):
+    """Adds one submission's extracted items to the project; items from earlier submissions stay.
+
+    An item the project already has (see _item_key) is not added again: it gains the new statement refs, and
+    relations that pointed at the duplicate point at the existing item instead."""
     with pool.connection() as c:
-        c.execute("DELETE FROM items WHERE project_id=%s AND origin='system-extracted'", (pid,))
+        existing = {_item_key(_decode(r)): r for r in c.execute(
+            "SELECT id, category, name, statement_ids, source_item_id, target_item_id FROM items WHERE project_id=%s",
+            (pid,),
+        ).fetchall()}
+        same, new = {}, []  # same: new item id -> existing item id
+        # Plain items before relations, so a relation's ends are already mapped to existing items.
+        for i in sorted(items, key=lambda i: bool(i.get("source_item_id") or i.get("target_item_id"))):
+            i = {**i, "statement_ids": list(i.get("statement_ids", [])),
+                 "source_item_id": same.get(i.get("source_item_id"), i.get("source_item_id")),
+                 "target_item_id": same.get(i.get("target_item_id"), i.get("target_item_id"))}
+            old = existing.get(_item_key(i))
+            if old is None:
+                existing[_item_key(i)] = i
+                new.append(i)
+                continue
+            same[i["id"]] = old["id"]
+            refs = list(dict.fromkeys(old["statement_ids"] + i["statement_ids"]))
+            if refs != old["statement_ids"]:
+                old["statement_ids"] = refs  # a duplicate within this batch is inserted below with these refs
+                c.execute("UPDATE items SET statement_ids=%s WHERE id=%s", (json.dumps(refs), old["id"]))
         with c.cursor() as cur:
             cur.executemany(
-            "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
-            "statement_ids, source_item_id, target_item_id, relation_type) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            [
-                (
-                    i["id"], pid, i["category"], i["name"], i.get("description"), "system-extracted",
-                    json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
-                    i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"),
-                )
-                for i in items
-            ],
-        )
+                "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
+                "statement_ids, source_item_id, target_item_id, relation_type) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                [
+                    (
+                        i["id"], pid, i["category"], i["name"], i.get("description"), "system-extracted",
+                        json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
+                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"),
+                    )
+                    for i in new
+                ],
+            )
 
 
 def _item(r):
@@ -210,6 +243,10 @@ def update_item(pid, iid, name, description):
 
 def _job(r):
     if r:
+        if r["status"] == "queued":  # place in the line of jobs waiting for a free slot (NFR9a)
+            r["queue_position"] = one(
+                "SELECT count(*) AS n FROM jobs WHERE status='queued' AND created_at <= %s", r["created_at"]
+            )["n"]
         r["progress"] = {"step": r.pop("progress_step"), "total": r.pop("progress_total"), "label": r.pop("progress_label")}
         r.pop("project_id")
     return r
@@ -221,6 +258,17 @@ def create_job(pid, kind, total, label, diagram_types=()):
         "progress_label, diagram_types, diagram_ids, created_at) VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s) RETURNING *",
         uid("job"), pid, kind, total, label, json.dumps(list(diagram_types)), now(),
     ))
+
+
+def fail_interrupted_jobs():
+    """Jobs run inside the API process, so one still queued or running at startup died with the previous process.
+    Fail it so the user can try again instead of watching a spinner forever. (During a zero-downtime deploy the
+    old process may still finish such a job; its final update then overwrites this.)"""
+    run(
+        "UPDATE jobs SET status='failed', queue_position=NULL, error=%s, progress_label='Interrupted', finished_at=%s "
+        "WHERE status IN ('queued', 'running')",
+        "Interrupted by a server restart. Try again.", now(),
+    )
 
 
 def owned_job(jid, user_id):
@@ -264,41 +312,3 @@ def list_diagrams(pid):
         "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
         pid,
     )
-
-
-def list_flags(pid, status=None):
-    sql = ("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
-           "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s")
-    if status:
-        return many(sql + " AND f.status=%s ORDER BY f.seq", pid, status)
-    return many(sql + " ORDER BY f.seq", pid)
-
-
-def get_flag(pid, fid):
-    return next((f for f in list_flags(pid) if f["id"] == fid), None)
-
-
-def save_flags(pid, flags, statement_ids):
-    """Replaces the open flags of these statements; an open flag found again is kept (with its answer)."""
-    with pool.connection() as c:
-        old = c.execute("SELECT * FROM flags WHERE project_id=%s AND statement_id = ANY(%s) AND status='open'",
-                        (pid, list(statement_ids))).fetchall()
-        kept = {(f["statement_id"], f["type"], f["reason"]): f["id"] for f in old}
-        for f in flags:
-            if kept.pop((f["statement_id"], f["type"], f["reason"]), None) is None:
-                c.execute("INSERT INTO flags(id, project_id, statement_id, type, reason, trigger_text, "
-                          "related_statement_id, question, suggested_fix, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                          (uid("fl"), pid, f["statement_id"], f["type"], f["reason"], f.get("trigger_text"),
-                           f.get("related_statement_id"), f.get("question"), f.get("suggested_fix"), now()))
-        if kept:  # no longer found -> fixed
-            c.execute("UPDATE flags SET status='resolved', resolved_by='re-analysis', resolved_at=%s WHERE id = ANY(%s)",
-                      (now(), list(kept.values())))
-
-
-def update_flag(pid, fid, **fields):
-    sets = ", ".join(f"{k}=%s" for k in fields)
-    run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
-
-
-def set_statement_text(sid, text):
-    run("UPDATE statements SET text=%s WHERE id=%s", text, sid)
