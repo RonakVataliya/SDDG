@@ -1,20 +1,27 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
 load_dotenv()  # must run before core.db / routers read their settings from the environment
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from core import db  # noqa: E402
 from routers.integrated import router  # noqa: E402
+from routers.flags import router as flags_router  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(_):
+    # Mock tokens let anyone sign in as any email; never allow them next to real Supabase auth.
+    if os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true" and os.getenv("SUPABASE_URL"):
+        raise RuntimeError("DEV_AUTH_BYPASS=true is for local development only; unset it when SUPABASE_URL is set.")
     db.init_db()
+    db.fail_interrupted_jobs()
     yield
     db.pool.close()
 
@@ -28,6 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router, prefix="/api/v1")
+app.include_router(flags_router, prefix="/api/v1")
 
 
 @app.get("/health")

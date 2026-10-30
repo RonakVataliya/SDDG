@@ -19,8 +19,12 @@ class ItemUpdate(BaseModel):
     description: str | None = None
 
 
+# 100 pages of 3000 characters, the same limit the web app shows (CHARS_PER_PAGE * MAX_PROJECT_PAGES).
+MAX_INPUT_CHARS = 300_000
+
+
 class InputCreate(BaseModel):
-    text: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=MAX_INPUT_CHARS)
 
 
 class GenerationCreate(BaseModel):

@@ -8,7 +8,6 @@ that imports it, should ever return the raw API key to a caller -- it is
 consumed server-side only when constructing the LLM client.
 """
 from functools import lru_cache
-from typing import List
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,7 +45,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = Field(default="", repr=False)
     GROQ_MODEL: str = "openai/gpt-oss-120b"
     GROQ_TEMPERATURE: float = 0.1
-    GROQ_MAX_OUTPUT_TOKENS: int = 8192
+    GROQ_MAX_OUTPUT_TOKENS: int = 16384  # gpt-oss counts its hidden reasoning here; 8192 cut long specs off
 
     # --- Retry hooks --------------------------------------------------
     MAX_RETRIES: int = 3
@@ -63,15 +62,19 @@ class Settings(BaseSettings):
     # --- Logging (metadata-only) ------------------------------------
     LOG_LEVEL: str = "INFO"
 
-    # --- CORS (so a frontend / gateway can call this later) ------------------
-    CORS_ORIGINS: str = "*"
+    # --- Caller authentication ----------------------------------------------
+    # Shared secret the backend sends as X-Internal-Key. Every endpoint except
+    # /health requires it; while it is empty they all answer 503, so a deploy
+    # that forgot it is closed, not open. Browsers never call this service
+    # (only the backend does), so there is no CORS.
+    INTERNAL_API_KEY: str = Field(default="", repr=False)
 
     # --- Kroki (diagram rendering) --------------------------------------------
     # Self-hosted Kroki container (docker-compose.yml at project root spins up
     # `core` + `mermaid`). No API key needed -- it's your own container.
     KROKI_BASE_URL: str = "http://localhost:8080"
     KROKI_ENGINE: str = "plantuml"
-    KROKI_TIMEOUT_SECONDS: float = 30.0
+    KROKI_TIMEOUT_SECONDS: float = 90.0  # a sleeping free-tier Kroki takes ~60 s to wake
 
     @field_validator("GOOGLE_API_KEY")
     @classmethod
@@ -79,12 +82,6 @@ class Settings(BaseSettings):
         # Intentionally does not raise: lets the app boot (e.g. for docs,
         # health checks, CI) even without a key configured yet.
         return v
-
-    @property
-    def cors_origins_list(self) -> List[str]:
-        if self.CORS_ORIGINS.strip() == "*":
-            return ["*"]
-        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     @property
     def has_api_key(self) -> bool:

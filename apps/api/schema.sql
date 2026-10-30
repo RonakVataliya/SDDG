@@ -43,3 +43,19 @@ ALTER TABLE statements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE diagrams ENABLE ROW LEVEL SECURITY;
+
+-- Requirement flags from the quality checker; explained and resolved by the user.
+CREATE TABLE IF NOT EXISTS flags (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  statement_id text NOT NULL REFERENCES statements ON DELETE CASCADE,
+  type text NOT NULL,                 -- ambiguous | incomplete | conflict
+  reason text NOT NULL,
+  trigger_text text,
+  related_statement_id text,          -- the other requirement of a conflict
+  question text, answer text, suggested_fix text,
+  status text NOT NULL DEFAULT 'open', -- open | resolved
+  resolved_by text, resolved_at timestamptz,
+  created_at timestamptz NOT NULL,
+  seq bigint GENERATED ALWAYS AS IDENTITY);
+ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
