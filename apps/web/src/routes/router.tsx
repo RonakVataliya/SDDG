@@ -7,6 +7,7 @@ import { InputPage } from '@/features/input/input-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
 import { ProjectsPage } from '@/features/projects/projects-page'
 import { ReviewPage } from '@/features/review/review-page'
+import { SearchPage } from '@/features/search/search-page'
 import { ViewerPage } from '@/features/viewer/viewer-page'
 import { AppLayout } from './app-layout'
 import { NotFoundPage } from './not-found-page'
@@ -34,6 +35,7 @@ export const routes = [
               { path: 'input', element: <InputPage /> },
               { path: 'review', element: <ReviewPage /> },
               { path: 'generate', element: <GeneratePage /> },
+              { path: 'search', element: <SearchPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },
             ],
           },
