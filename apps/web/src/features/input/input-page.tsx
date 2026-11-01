@@ -128,10 +128,14 @@ export function InputPage() {
           placeholder={'FR1: The librarian shall be able to register a new member.\nFR2: A member can search the catalogue by title.'}
           className="min-h-72 font-sans"
         />
-        <p id="requirements-count" className={overLimit ? 'text-sm text-danger' : 'text-xs text-slate tabular-nums'}>
-          {text.length.toLocaleString()} characters · counts as {pages} of {MAX_PROJECT_PAGES} pages
-          {overLimit && '. That is over the project limit; shorten the text.'}
-        </p>
+        {text.length > 0 && (
+          <p id="requirements-count" className={overLimit ? 'text-sm text-danger' : 'text-xs text-slate tabular-nums'}>
+            {text.length.toLocaleString()} characters · counts as {pages} of {MAX_PROJECT_PAGES} pages
+            {overLimit
+              ? '. That is over the project limit; shorten the text.'
+              : ` · ${MAX_PROJECT_PAGES - pages} ${MAX_PROJECT_PAGES - pages === 1 ? 'page' : 'pages'} remaining`}
+          </p>
+        )}
       </div>
 
       {submit.isError && !(submit.error instanceof ApiError && submit.error.code === 'consent_required') && (
