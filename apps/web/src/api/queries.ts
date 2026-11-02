@@ -1,5 +1,5 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, unwrap, type DiagramType, type ItemCategory, type Job } from './client'
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, unwrap, type Diagram, type DiagramType, type ItemCategory, type Job } from './client'
 
 export const keys = {
   projects: ['projects'] as const,
@@ -152,11 +152,24 @@ export function useDiagrams(projectId: string) {
   })
 }
 
+/** The single-diagram response also lists the labelled elements drawn in the diagram (used by search). */
+export type DiagramDetail = Diagram & { elements?: { label: string }[] }
+
+const fetchDiagram = (diagramId: string) =>
+  unwrap(api.GET('/diagrams/{diagram_id}', { params: { path: { diagram_id: diagramId } } })) as Promise<DiagramDetail>
+
 export function useDiagram(diagramId: string) {
   return useQuery({
     queryKey: keys.diagram(diagramId),
-    queryFn: () => unwrap(api.GET('/diagrams/{diagram_id}', { params: { path: { diagram_id: diagramId } } })),
+    queryFn: () => fetchDiagram(diagramId),
     staleTime: Infinity, // a version never changes; edits create a new one
+  })
+}
+
+/** Loads every given diagram (cached, same keys as useDiagram), in the same order. */
+export function useDiagramDetails(diagrams: Diagram[]) {
+  return useQueries({
+    queries: diagrams.map((d) => ({ queryKey: keys.diagram(d.id), queryFn: () => fetchDiagram(d.id), staleTime: Infinity })),
   })
 }
 

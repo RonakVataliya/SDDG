@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
+import { markExported } from '@/features/search/exported'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
@@ -88,6 +89,7 @@ export function ViewerPage() {
     if (!image.data) return
     const slug = diagram!.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     saveBlob(image.data, `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`)
+    markExported(diagram!.id)
   }
 
   return (
