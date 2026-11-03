@@ -21,3 +21,14 @@ def live_kroki() -> str:
     if not reachable:
         pytest.skip(f"Kroki is not reachable at {url}")
     return url
+
+
+@pytest.fixture(autouse=True)
+def _skip_internal_key():
+    """Endpoint tests exercise the routes, not the caller check; tests/test_internal_auth.py covers that."""
+    from app.internal_auth import require_internal_key
+    from app.main import app
+
+    app.dependency_overrides[require_internal_key] = lambda: None
+    yield
+    app.dependency_overrides.pop(require_internal_key, None)

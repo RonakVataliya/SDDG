@@ -107,7 +107,27 @@ class FakeAIClient:
         raise AssertionError(f'unexpected AI URL: {url}')
 
 
+def check_job_slots():
+    """NFR9a: a 6th job waits until one of the 5 running jobs finishes."""
+    running, peak = 0, 0
+
+    async def worker(_):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+
+    async def run_six():
+        integrated.JOB_SLOTS = asyncio.Semaphore(5)  # bound to this test's event loop
+        await asyncio.gather(*(integrated.queued(worker, n) for n in range(6)))
+
+    asyncio.run(run_six())
+    assert peak == 5, peak
+
+
 def main():
+    check_job_slots()
     original = integrated.httpx.AsyncClient
     integrated.httpx.AsyncClient = FakeAIClient
     try:
@@ -116,11 +136,16 @@ def main():
 
             assert client.get('/health').status_code == 200
 
-            assert client.post('/api/v1/me/consent', headers=headers,
-                               json={'policy_version': '2026-09-01'}).status_code == 201
             project = client.post('/api/v1/projects', headers=headers,
                                   json={'name': 'Integration'}).json()
             pid = project['id']
+            no_consent = client.post(f'/api/v1/projects/{pid}/inputs', headers=headers, json={'text': 'A user logs in.'})
+            assert no_consent.status_code == 403 and no_consent.json()['code'] == 'consent_required', no_consent.text
+            assert client.post('/api/v1/me/consent', headers=headers,
+                               json={'policy_version': '2026-09-01'}).status_code == 201
+            for bad_text in ('   \n ', 'x' * 300_001):  # blank, and over the 100-page limit
+                bad = client.post(f'/api/v1/projects/{pid}/inputs', headers=headers, json={'text': bad_text})
+                assert bad.status_code == 422, bad.text
             assert client.post(f'/api/v1/projects/{pid}/generations', headers=headers,
                                json={'diagram_types': ['use_case']}).status_code == 409  # not confirmed yet
 
@@ -138,6 +163,26 @@ def main():
             items = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
             categories = {item['category'] for item in items}
             assert {'actor', 'process', 'interaction'} <= categories
+            # A second submission adds to the model: nothing from the first is lost or duplicated, refs go on.
+            assert client.post(f'/api/v1/projects/{pid}/inputs', headers=headers,
+                               json={'text': 'Customer logs in.\nCustomer checks orders.'}).status_code == 202
+            again = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
+            assert sorted(i['id'] for i in again) == sorted(i['id'] for i in items), again
+            refs = [s['ref'] for s in client.get(f'/api/v1/projects/{pid}/statements', headers=headers).json()]
+            assert refs == ['R-001', 'R-002', 'R-003', 'R-004'], refs
+            customer = next(i for i in again if i['category'] == 'actor')
+            assert len(customer['statement_ids']) == 4, customer
+            blank_name = client.patch(f"/api/v1/projects/{pid}/items/{items[0]['id']}", headers=headers,
+                                      json={'name': '   ', 'description': None})
+            assert blank_name.status_code == 422, blank_name.text
+
+            # Waiting jobs report their place in line; jobs left over from a restart are failed.
+            first = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
+            second = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
+            positions = [client.get(f"/api/v1/jobs/{j['id']}", headers=headers).json()['queue_position'] for j in (first, second)]
+            assert positions[1] == positions[0] + 1, positions
+            db.fail_interrupted_jobs()
+            assert db.owned_job(second['id'], USER_ID)['status'] == 'failed'
 
             assert client.post(f'/api/v1/projects/{pid}/confirmation', headers=headers).status_code == 201
             # Generation is asynchronous at the API boundary; exercise the real worker directly.

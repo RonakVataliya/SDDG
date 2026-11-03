@@ -29,17 +29,67 @@ _POSITIVE_POLARITY_PATTERN = _compile_regex(r"\b(must allow|shall allow|allows|p
 _SCOPE_PATTERN = _compile_regex(r"\b(for mobile users|for desktop users|for web users|for guest users|for admin(s)?|for standard users|when online|when offline|in development|in production)\b")
 _ROLE_PATTERN = _compile_regex(r"\b(admin(istrator)?s?|standard users?|guests?|customers?|anonymous users?)\b")
 
-_AMBIGUITY_RULES: List[Tuple[re.Pattern, str, Optional[Callable[[str], bool]]]] = [
-    (_VAGUE_PERFORMANCE_PATTERN, "Vague performance wording: '{match}'. Specify measurable criteria (e.g. 'within 500 ms').", lambda text: not _MEASURABLE_METRIC_PATTERN.search(text)),
+# Suggested fixes: a full rewritten requirement, only where the rewrite is safe without guessing intent.
+_ADVERB_SPEED_PATTERN = _compile_regex(r"\b(quickly|promptly|rapidly|instantly|as quickly as possible|as fast as possible)\b")
+_DEFAULT_RESPONSE_TIME = "within 2 seconds"
+
+
+def _tidy(text: str) -> str:
+    """Collapses spaces and stray commas left behind by a removal."""
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s*,\s*([.?!])", r"\1", text)
+    text = re.sub(r"\s+([.,;?!])", r"\1", text)
+    return text.strip()
+
+
+_BE_FAST_PATTERN = _compile_regex(r"\b(be|is|are)\s+(fast|quick)\b")
+
+
+def _fix_vague_speed(text: str, match: re.Match) -> Optional[str]:
+    """'The system responds quickly.' -> 'The system responds within 2 seconds.';
+    'Search must be fast.' -> 'Search must respond within 2 seconds.' Other wordings ('real-time', 'low latency')
+    are left to the user."""
+    if _ADVERB_SPEED_PATTERN.search(text):
+        return _ADVERB_SPEED_PATTERN.sub(_DEFAULT_RESPONSE_TIME, text, count=1)
+    if _BE_FAST_PATTERN.search(text):
+        return _BE_FAST_PATTERN.sub(f"respond {_DEFAULT_RESPONSE_TIME}", text, count=1)
+    return None
+
+
+def _fix_hedge(text: str, match: re.Match) -> Optional[str]:
+    """Closes an open-ended list: drops 'etc.', 'and so on', 'as needed'...; 'including but not limited to' -> 'including'."""
+    word = match.group(0)
+    if word.lower() == "including but not limited to":
+        return text[:match.start()] + "including" + text[match.end():]
+    fixed = _tidy(text[:match.start()] + text[match.end():])
+    return fixed if fixed and fixed[-1] in ".?!" else fixed + "."
+
+
+def _fix_undefined_actor(text: str, match: re.Match) -> Optional[str]:
+    """'Someone can approve refunds.' -> 'An authorized user can approve refunds.'"""
+    actor = "An authorized user" if match.start() == 0 else "an authorized user"
+    return text[:match.start()] + actor + text[match.end():]
+
+
+def _fix_missing_actor(text: str, match: re.Match) -> Optional[str]:
+    """'Must send a reminder.' -> 'The system must send a reminder.' Only for obligations; 'Can view reports' is
+    usually a user, so no fix is guessed for can/could/would."""
+    if match.group(1).lower() not in {"must", "shall", "should", "will"}:
+        return None
+    return "The system " + text[0].lower() + text[1:]
+
+
+_AMBIGUITY_RULES: List[Tuple] = [  # (pattern, message, guard, fixer)
+    (_VAGUE_PERFORMANCE_PATTERN, "Vague performance wording: '{match}'. Specify measurable criteria (e.g. 'within 500 ms').", lambda text: not _MEASURABLE_METRIC_PATTERN.search(text), _fix_vague_speed),
     (_VAGUE_USABILITY_PATTERN, "Vague usability wording: '{match}'. Subjective interface qualities cannot be tested without concrete criteria.", None),
     (_VAGUE_SUBJECTIVE_PATTERN, "Subjective wording: '{match}'. Define precise, objective requirements instead of open-ended qualities.", None),
-    (_VAGUE_HEDGES_PATTERN, "Ambiguous open-ended wording: '{match}'. List all required items explicitly.", None),
+    (_VAGUE_HEDGES_PATTERN, "Ambiguous open-ended wording: '{match}'. List all required items explicitly.", None, _fix_hedge),
 ]
 
-_INCOMPLETENESS_RULES: List[Tuple[re.Pattern, str, Optional[Callable[[str], bool]]]] = [
-    (_MISSING_ACTOR_MODAL_PATTERN, "Missing actor: requirement begins with a modal verb without specifying who performs the action.", None),
+_INCOMPLETENESS_RULES: List[Tuple] = [  # (pattern, message, guard, fixer)
+    (_MISSING_ACTOR_MODAL_PATTERN, "Missing actor: requirement begins with a modal verb without specifying who performs the action.", None, _fix_missing_actor),
     (_PASSIVE_UNNAMED_ACTOR_PATTERN, "Missing actor or trigger: passive sentence does not specify who initiates this event.", lambda text: not _TRIGGER_PATTERN.search(text)),
-    (_UNDEFINED_ACTOR_PATTERN, "Undefined actor: '{match}' is ambiguous. Specify a defined system role or component.", None),
+    (_UNDEFINED_ACTOR_PATTERN, "Undefined actor: '{match}' is ambiguous. Specify a defined system role or component.", None, _fix_undefined_actor),
     (_MISSING_MEASURABLE_VALUE_PATTERN, "Missing measurable value: '{match}' requires a concrete numeric value or unit.", lambda text: not _QUANTIFIED_VALUE_PATTERN.search(text)),
     (_TRAILING_CONDITIONAL_PATTERN, "Incomplete condition: sentence ends with a conditional keyword without completing the condition.", None),
     (_VAGUE_CONDITION_PATTERN, "Missing condition details: '{match}' is vague. Explicitly specify the necessary conditions.", None),
@@ -73,10 +123,14 @@ def _candidate_pairs(requirements: List[Any]) -> List[Tuple[str, str, str, str]]
             for i in range(len(req_tuples)) for j in range(i + 1, len(req_tuples))]
 
 
-def _make_pair_flags(req_id1: str, req_id2: str, message1: str, message2: str) -> List[QualityFlag]:
+def _make_pair_flags(req_id1: str, req_id2: str, message1: str, message2: str,
+                     trigger1: Optional[str] = None, trigger2: Optional[str] = None,
+                     fix1: Optional[str] = None, fix2: Optional[str] = None) -> List[QualityFlag]:
     return [
-        QualityFlag(requirement_id=req_id1, type=QualityIssueType.CONFLICT, message=message1, related_requirement_ids=[req_id2]),
-        QualityFlag(requirement_id=req_id2, type=QualityIssueType.CONFLICT, message=message2, related_requirement_ids=[req_id1]),
+        QualityFlag(requirement_id=req_id1, type=QualityIssueType.CONFLICT, message=message1, related_requirement_ids=[req_id2],
+                    trigger_text=trigger1, suggested_fix=fix1),
+        QualityFlag(requirement_id=req_id2, type=QualityIssueType.CONFLICT, message=message2, related_requirement_ids=[req_id1],
+                    trigger_text=trigger2, suggested_fix=fix2),
     ]
 
 
@@ -85,10 +139,12 @@ def _check_rules(req_id: str, text: str, issue_type: QualityIssueType, rules: li
     if not trimmed_text:
         return []
     flags = []
-    for pattern, message_template, guard_condition in rules:
+    for pattern, message_template, guard_condition, *fixer in rules:
         match = pattern.search(trimmed_text)
         if match and (guard_condition is None or guard_condition(trimmed_text)):
-            flags.append(QualityFlag(requirement_id=req_id, type=issue_type, message=message_template.format(match=match.group(0)), related_requirement_ids=[]))
+            fix = fixer[0](trimmed_text, match) if fixer else None
+            flags.append(QualityFlag(requirement_id=req_id, type=issue_type, message=message_template.format(match=match.group(0)),
+                                     related_requirement_ids=[], trigger_text=match.group(0).strip() or None, suggested_fix=fix))
     return flags
 
 
@@ -124,6 +180,10 @@ def detect_inconsistency_pairs(requirements: List[RequirementInput] | List[Dict[
                 req_id1, req_id2,
                 f"Conflicts with {req_id2}: specifies conflicting values for the same attribute ('{val1}' vs '{val2}').",
                 f"Conflicts with {req_id1}: specifies conflicting values for the same attribute ('{val2}' vs '{val1}').",
+                val1_match.group(0).strip(), val2_match.group(0).strip(),
+                # each side's fix adopts the other side's value; the user picks which flag to apply
+                text1[:val1_match.start()] + val2_match.group(0) + text1[val1_match.end():],
+                text2[:val2_match.start()] + val1_match.group(0) + text2[val2_match.end():],
             ))
     return flags
 
@@ -152,6 +212,7 @@ def detect_contradiction_pairs(requirements: List[RequirementInput] | List[Dict[
                 req_id1, req_id2,
                 f"Contradicts {req_id2}: opposing behavior under the same conditions ('{action1}' vs '{action2}').",
                 f"Contradicts {req_id1}: opposing behavior under the same conditions ('{action2}' vs '{action1}').",
+                action1, action2,
             ))
     return flags
 
