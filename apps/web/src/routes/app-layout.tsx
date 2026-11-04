@@ -5,10 +5,13 @@ import { ServerWakingBanner } from '@/components/server-waking-banner'
 import { Button } from '@/components/ui/button'
 import { Wordmark } from '@/components/wordmark'
 import { useAuth } from '@/features/auth/auth-context'
+import { NotificationBell } from '@/features/notifications/NotificationBell'
+import { useJobWatcher } from '@/features/notifications/useJobWatcher'
 
 export function AppLayout() {
   const { session, signOut } = useAuth()
   const navigate = useNavigate()
+  useJobWatcher()
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -19,6 +22,7 @@ export function AppLayout() {
           </Link>
           <div className="flex min-w-0 items-center gap-2">
             <span className="hidden truncate text-sm text-slate sm:inline">{session?.email}</span>
+            <NotificationBell />
             <Button
               variant="ghost"
               size="sm"

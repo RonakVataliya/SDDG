@@ -12,7 +12,7 @@ import { projectStage, stageLabel, type Stage } from './stage'
 
 const stageTone: Record<Stage, 'neutral' | 'teal' | 'amber' | 'danger'> = {
   input: 'neutral',
-  extracting: 'neutral',
+  extracting: 'teal',
   review: 'amber',
   generate: 'teal',
   done: 'teal',
