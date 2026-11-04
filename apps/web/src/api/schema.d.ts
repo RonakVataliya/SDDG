@@ -540,6 +540,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/diagrams/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** The project's diagrams as one ZIP: PNG, SVG and source code for each, plus README.txt. versions=all (default) or latest */
+        get: {
+            parameters: {
+                query?: {
+                    versions?: "all" | "latest";
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description ZIP file */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                /** @description The project has no diagrams yet */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -682,11 +733,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px) */
+        /** The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, or its source code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid), downloaded by Export */
         get: {
             parameters: {
                 query: {
-                    format: "png";
+                    format: "png" | "svg" | "pdf" | "source";
                 };
                 header?: never;
                 path: {
@@ -703,6 +754,18 @@ export interface paths {
                     };
                     content: {
                         "image/png": string;
+                        "image/svg+xml": string;
+                        "application/pdf": string;
+                        "text/plain": string;
+                    };
+                };
+                /** @description Unsupported format */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
                     };
                 };
             };

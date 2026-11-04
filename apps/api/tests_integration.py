@@ -5,8 +5,10 @@ persistence/mapping/gating/diagram-export code without an LLM key or a Kroki con
 It uses a throwaway user and deletes everything it created. Run: python tests_integration.py
 """
 import asyncio
+import io
 import os
 import uuid
+import zipfile
 
 import psycopg
 from dotenv import load_dotenv
@@ -89,6 +91,10 @@ class FakeAIClient:
             return FakeResponse(EXTRACTION)
         if url.endswith('/plantuml/png'):
             return FakeResponse(content=b'\x89PNG\r\n\x1a\n' + b'0' * 200)
+        if url.endswith('/plantuml/svg'):
+            return FakeResponse(content=b'<svg xmlns="http://www.w3.org/2000/svg">' + b' ' * 200 + b'</svg>')
+        if url.endswith('/plantuml/pdf'):
+            return FakeResponse(content=b'%PDF-1.4\n' + b'0' * 200 + b'\n%%EOF')
         if url.endswith('/usecase/generate'):
             payload = kwargs['json']
             actor_id = payload['actors'][0]['id']
@@ -213,6 +219,54 @@ def main():
             assert png.status_code == 200
             assert png.headers['content-type'].startswith('image/png')
             assert len(png.content) > 100
+
+            svg = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=svg', headers=headers)
+            assert svg.status_code == 200, svg.text
+            assert svg.headers['content-type'].startswith('image/svg+xml')
+            assert svg.content.lstrip().startswith(b'<svg')
+
+            pdf = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=pdf', headers=headers)
+            assert pdf.status_code == 200, pdf.text
+            assert pdf.headers['content-type'].startswith('application/pdf')
+            assert pdf.content.startswith(b'%PDF')
+
+            # Format is case-insensitive; unknown formats are rejected with a readable message.
+            assert client.get(f'/api/v1/diagrams/{diagram_id}/export?format=SVG', headers=headers).status_code == 200
+            bad = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=gif', headers=headers)
+            assert bad.status_code == 422
+            assert 'PNG, SVG, PDF, SOURCE' in bad.json()['detail']
+
+            # Source export returns the stored diagram code without calling Kroki.
+            source = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=source', headers=headers)
+            assert source.status_code == 200, source.text
+            assert source.headers['content-type'].startswith('text/x-plantuml')
+            assert source.text == diagram['plantuml_source']
+
+            # Project ZIP: every version (generated + edited) as PNG, SVG and source, plus a README index.
+            zipped = client.get(f'/api/v1/projects/{pid}/diagrams/export', headers=headers)
+            assert zipped.status_code == 200, zipped.text
+            assert zipped.headers['content-type'] == 'application/zip'
+            assert 'integration-diagrams.zip' in zipped.headers['content-disposition']
+            with zipfile.ZipFile(io.BytesIO(zipped.content)) as z:
+                names = set(z.namelist())
+                folder = 'integration-use-case'
+                for v in ('v1', 'v2'):
+                    files = {f'{folder}/{v}/{folder}-{v}.{ext}' for ext in ('png', 'svg', 'pdf', 'puml')}
+                    assert files <= names, names  # one folder per version
+                assert z.read(f'{folder}/v1/{folder}-v1.puml').decode() == diagram['plantuml_source']
+                assert z.read(f'{folder}/v1/{folder}-v1.png').startswith(b'\x89PNG')
+                readme = z.read('README.txt').decode()
+                assert 'rename Check Orders to View Orders' in readme and 'Not included' not in readme
+
+            # versions=latest: only the newest version of each diagram, no version folders and no README.
+            latest = client.get(f'/api/v1/projects/{pid}/diagrams/export?versions=latest', headers=headers)
+            assert latest.status_code == 200, latest.text
+            assert 'integration-diagrams-latest.zip' in latest.headers['content-disposition']
+            with zipfile.ZipFile(io.BytesIO(latest.content)) as z:
+                assert set(z.namelist()) == {'integration-use-case.png', 'integration-use-case.svg',
+                                             'integration-use-case.pdf', 'integration-use-case.puml'}, z.namelist()
+            assert client.get(f'/api/v1/projects/{pid}/diagrams/export?versions=some',
+                              headers=headers).status_code == 422
 
         print('backend integration test passed')
     finally:
