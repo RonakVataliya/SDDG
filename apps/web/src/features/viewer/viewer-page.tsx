@@ -1,21 +1,20 @@
-import { ArrowUpIcon, DownloadIcon, MaximizeIcon, MoveIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
+import { ArrowUpIcon, MaximizeIcon, MoveIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
 import type { Diagram } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
-import { saveBlob, useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useReviseDiagram } from '@/api/queries'
+import { useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useReviseDiagram } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
-import { markExported } from '@/features/search/exported'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
-import { svgToPng } from '@/features/viewer/export-svg'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
+import { ExportMenu } from './export-menu'
 
 const MAX_INSTRUCTION = 500
 
@@ -51,7 +50,6 @@ export function ViewerPage() {
   const [arrangeFor, setArrangeFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
-  const [exportError, setExportError] = useState<string | null>(null)
   const threadRef = useRef<HTMLOListElement>(null)
   const viewRef = useRef<HTMLDivElement>(null)
 
@@ -95,27 +93,6 @@ export function ViewerPage() {
     navigate(`../diagrams/${next.id}`)
   }
 
-  async function exportPng() {
-    const slug = diagram!.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    const name = `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`
-    setExportError(null)
-    if (moved) {
-      // A moved version is exported as drawn on screen, not as Kroki's picture, which ignores the moves.
-      const svg = viewRef.current?.querySelector<SVGSVGElement>('svg[data-layout-canvas]')
-      if (!svg) return
-      const blob = await svgToPng(svg).catch((e: unknown) => {
-        setExportError(e instanceof Error ? e.message : 'The PNG could not be made.')
-        return null
-      })
-      if (!blob) return
-      saveBlob(blob, name)
-    } else {
-      if (!image.data) return
-      saveBlob(image.data, name)
-    }
-    markExported(diagram!.id)
-  }
-
   return (
     <div className="-m-5 flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
@@ -133,9 +110,17 @@ export function ViewerPage() {
           <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!layout.data || arranging || revise.isPending}>
             <MoveIcon /> Move elements
           </Button>
-          <Button variant="secondary" onClick={exportPng} disabled={moved ? arranging : !image.data}>
-            <DownloadIcon /> Export PNG
-          </Button>
+          {/* Kroki draws from the source and knows nothing of moved positions, so a moved version is exported as drawn. */}
+          <ExportMenu
+            diagramId={diagram.id}
+            title={diagram.title}
+            versionIndex={index}
+            png={image.data}
+            projectId={project.id}
+            projectName={project.name}
+            drawn={moved ? () => viewRef.current?.querySelector<SVGSVGElement>('svg[data-layout-canvas]') ?? null : undefined}
+            disabled={moved ? arranging : false}
+          />
         </div>
       </div>
 
@@ -192,12 +177,6 @@ export function ViewerPage() {
           )}
           {(moved || src) && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
         </div>
-      )}
-
-      {exportError && (
-        <Notice tone="error" title="Couldn't export the PNG" className="mx-5 mt-3">
-          {exportError}
-        </Notice>
       )}
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (

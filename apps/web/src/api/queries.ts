@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, unwrap, type Diagram, type DiagramType, type ItemCategory, type Job, type Point } from './client'
+import type { paths } from './schema'
 
 export const keys = {
   projects: ['projects'] as const,
@@ -174,18 +175,34 @@ export function useDiagramDetails(diagrams: Diagram[]) {
   })
 }
 
-/** FR18a: the backend renders each version to a still PNG (2x, capped at 8,000 px). Shown in the viewer and downloaded as-is. */
-function fetchDiagramPng(diagramId: string) {
+export type ExportFormat = paths['/diagrams/{diagram_id}/export']['get']['parameters']['query']['format']
+
+/**
+ * FR18a: the backend renders each version from its stored source via Kroki. PNG (2x, capped at 8,000 px) is shown in
+ * the viewer and downloaded as-is; SVG, PDF and the source code are fetched only when picked from the Export menu.
+ */
+export function fetchDiagramExport(diagramId: string, format: ExportFormat) {
   return unwrap(
     api.GET('/diagrams/{diagram_id}/export', {
-      params: { path: { diagram_id: diagramId }, query: { format: 'png' } },
+      params: { path: { diagram_id: diagramId }, query: { format } },
+      parseAs: 'blob',
+    }),
+  ) as Promise<Blob>
+}
+
+/** A project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt): every version, or only the
+ *  latest version of each diagram. */
+export function fetchProjectDiagramsZip(projectId: string, versions: 'all' | 'latest') {
+  return unwrap(
+    api.GET('/projects/{project_id}/diagrams/export', {
+      params: { path: { project_id: projectId }, query: { versions } },
       parseAs: 'blob',
     }),
   ) as Promise<Blob>
 }
 
 export function useDiagramImage(diagramId: string) {
-  return useQuery({ queryKey: keys.diagramImage(diagramId), queryFn: () => fetchDiagramPng(diagramId), staleTime: Infinity })
+  return useQuery({ queryKey: keys.diagramImage(diagramId), queryFn: () => fetchDiagramExport(diagramId, 'png'), staleTime: Infinity })
 }
 
 /** Plain-language edit ("rename X to Y"). The server returns a new version; the one it came from is kept. */
