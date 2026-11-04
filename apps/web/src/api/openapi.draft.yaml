@@ -333,6 +333,7 @@ components:
         kind: { type: string, description: 'e.g. association, include, extend, message, data_flow, flow, or a class relation type' }
         source: { type: string, description: Element id the line starts at }
         target: { type: string, description: Element id the line ends at }
+        label: { type: [string, 'null'], description: 'Text drawn on the line: a flow name, message, relation name, dependency label, transition event or decision guard; null when the line has none' }
     DiagramLayout:
       type: object
       required: [diagram_id, type, saved, elements, lines]

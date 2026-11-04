@@ -955,6 +955,8 @@ export interface components {
             source: string;
             /** @description Element id the line ends at */
             target: string;
+            /** @description Text drawn on the line: a flow name, message, relation name, dependency label, transition event or decision guard; null when the line has none */
+            label?: string | null;
         };
         DiagramLayout: {
             diagram_id: string;
