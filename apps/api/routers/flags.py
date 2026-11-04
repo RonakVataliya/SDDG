@@ -83,7 +83,7 @@ def apply_fix(project_id: str, flag_id: str, user: User = Depends(get_current_us
     flag = get_flag(project_id, flag_id, user)
     if not flag["suggested_fix"]:
         raise HTTPException(409, NO_SUGGESTION)
-    db.set_statement_text(flag["statement_id"], flag["suggested_fix"])
+    db.set_statement_text(project_id, flag["statement_id"], flag["suggested_fix"])
     db.update_flag(project_id, flag_id, status="resolved", resolved_by=user.email, resolved_at=db.now())
     detect(project_id, [i for i in (flag["statement_id"], flag["related_statement_id"]) if i])
     return view(db.get_flag(project_id, flag_id))

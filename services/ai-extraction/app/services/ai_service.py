@@ -24,7 +24,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from pydantic import BaseModel
 from tenacity import (
-    before_sleep_log,
     retry,
     retry_if_exception,
     stop_after_attempt,
@@ -52,6 +51,11 @@ class MalformedOutputError(AIServiceError):
 # model's mistake, not a bad request, so it is retried like malformed output.
 _MODEL_OUTPUT_400 = ("tool_use_failed", "json_validate_failed", "failed to call a function",
                      "failed_generation", "max completion tokens")
+
+
+def _log_retry(state) -> None:
+    """Logs the attempt and the error type only; the message can hold the model's output."""
+    logger.warning("ai_call_retry attempt=%d error_type=%s", state.attempt_number, type(state.outcome.exception()).__name__)
 
 
 def _status(exc: BaseException) -> int | None:
@@ -152,7 +156,7 @@ class AIService:
             stop=stop_after_attempt(self.settings.MAX_RETRIES),
             wait=_wait_for(self.settings),
             retry=retry_if_exception(is_retryable),
-            before_sleep=before_sleep_log(logger, logger.level or 20),
+            before_sleep=_log_retry,
         )
 
     def structured_extract(

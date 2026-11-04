@@ -71,16 +71,16 @@ CATEGORY_FIELDS = [
 # ============================================================================
 
 def require_project(project_id, user):
-    """Ensures the project exists and belongs to the authenticated user."""
-    project = db.owned_project(project_id, user.id)
+    """Ensures the project exists and the authenticated user is a member of it."""
+    project = db.member_project(project_id, user.id)
     if not project:
         raise HTTPException(404, NOT_FOUND)
     return project
 
 
 def require_diagram(diagram_id, user):
-    """Ensures the diagram exists and belongs to the authenticated user."""
-    diagram = db.owned_diagram(diagram_id, user.id)
+    """Ensures the diagram exists and the authenticated user is a member of its project."""
+    diagram = db.member_diagram(diagram_id, user.id)
     if not diagram:
         raise HTTPException(404, NOT_FOUND)
     return diagram
@@ -532,7 +532,7 @@ def give_consent(payload: ConsentCreate, user: User = Depends(get_current_user))
 
 @router.get("/projects")
 def list_projects(user: User = Depends(get_current_user)):
-    """Lists all projects owned by the authenticated user."""
+    """Lists the projects the authenticated user is a member of."""
     return [project_view(p) for p in db.project_rows(user.id)]
 
 
@@ -672,7 +672,7 @@ def generate_diagram(
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, user: User = Depends(get_current_user)):
     """Polls the status and progress of an extraction or generation background job."""
-    job = db.owned_job(job_id, user.id)
+    job = db.member_job(job_id, user.id)
     if not job:
         raise HTTPException(404, NOT_FOUND)
     return job

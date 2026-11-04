@@ -5,6 +5,13 @@ CREATE TABLE IF NOT EXISTS projects (
   id text PRIMARY KEY, owner_id text NOT NULL, name text NOT NULL,
   created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, confirmed_at timestamptz);
 CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects (owner_id);
+-- Who may open a project. Every project route checks this table, not owner_id.
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE, user_id text NOT NULL,
+  PRIMARY KEY (project_id, user_id));
+CREATE INDEX IF NOT EXISTS project_members_user_idx ON project_members (user_id);
+INSERT INTO project_members (project_id, user_id) SELECT id, owner_id FROM projects ON CONFLICT DO NOTHING;
+ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS statements (
   id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
   ref text NOT NULL, text text NOT NULL, label text, source_document text NOT NULL,

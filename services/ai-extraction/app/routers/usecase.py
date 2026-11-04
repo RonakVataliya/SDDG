@@ -40,15 +40,10 @@ async def generate(request: UseCaseApprovalRequest) -> UseCaseDiagramResult:
         logger.error("usecase_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
     except KrokiServiceError as exc:
-        logger.error("usecase_render_error error=%s", str(exc))
+        logger.error("usecase_render_error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "usecase_generation_failed error_type=%s error=%s",
-            type(exc).__name__,
-            str(exc),
-            exc_info=True,
-        )
+        logger.error("usecase_generation_failed error_type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=500, detail="Use-case diagram generation failed. Please try again."
         ) from exc
@@ -67,7 +62,7 @@ async def render(request: RenderRequest) -> RenderResult:
         svg, duration = await run_in_threadpool(kroki.render_svg, request.plantuml_source, "plantuml")
         return RenderResult(svg=svg, render_duration_seconds=duration)
     except KrokiServiceError as exc:
-        logger.error("manual_render_error error=%s", str(exc))
+        logger.error("manual_render_error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -80,8 +75,8 @@ async def revise(request: UseCaseRevisionRequest) -> UseCaseDiagramResult:
         logger.error("usecase_revision_ai_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
     except KrokiServiceError as exc:
-        logger.error("usecase_revision_render_error error=%s", str(exc))
+        logger.error("usecase_revision_render_error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("usecase_revision_failed error_type=%s error=%s", type(exc).__name__, str(exc), exc_info=True)
+        logger.error("usecase_revision_failed error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=422, detail="That change could not be applied. Try a more specific instruction.") from exc

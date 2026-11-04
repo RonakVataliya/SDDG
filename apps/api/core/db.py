@@ -8,12 +8,23 @@ from uuid import uuid4
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from core.crypto import decrypt, encrypt, fernet
+
 # prepare_threshold=None: Supabase's transaction pooler (port 6543) has no prepared statements.
 pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
 JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout")
+# Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
+SECRET = {
+    "projects": ("name",),
+    "statements": ("text", "source_excerpt"),
+    "items": ("name", "description"),
+    "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
+    "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
+}
+SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
 
 def now():
@@ -25,11 +36,14 @@ def uid(prefix):
 
 
 def init_db():
+    fernet()  # fail fast if DATA_ENCRYPTION_KEY is missing
     pool.open(wait=True)  # fail fast if the database is unreachable
-    
 
 
 def _decode(r):
+    for k in SECRET_COLS:
+        if isinstance(r.get(k), str):
+            r[k] = decrypt(r[k])
     for k in JSON_COLS:  # JSON is stored as text; tolerate jsonb columns too
         if isinstance(r.get(k), str):
             r[k] = json.loads(r[k])
@@ -64,12 +78,19 @@ def get_project(pid):
     return one("SELECT * FROM projects WHERE id=%s", pid)
 
 
-def owned_project(pid, user_id):
-    return one("SELECT * FROM projects WHERE id=%s AND owner_id=%s", pid, user_id)
+def member_project(pid, user_id):
+    return one(
+        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
+        pid, user_id,
+    )
 
 
 def project_rows(user_id):
-    return many("SELECT * FROM projects WHERE owner_id=%s ORDER BY created_at DESC", user_id)
+    return many(
+        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id "
+        "WHERE m.user_id=%s ORDER BY p.created_at DESC",
+        user_id,
+    )
 
 
 def project_counts(pid):
@@ -83,9 +104,10 @@ def project_counts(pid):
 
 def create_project(user_id, name):
     t = now()
-    return one(
-        "INSERT INTO projects(id, owner_id, name, created_at, updated_at) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-        uid("pr"), user_id, name, t, t,
+    return one(  # the creator is the first member
+        "WITH p AS (INSERT INTO projects(id, owner_id, name, created_at, updated_at) VALUES (%s,%s,%s,%s,%s) RETURNING *), "
+        "m AS (INSERT INTO project_members(project_id, user_id) SELECT id, owner_id FROM p) SELECT * FROM p",
+        uid("pr"), user_id, encrypt(name), t, t,
     )
 
 
@@ -134,14 +156,14 @@ def insert_statements(pid, statements):
                 uid("st"),
                 pid,
                 f"R-{n + i + 1:03d}",
-                s["text"],
+                encrypt(s["text"]),
                 (s.get("labels") or ["unknown"])[0],
                 "pasted requirements",
                 src.get("page"),
                 src.get("paragraph"),
                 src.get("line_start"),
                 src.get("line_end"),
-                src.get("excerpt"),
+                encrypt(src.get("excerpt")),
             ))
 
         # IMPORTANT: execute only once, after all rows are prepared
@@ -211,7 +233,7 @@ def add_system_items(pid, items):
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 [
                     (
-                        i["id"], pid, i["category"], i["name"], i.get("description"), "system-extracted",
+                        i["id"], pid, i["category"], encrypt(i["name"]), encrypt(i.get("description")), "system-extracted",
                         json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
                         i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"),
                     )
@@ -236,7 +258,7 @@ def update_item(pid, iid, name, description):
         "UPDATE items SET name=COALESCE(%s, name), description=%s, "
         "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END "
         "WHERE id=%s AND project_id=%s RETURNING *",
-        name, description, iid, pid,
+        encrypt(name), encrypt(description), iid, pid,
     )
     return _item(r) if r else None
 
@@ -271,9 +293,10 @@ def fail_interrupted_jobs():
     )
 
 
-def owned_job(jid, user_id):
+def member_job(jid, user_id):
     return _job(one(
-        "SELECT j.* FROM jobs j JOIN projects p ON p.id=j.project_id WHERE j.id=%s AND p.owner_id=%s", jid, user_id
+        "SELECT j.* FROM jobs j JOIN project_members m ON m.project_id=j.project_id WHERE j.id=%s AND m.user_id=%s",
+        jid, user_id,
     ))
 
 
@@ -296,15 +319,17 @@ def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_sou
     return one(
         "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
         "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        uid("dg"), pid, dtype, title, now(), svg, json.dumps(elements), json.dumps(statement_ids),
-        plantuml_source, parent_id, instruction, json.dumps(spec) if spec is not None else None,
+        uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
+        json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
+        encrypt(json.dumps(spec)) if spec is not None else None,
         json.dumps(layout) if layout else None,
     )
 
 
-def owned_diagram(did, user_id):
+def member_diagram(did, user_id):
     return one(
-        "SELECT d.* FROM diagrams d JOIN projects p ON p.id=d.project_id WHERE d.id=%s AND p.owner_id=%s", did, user_id
+        "SELECT d.* FROM diagrams d JOIN project_members m ON m.project_id=d.project_id WHERE d.id=%s AND m.user_id=%s",
+        did, user_id,
     )
 
 
@@ -337,8 +362,9 @@ def save_flags(pid, flags, statement_ids):
     - An open flag that is no longer found is resolved by re-analysis.
     """
     with pool.connection() as c:
-        old = c.execute("SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
-                        "WHERE project_id=%s AND statement_id = ANY(%s)", (pid, list(statement_ids))).fetchall()
+        old = [_decode(r) for r in c.execute(
+            "SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
+            "WHERE project_id=%s AND statement_id = ANY(%s)", (pid, list(statement_ids))).fetchall()]
         known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
         found = set()
         for f in flags:
@@ -350,8 +376,8 @@ def save_flags(pid, flags, statement_ids):
             if prev is None:
                 c.execute("INSERT INTO flags(id, project_id, statement_id, type, reason, trigger_text, "
                           "related_statement_id, question, suggested_fix, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                          (uid("fl"), pid, f["statement_id"], f["type"], f["reason"], f.get("trigger_text"),
-                           f.get("related_statement_id"), f.get("question"), f.get("suggested_fix"), now()))
+                          (uid("fl"), pid, f["statement_id"], f["type"], encrypt(f["reason"]), encrypt(f.get("trigger_text")),
+                           f.get("related_statement_id"), encrypt(f.get("question")), encrypt(f.get("suggested_fix")), now()))
             elif prev["status"] == "resolved" and prev["resolved_by"] == "re-analysis":
                 c.execute("UPDATE flags SET status='open', resolved_by=NULL, resolved_at=NULL WHERE id=%s", (prev["id"],))
         gone = [f["id"] for k, f in known.items() if f["status"] == "open" and k not in found]
@@ -361,9 +387,10 @@ def save_flags(pid, flags, statement_ids):
 
 
 def update_flag(pid, fid, **fields):
+    fields = {k: encrypt(v) if k in SECRET_COLS else v for k, v in fields.items()}
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
 
 
-def set_statement_text(sid, text):
-    run("UPDATE statements SET text=%s WHERE id=%s", text, sid)
+def set_statement_text(pid, sid, text):
+    run("UPDATE statements SET text=%s WHERE id=%s AND project_id=%s", encrypt(text), sid, pid)
