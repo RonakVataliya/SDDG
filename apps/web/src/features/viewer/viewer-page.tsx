@@ -11,6 +11,7 @@ import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
+import { StylePanel } from '@/features/viewer/style-panel'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
@@ -50,6 +51,7 @@ export function ViewerPage() {
   const [arrangeFor, setArrangeFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
+  const [stylePreviewUrl, setStylePreviewUrl] = useState<string | null>(null)
   const threadRef = useRef<HTMLOListElement>(null)
   const viewRef = useRef<HTMLDivElement>(null)
 
@@ -154,7 +156,12 @@ export function ViewerPage() {
             <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
               <ZoomControls />
               <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
-                <img src={src} alt={`${diagram.title}, version ${index + 1}`} className="m-auto block h-full w-full object-contain p-4" draggable={false} />
+                <img
+                  src={stylePreviewUrl ?? src}
+                  alt={`${diagram.title}, version ${index + 1}${stylePreviewUrl ? ', style preview' : ''}`}
+                  className="m-auto block h-full w-full object-contain p-4"
+                  draggable={false}
+                />
               </TransformComponent>
             </TransformWrapper>
           ) : image.isError ? (
@@ -178,6 +185,17 @@ export function ViewerPage() {
           {(moved || src) && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
         </div>
       )}
+
+      {/* The look is applied where Kroki draws the diagram; a moved version is drawn in the browser, so it keeps the standard look. */}
+      {!arranging &&
+        (moved ? (
+          <p className="mx-5 mt-3 text-sm text-slate">
+            Elements in this version were moved by hand, so it keeps the standard look. To change colours, direction or font size, open the version
+            before the move.
+          </p>
+        ) : (
+          <StylePanel key={diagram.id} diagramId={diagram.id} diagramType={diagram.type} onPreviewChange={setStylePreviewUrl} />
+        ))}
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (
         <ol ref={threadRef} aria-label="Changes to this diagram" aria-live="polite" className="mx-5 mt-3 max-h-48 space-y-2.5 overflow-y-auto pr-1 text-sm">

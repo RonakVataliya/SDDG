@@ -549,10 +549,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The project's diagrams as one ZIP: PNG, SVG, PDF and source code for each, plus README.txt. versions=all (default) or latest */
+        /** The project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt; no PDF for Mermaid) */
         get: {
             parameters: {
                 query?: {
+                    /** @description all (default) = every version; latest = newest version of each diagram */
                     versions?: "all" | "latest";
                 };
                 header?: never;
@@ -742,7 +743,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, or its source code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid), downloaded by Export */
+        /** The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, downloaded by Export. Pictures are drawn with the diagram's saved style (#38). */
         get: {
             parameters: {
                 query: {
@@ -765,6 +766,7 @@ export interface paths {
                         "image/png": string;
                         "image/svg+xml": string;
                         "application/pdf": string;
+                        /** @description format=source: the diagram code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid) */
                         "text/plain": string;
                     };
                 };
@@ -846,6 +848,134 @@ export interface paths {
                     };
                 };
                 /** @description Not an element of this diagram */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diagrams/{diagram_id}/style": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: components["parameters"]["DiagramId"];
+            };
+            cookie?: never;
+        };
+        /** The diagram's look (#38). A version with no saved style uses the nearest earlier version's, else the default. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiagramStyle"];
+                    };
+                };
+            };
+        };
+        /** Save the diagram's look. Only drawing changes; the diagram's elements and relationships never do, so no new version is made. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DiagramStyle"];
+                };
+            };
+            responses: {
+                /** @description Saved */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiagramStyle"];
+                    };
+                };
+                /** @description Invalid colour */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diagrams/{diagram_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: components["parameters"]["DiagramId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Draw the diagram with a style that is not saved yet, for the live preview while customising (#38) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DiagramStyle"];
+                };
+            };
+            responses: {
+                /** @description File */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/png": string;
+                    };
+                };
+                /** @description Invalid colour */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -1004,6 +1134,29 @@ export interface components {
         Diagram: components["schemas"]["DiagramSummary"];
         RevisionCreate: {
             instruction: string;
+        };
+        /**
+         * @description auto keeps the direction the generator chose; TB is top to bottom, LR left to right
+         * @enum {string}
+         */
+        LayoutDirection: "auto" | "TB" | "LR";
+        DiagramStyle: {
+            /**
+             * @description Preset the colours came from; null once a colour is edited by hand
+             * @enum {string|null}
+             */
+            preset: "default" | "high_contrast" | "dark" | "blueprint" | "warm" | null;
+            /** @description Canvas */
+            background: string;
+            /** @description Element boxes */
+            fill: string;
+            /** @description All labels */
+            text: string;
+            /** @description Borders and arrows */
+            line: string;
+            direction: components["schemas"]["LayoutDirection"];
+            /** @description Points */
+            font_size: number;
         };
         Point: {
             x: number;

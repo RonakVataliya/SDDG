@@ -1,10 +1,11 @@
 /** MOCK ONLY. MSW handlers for the FE draft contract (src/api/openapi.draft.yaml). Delete once H3 is live. */
 import { delay, http, HttpResponse, type HttpResponseResolver } from 'msw'
 import { AI_SECTION_VERSION } from '@/features/privacy/policy'
+import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, projectView, publicJob, save, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, projectView, publicJob, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
@@ -254,6 +255,7 @@ export const handlers = [
         instruction: text,
         model: result.model,
         svg: renderUseCase(result.model),
+        style: undefined, // #38: inherits the look from the version it came from
       }
       getDb().diagrams.push(row)
       touch(d.project_id)
@@ -301,9 +303,10 @@ export const handlers = [
       const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
       if (!d || !ownedProject(email, d.project_id)) return notFound()
       const format = new URL(request.url).searchParams.get('format')?.toLowerCase()
-      if (format === 'svg') return new HttpResponse(d.svg, { headers: { 'Content-Type': 'image/svg+xml' } })
-      if (format === 'pdf') return new HttpResponse(await svgToPdf(d.svg), { headers: { 'Content-Type': 'application/pdf' } })
-      if (format === 'png') return new HttpResponse(await svgToPng(d.svg), { headers: { 'Content-Type': 'image/png' } })
+      const svg = styledSvg(d, styleFor(d)) // pictures get the saved look (#38)
+      if (format === 'svg') return new HttpResponse(svg, { headers: { 'Content-Type': 'image/svg+xml' } })
+      if (format === 'pdf') return new HttpResponse(await svgToPdf(svg), { headers: { 'Content-Type': 'application/pdf' } })
+      if (format === 'png') return png(await svgToPng(svg))
       if (format === 'source') {
         if (!d.model) return fail(409, 'This diagram has no stored diagram source. Regenerate the diagram before exporting SOURCE.')
         return new HttpResponse(useCaseSource(d.model), { headers: { 'Content-Type': 'text/x-plantuml; charset=utf-8' } })
@@ -325,7 +328,7 @@ export const handlers = [
       const index = [`${p.name} - diagrams exported from SDDG (mock mode: SVG and source only; the real API adds PNG and PDF)`, '']
       for (const d of rows.filter((r) => r.id in names).sort((a, b) => names[a.id].localeCompare(names[b.id]))) {
         index.push(`${names[d.id]}  ${d.title}${d.instruction ? `  (edit: ${d.instruction})` : ''}`)
-        files.push({ name: zipPath(names[d.id], 'svg'), data: d.svg })
+        files.push({ name: zipPath(names[d.id], 'svg'), data: styledSvg(d, styleFor(d)) })
         if (d.model) files.push({ name: zipPath(names[d.id], 'puml'), data: useCaseSource(d.model) })
       }
       const readme = versions === 'all' ? [{ name: 'README.txt', data: index.join('\n') + '\n' }] : []
@@ -334,7 +337,62 @@ export const handlers = [
       })
     }),
   ),
+
+  /* ---------- visual customisation (#38) ---------- */
+
+  http.get(
+    u('/diagrams/:diagram_id/style'),
+    authed(({ email, params }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      return HttpResponse.json(styleFor(d))
+    }),
+  ),
+  http.put(
+    u('/diagrams/:diagram_id/style'),
+    authed(async ({ email, params, request }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      const style = await readStyle(request)
+      if (typeof style === 'string') return fail(422, style)
+      d.style = style // drawing only: the model, and so the diagram's structure, is untouched
+      save()
+      return HttpResponse.json(style)
+    }),
+  ),
+  http.post(
+    u('/diagrams/:diagram_id/preview'),
+    authed(async ({ email, params, request }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      const style = await readStyle(request)
+      if (typeof style === 'string') return fail(422, style)
+      return png(await svgToPng(styledSvg(d, style)))
+    }),
+  ),
 ]
+
+const png = (blob: Blob) => new HttpResponse(blob, { headers: { 'Content-Type': 'image/png' } })
+
+/** The request's style with only the known fields, or the first problem with it in plain language. */
+async function readStyle(request: Request): Promise<DiagramStyle | string> {
+  const body = (await request.json().catch(() => null)) as Partial<DiagramStyle> | null
+  if (!body) return 'Send a style.'
+  const style: DiagramStyle = {
+    preset: body.preset ?? null,
+    background: body.background ?? '',
+    fill: body.fill ?? '',
+    text: body.text ?? '',
+    line: body.line ?? '',
+    direction: body.direction ?? 'auto',
+    font_size: body.font_size ?? NaN,
+  }
+  return styleProblems(style)[0] ?? style
+}
+
+/** Redraws from the model with the style; diagrams from before editing have no model and keep their stored drawing. */
+export const styledSvg = (d: DiagramRow, style: DiagramStyle) => (d.model ? renderUseCase(d.model, style) : d.svg)
+
 
 /** Same naming as the API's zip_layout: '<title>/v<n>'. Every diagram with the same title (regenerations and edits)
  *  is a version of one diagram, numbered by creation time. */

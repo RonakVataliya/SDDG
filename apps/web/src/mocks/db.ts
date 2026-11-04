@@ -1,5 +1,6 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
 import type { Diagram, ExtractedItem, Job, RequirementStatement } from '@/api/client'
+import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
 import { buildUseCaseModel, renderUseCase, type UseCaseModel } from './render'
@@ -20,6 +21,8 @@ export type DiagramRow = Diagram & {
   svg: string
   /** Positions moved by hand (#37), element id → centre [x, y]. Like the backend, the PNG export ignores them. */
   layout?: Record<string, [number, number]>
+  /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
+  style?: DiagramStyle
 }
 
 export type MockDb = {
@@ -178,6 +181,16 @@ export function createJob(projectId: string, kind: Job['kind'], extra: Partial<J
 
 export function publicJob({ project_id: _p, payload: _t, applied: _a, ...job }: JobRow): Job {
   return job
+}
+
+/** #38: a version's own style, else the nearest earlier version's, else the default. */
+export function styleFor(d: DiagramRow): DiagramStyle {
+  const seen = new Set<string>()
+  for (let v: DiagramRow | undefined = d; v && !seen.has(v.id); v = db.diagrams.find((x) => x.id === v!.parent_id)) {
+    if (v.style) return v.style
+    seen.add(v.id)
+  }
+  return DEFAULT_STYLE
 }
 
 export function diagramView(d: DiagramRow): Diagram & { elements: { label: string }[] } {
