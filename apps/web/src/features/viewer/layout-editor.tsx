@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { useBlocker, useNavigate } from 'react-router'
 import type { DiagramLayout, Point } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { useSaveLayout } from '@/api/queries'
@@ -20,6 +20,12 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
   const [positions, setPositions] = useState<Record<string, Point>>(() => startPositions(layout))
 
   const moved = layout.elements.filter((e) => positions[e.id].x !== e.x || positions[e.id].y !== e.y)
+  const saved = useRef(false) // set once a save succeeds, so opening the new version is not blocked
+
+  // Inside the app (another version, "Go to the latest", Back) moves would be dropped without a word: ask first.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => moved.length > 0 && !saved.current && currentLocation.pathname !== nextLocation.pathname,
+  )
 
   useEffect(() => {
     if (!moved.length) return
@@ -42,7 +48,9 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
     if (!moved.length || save.isPending) return
     const body = Object.fromEntries(moved.map((e) => [e.id, { x: Math.round(positions[e.id].x), y: Math.round(positions[e.id].y) }]))
     const next = await save.mutateAsync({ diagramId: layout.diagram_id, positions: body }).catch(() => null)
-    if (next) navigate(`../diagrams/${next.id}`)
+    if (!next) return
+    saved.current = true
+    navigate(`../diagrams/${next.id}`)
   }
 
   return (
@@ -64,6 +72,22 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
           </div>
         )}
       </div>
+
+      {blocker.state === 'blocked' && (
+        <Notice tone="warning" title="Leave without saving your moves?" className="mx-5 mt-3">
+          <span className="block">
+            {moved.length} {moved.length === 1 ? 'element has' : 'elements have'} moved since the last save. Leaving puts them back.
+          </span>
+          <span className="mt-2 flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => blocker.reset?.()}>
+              Stay and keep moving
+            </Button>
+            <Button size="sm" onClick={() => blocker.proceed?.()}>
+              Leave without saving
+            </Button>
+          </span>
+        </Notice>
+      )}
 
       {save.isError && (
         <Notice tone="error" title="The new positions were not saved" className="mx-5 mt-3">

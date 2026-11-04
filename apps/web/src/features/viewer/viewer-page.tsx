@@ -12,6 +12,7 @@ import { typeLabel } from '@/features/generate/diagram-types'
 import { markExported } from '@/features/search/exported'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
+import { svgToPng } from '@/features/viewer/export-svg'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
@@ -50,7 +51,9 @@ export function ViewerPage() {
   const [arrangeFor, setArrangeFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
   const threadRef = useRef<HTMLOListElement>(null)
+  const viewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!image.data) return setSrc(null)
@@ -92,10 +95,24 @@ export function ViewerPage() {
     navigate(`../diagrams/${next.id}`)
   }
 
-  function exportPng() {
-    if (!image.data) return
+  async function exportPng() {
     const slug = diagram!.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    saveBlob(image.data, `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`)
+    const name = `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`
+    setExportError(null)
+    if (moved) {
+      // A moved version is exported as drawn on screen, not as Kroki's picture, which ignores the moves.
+      const svg = viewRef.current?.querySelector<SVGSVGElement>('svg[data-layout-canvas]')
+      if (!svg) return
+      const blob = await svgToPng(svg).catch((e: unknown) => {
+        setExportError(e instanceof Error ? e.message : 'The PNG could not be made.')
+        return null
+      })
+      if (!blob) return
+      saveBlob(blob, name)
+    } else {
+      if (!image.data) return
+      saveBlob(image.data, name)
+    }
     markExported(diagram!.id)
   }
 
@@ -116,7 +133,7 @@ export function ViewerPage() {
           <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!layout.data || arranging || revise.isPending}>
             <MoveIcon /> Move elements
           </Button>
-          <Button variant="secondary" onClick={exportPng} disabled={!image.data}>
+          <Button variant="secondary" onClick={exportPng} disabled={moved ? arranging : !image.data}>
             <DownloadIcon /> Export PNG
           </Button>
         </div>
@@ -134,16 +151,20 @@ export function ViewerPage() {
       {arranging ? (
         <LayoutEditor key={diagram.id} projectId={project.id} layout={layout.data!} title={diagram.title} onClose={() => setArrangeFor(null)} />
       ) : (
-        <div className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
+        <div ref={viewRef} className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
           {moved ? (
-            <LayoutCanvas
-              key={diagram.id}
-              elements={moved.elements}
-              lines={moved.lines}
-              positions={{}}
-              label={`${diagram.title}, version ${index + 1}`}
-              className="p-2"
-            />
+            <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
+              <ZoomControls />
+              <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
+                <LayoutCanvas
+                  elements={moved.elements}
+                  lines={moved.lines}
+                  positions={{}}
+                  label={`${diagram.title}, version ${index + 1}`}
+                  className="p-2"
+                />
+              </TransformComponent>
+            </TransformWrapper>
           ) : src ? (
             <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
               <ZoomControls />
@@ -169,8 +190,14 @@ export function ViewerPage() {
               </p>
             </div>
           )}
-          {src && !moved && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
+          {(moved || src) && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
         </div>
+      )}
+
+      {exportError && (
+        <Notice tone="error" title="Couldn't export the PNG" className="mx-5 mt-3">
+          {exportError}
+        </Notice>
       )}
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (
