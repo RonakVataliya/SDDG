@@ -1,4 +1,4 @@
--- Idempotent. Applied automatically at API startup; safe to paste into the Supabase SQL editor too.
+-- Idempotent. Run it by hand (psql or the Supabase SQL editor); the API does not apply it at startup.
 CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY, email text UNIQUE NOT NULL);
 CREATE TABLE IF NOT EXISTS consents (user_id text PRIMARY KEY, policy_version text NOT NULL, consented_at timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS projects (

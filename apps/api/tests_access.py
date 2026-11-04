@@ -68,6 +68,7 @@ def check(client):
     diagram_id = db.member_job(job['id'], OWNER_ID)['diagram_ids'][0]
     db.save_flags(pid, [{'statement_id': statement['id'], 'type': 'ambiguous', 'reason': 'Vague.'}], [statement['id']])
     flag_id = client.get(f'{api}/projects/{pid}/flags', headers=mine).json()[0]['id']
+    db.update_job(job['id'], status='failed', error=f'Kroki rejected: {SECRET_TEXT}')  # failure text can echo requirements
 
     # 1. A stranger gets 404 on every route that takes a resource id, whatever the method.
     ids = {'project_id': pid, 'item_id': item['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id}
@@ -111,6 +112,7 @@ def check(client):
             for (value,) in sql(f'SELECT {col} FROM {table} WHERE {where}=%s AND {col} IS NOT NULL', pid):
                 assert value.startswith(PREFIX) and SECRET_TEXT not in value, (table, col)
     assert client.get(f'{api}/diagrams/{diagram_id}', headers=mine).json()['svg'].startswith('<svg')
+    assert SECRET_TEXT in client.get(f'{api}/jobs/{job["id"]}', headers=mine).json()['error']
 
 
 if __name__ == '__main__':

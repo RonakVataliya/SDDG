@@ -9,7 +9,10 @@ PREFIX = "enc:"
 
 @cache
 def fernet():
-    return Fernet(os.environ["DATA_ENCRYPTION_KEY"])  # missing or malformed key: fail loudly
+    key = os.environ.get("DATA_ENCRYPTION_KEY")
+    if not key:
+        raise RuntimeError("DATA_ENCRYPTION_KEY is not set. Set it in the environment (see apps/api/.env.example).")
+    return Fernet(key)  # a malformed key fails loudly here too
 
 
 def encrypt(text):

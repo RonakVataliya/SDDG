@@ -3,7 +3,7 @@ from time import perf_counter
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
-from app.logging_config import get_logger
+from app.logging_config import error_location, get_logger
 from app.schemas.usecase import (
     RenderRequest,
     RenderResult,
@@ -43,7 +43,7 @@ async def generate(request: UseCaseApprovalRequest) -> UseCaseDiagramResult:
         logger.error("usecase_render_error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error("usecase_generation_failed error_type=%s", type(exc).__name__)
+        logger.error("usecase_generation_failed error_type=%s at=%s", type(exc).__name__, error_location(exc))
         raise HTTPException(
             status_code=500, detail="Use-case diagram generation failed. Please try again."
         ) from exc
@@ -78,5 +78,5 @@ async def revise(request: UseCaseRevisionRequest) -> UseCaseDiagramResult:
         logger.error("usecase_revision_render_error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("usecase_revision_failed error_type=%s", type(exc).__name__)
+        logger.error("usecase_revision_failed error_type=%s at=%s", type(exc).__name__, error_location(exc))
         raise HTTPException(status_code=422, detail="That change could not be applied. Try a more specific instruction.") from exc
