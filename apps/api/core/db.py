@@ -23,6 +23,7 @@ SECRET = {
     "items": ("name", "description"),
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
     "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
+    "jobs": ("error",),  # a failure message can repeat part of the requirements
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
@@ -310,6 +311,8 @@ def update_job(jid, **fields):
     """Columns come from server code only, never from request data."""
     if "diagram_ids" in fields:
         fields["diagram_ids"] = json.dumps(fields["diagram_ids"])
+    if "error" in fields:
+        fields["error"] = encrypt(fields["error"])
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE jobs SET {sets} WHERE id=%s", *fields.values(), jid)
 

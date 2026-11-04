@@ -182,6 +182,13 @@ psql "$DATABASE_URL" -f apps/api/schema.sql
 
 The API needs the tables in `apps/api/schema.sql` before it can operate. The API startup code opens the connection pool; do not rely on startup to apply the schema automatically.
 
+To move an existing deployment to the version with project membership and encrypted storage, do these steps in this order. A different order either stops the API from starting or shows `enc:...` text to users.
+
+1. Generate a key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and set it as `DATA_ENCRYPTION_KEY` on the host (for example Render) and in `apps/api/.env`. Keep a second copy in a password manager: if the key is lost, the stored content cannot be read.
+2. Run `apps/api/schema.sql` against the database.
+3. Deploy the API.
+4. Run `apps/api/schema.sql` once more (it adds any project created between steps 2 and 3 to its members), then run `python encrypt_existing.py` once from `apps/api` to encrypt content saved earlier.
+
 #### 3. Configure and start the AI extraction service
 
 In `services/ai-extraction/.env`, choose a provider and add its key. For Groq:
@@ -230,6 +237,7 @@ In `apps/api/.env`, check the following settings:
 
 ```dotenv
 DATABASE_URL=your_postgresql_connection_string
+DATA_ENCRYPTION_KEY=your_generated_key
 DEV_AUTH_BYPASS=true
 AI_SERVICE_URL=http://127.0.0.1:8001/api/v1
 KROKI_URL=http://127.0.0.1:8080
@@ -280,6 +288,7 @@ Open the URL printed by Vite (usually `http://localhost:5173`). Submit requireme
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string; required |
+| `DATA_ENCRYPTION_KEY` | Key that encrypts stored requirements, items and diagrams; required, keep a backup copy |
 | `DEV_AUTH_BYPASS` | Allows mock tokens in local development; keep disabled in deployments |
 | `SUPABASE_URL` | Supabase Auth endpoint when using real authentication |
 | `SUPABASE_PUBLISHABLE_KEY` | Public/publishable Supabase key used to validate tokens |
