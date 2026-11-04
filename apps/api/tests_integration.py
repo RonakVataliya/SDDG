@@ -182,13 +182,13 @@ def main():
             positions = [client.get(f"/api/v1/jobs/{j['id']}", headers=headers).json()['queue_position'] for j in (first, second)]
             assert positions[1] == positions[0] + 1, positions
             db.fail_interrupted_jobs()
-            assert db.owned_job(second['id'], USER_ID)['status'] == 'failed'
+            assert db.member_job(second['id'], USER_ID)['status'] == 'failed'
 
             assert client.post(f'/api/v1/projects/{pid}/confirmation', headers=headers).status_code == 201
             # Generation is asynchronous at the API boundary; exercise the real worker directly.
             job = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
             asyncio.run(integrated.generation_worker(job['id'], pid, ['use_case']))
-            finished = db.owned_job(job['id'], USER_ID)
+            finished = db.member_job(job['id'], USER_ID)
             assert finished['status'] == 'succeeded', finished
             diagram_id = finished['diagram_ids'][0]
 

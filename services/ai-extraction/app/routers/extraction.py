@@ -25,7 +25,7 @@ async def split(request: SplitRequest) -> SplitResult:
         logger.error("split_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error("split_failed error_type=%s error=%s", type(exc).__name__, str(exc), exc_info=True)
+        logger.error("split_failed error_type=%s", type(exc).__name__)  # not the message: it can hold requirement text
         raise HTTPException(status_code=500, detail="Splitting failed. Please try again.") from exc
 
 
@@ -54,7 +54,7 @@ async def extract(request: ExtractionRequest) -> ExtractionResult:
         logger.error("extraction_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error("extraction_failed error_type=%s error=%s", type(exc).__name__, str(exc), exc_info=True)
+        logger.error("extraction_failed error_type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=500, detail="Extraction failed. Please try again."
         ) from exc
