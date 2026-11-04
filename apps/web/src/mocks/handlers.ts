@@ -4,6 +4,7 @@ import { AI_SECTION_VERSION } from '@/features/privacy/policy'
 import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, projectView, publicJob, save, touch, uid, type DiagramRow } from './db'
 import { applyInstruction } from './edit'
+import { layoutView } from './layout'
 import { renderUseCase } from './render'
 
 const base = env.apiUrl.replace(/\/$/, '')
@@ -249,6 +250,40 @@ export const handlers = [
         instruction: text,
         model: result.model,
         svg: renderUseCase(result.model),
+      }
+      getDb().diagrams.push(row)
+      touch(d.project_id)
+      save()
+      return HttpResponse.json(diagramView(row), { status: 201 })
+    }),
+  ),
+  http.get(
+    u('/diagrams/:diagram_id/layout'),
+    authed(({ email, params }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      return HttpResponse.json(layoutView(d))
+    }),
+  ),
+  http.post(
+    u('/diagrams/:diagram_id/layout'),
+    authed(async ({ email, params, request }) => {
+      const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
+      if (!d || !ownedProject(email, d.project_id)) return notFound()
+      const { positions } = (await request.json()) as { positions?: Record<string, { x?: unknown; y?: unknown }> }
+      if (!positions || typeof positions !== 'object') return fail(422, 'Send the moved positions.')
+      const known = new Set(layoutView(d).elements.map((e) => e.id))
+      const unknown = Object.keys(positions).filter((id) => !known.has(id)).sort()
+      if (unknown.length) return fail(422, `Not an element of this diagram: ${unknown.join(', ')}`)
+      const moved = Object.entries(positions)
+      if (!moved.every(([, p]) => Number.isFinite(p?.x) && Number.isFinite(p?.y))) return fail(422, 'Positions must be numbers.')
+      const row: DiagramRow = {
+        ...d,
+        id: uid('dg'),
+        created_at: new Date().toISOString(),
+        parent_id: d.id,
+        instruction: `Moved ${moved.length} element(s)`,
+        layout: { ...d.layout, ...Object.fromEntries(moved.map(([id, p]) => [id, [p.x as number, p.y as number]])) },
       }
       getDb().diagrams.push(row)
       touch(d.project_id)

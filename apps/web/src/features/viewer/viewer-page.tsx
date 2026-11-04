@@ -1,15 +1,18 @@
-import { ArrowUpIcon, DownloadIcon, MaximizeIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
+import { ArrowUpIcon, DownloadIcon, MaximizeIcon, MoveIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
 import type { Diagram } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
-import { saveBlob, useDiagram, useDiagramImage, useDiagrams, useReviseDiagram } from '@/api/queries'
+import { saveBlob, useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useReviseDiagram } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
 import { markExported } from '@/features/search/exported'
+import { LayoutCanvas } from '@/features/viewer/layout-canvas'
+import { LayoutEditor } from '@/features/viewer/layout-editor'
+import { svgToPng } from '@/features/viewer/export-svg'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
@@ -44,9 +47,13 @@ export function ViewerPage() {
   const { data: all } = useDiagrams(project.id)
   const image = useDiagramImage(diagramId)
   const revise = useReviseDiagram(project.id)
+  const layout = useDiagramLayout(diagramId)
+  const [arrangeFor, setArrangeFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
   const threadRef = useRef<HTMLOListElement>(null)
+  const viewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!image.data) return setSrc(null)
@@ -74,6 +81,9 @@ export function ViewerPage() {
 
   const index = versions.findIndex((v) => v.id === diagram.id)
   const latest = versions.at(-1)
+  const arranging = arrangeFor === diagram.id && !!layout.data
+  // Kroki draws the PNG from the source and knows nothing of moved positions, so a moved version is drawn here instead.
+  const moved = layout.data?.saved ? layout.data : null
 
   async function send(e: FormEvent) {
     e.preventDefault()
@@ -85,10 +95,24 @@ export function ViewerPage() {
     navigate(`../diagrams/${next.id}`)
   }
 
-  function exportPng() {
-    if (!image.data) return
+  async function exportPng() {
     const slug = diagram!.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    saveBlob(image.data, `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`)
+    const name = `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`
+    setExportError(null)
+    if (moved) {
+      // A moved version is exported as drawn on screen, not as Kroki's picture, which ignores the moves.
+      const svg = viewRef.current?.querySelector<SVGSVGElement>('svg[data-layout-canvas]')
+      if (!svg) return
+      const blob = await svgToPng(svg).catch((e: unknown) => {
+        setExportError(e instanceof Error ? e.message : 'The PNG could not be made.')
+        return null
+      })
+      if (!blob) return
+      saveBlob(blob, name)
+    } else {
+      if (!image.data) return
+      saveBlob(image.data, name)
+    }
     markExported(diagram!.id)
   }
 
@@ -105,9 +129,14 @@ export function ViewerPage() {
             </Link>
           </p>
         </div>
-        <Button variant="secondary" onClick={exportPng} disabled={!image.data}>
-          <DownloadIcon /> Export PNG
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!layout.data || arranging || revise.isPending}>
+            <MoveIcon /> Move elements
+          </Button>
+          <Button variant="secondary" onClick={exportPng} disabled={moved ? arranging : !image.data}>
+            <DownloadIcon /> Export PNG
+          </Button>
+        </div>
       </div>
 
       {latest && latest.id !== diagram.id && (
@@ -119,34 +148,57 @@ export function ViewerPage() {
         </p>
       )}
 
-      <div className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
-        {src ? (
-          <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
-            <ZoomControls />
-            <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
-              <img src={src} alt={`${diagram.title}, version ${index + 1}`} className="m-auto block h-full w-full object-contain p-4" draggable={false} />
-            </TransformComponent>
-          </TransformWrapper>
-        ) : image.isError ? (
-          <div className="grid h-full place-items-center p-6">
-            <Notice tone="error" title="Couldn't load the diagram image">
-              {errorMessage(image.error)}
-            </Notice>
-          </div>
-        ) : (
-          <div className="grid h-full place-items-center">
-            <Spinner label="Loading the diagram image" />
-          </div>
-        )}
-        {revise.isPending && (
-          <div className="absolute inset-0 z-20 grid place-items-center bg-white/70 backdrop-blur-[1px]">
-            <p className="flex items-center gap-2 rounded-full border border-rule bg-surface px-4 py-2 text-sm shadow-sm">
-              <Spinner label="" /> Updating the diagram…
-            </p>
-          </div>
-        )}
-        {src && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
-      </div>
+      {arranging ? (
+        <LayoutEditor key={diagram.id} projectId={project.id} layout={layout.data!} title={diagram.title} onClose={() => setArrangeFor(null)} />
+      ) : (
+        <div ref={viewRef} className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
+          {moved ? (
+            <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
+              <ZoomControls />
+              <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
+                <LayoutCanvas
+                  elements={moved.elements}
+                  lines={moved.lines}
+                  positions={{}}
+                  label={`${diagram.title}, version ${index + 1}`}
+                  className="p-2"
+                />
+              </TransformComponent>
+            </TransformWrapper>
+          ) : src ? (
+            <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
+              <ZoomControls />
+              <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
+                <img src={src} alt={`${diagram.title}, version ${index + 1}`} className="m-auto block h-full w-full object-contain p-4" draggable={false} />
+              </TransformComponent>
+            </TransformWrapper>
+          ) : image.isError ? (
+            <div className="grid h-full place-items-center p-6">
+              <Notice tone="error" title="Couldn't load the diagram image">
+                {errorMessage(image.error)}
+              </Notice>
+            </div>
+          ) : (
+            <div className="grid h-full place-items-center">
+              <Spinner label="Loading the diagram image" />
+            </div>
+          )}
+          {revise.isPending && (
+            <div className="absolute inset-0 z-20 grid place-items-center bg-white/70 backdrop-blur-[1px]">
+              <p className="flex items-center gap-2 rounded-full border border-rule bg-surface px-4 py-2 text-sm shadow-sm">
+                <Spinner label="" /> Updating the diagram…
+              </p>
+            </div>
+          )}
+          {(moved || src) && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
+        </div>
+      )}
+
+      {exportError && (
+        <Notice tone="error" title="Couldn't export the PNG" className="mx-5 mt-3">
+          {exportError}
+        </Notice>
+      )}
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (
         <ol ref={threadRef} aria-label="Changes to this diagram" aria-live="polite" className="mx-5 mt-3 max-h-48 space-y-2.5 overflow-y-auto pr-1 text-sm">
@@ -201,7 +253,7 @@ export function ViewerPage() {
               setDraft(e.target.value)
               if (revise.isError) revise.reset()
             }}
-            disabled={revise.isPending}
+            disabled={revise.isPending || arranging}
           />
           <Button type="submit" size="icon" className="size-8 rounded-full" aria-label="Apply change" disabled={!draft.trim() || revise.isPending}>
             {revise.isPending ? <Spinner className="text-white" label="" /> : <ArrowUpIcon />}

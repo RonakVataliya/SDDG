@@ -74,7 +74,8 @@ def check(client):
     ids = {'project_id': pid, 'item_id': item['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id}
     bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
-              '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'}}
+              '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
+              '/layout': {'positions': {}}}
     swept = 0
     for path, methods in app.openapi()['paths'].items():
         if not any(f'{{{k}}}' in path for k in ids):
@@ -84,7 +85,7 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 18, swept  # a new route with a resource id must be added to this check
+    assert swept == 20, swept  # a new route with a resource id must be added to this check
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)
