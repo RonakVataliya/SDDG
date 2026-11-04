@@ -35,7 +35,7 @@ def test_failed_extraction_logs_no_content(monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         r = TestClient(app).post("/api/v1/extraction/extract", json={"text": SECRET, "project_name": "p"})
     assert r.status_code == 500
-    assert SECRET not in caplog.text and "extraction_failed" in caplog.text
+    assert SECRET not in caplog.text and "extraction_failed" in caplog.text and "at=" in caplog.text and ".py:" in caplog.text
 
 
 def test_failed_diagram_call_logs_no_content(caplog):
@@ -44,7 +44,7 @@ def test_failed_diagram_call_logs_no_content(caplog):
 
     with caplog.at_level(logging.DEBUG), pytest.raises(Exception):
         asyncio.run(run_diagram_call(fail, None, label="dfd", fallback_status=500, fallback_detail="failed"))
-    assert SECRET not in caplog.text and "dfd_failed" in caplog.text
+    assert SECRET not in caplog.text and "dfd_failed" in caplog.text and "at=" in caplog.text and ".py:" in caplog.text
 
 
 def test_retry_logs_no_model_output(monkeypatch, caplog):

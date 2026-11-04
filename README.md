@@ -28,7 +28,7 @@ SDDG is a web application that turns natural-language software requirements into
 - **Review before generation:** inspect extracted modelling items, edit item names and descriptions, and explicitly confirm the model before generating a diagram.
 - **Generate a Use Case diagram:** derive a structured Use Case specification from the confirmed actors and processes, produce PlantUML source, and render the diagram through Kroki.
 - **Revise with natural-language feedback:** request changes to a generated diagram. Each successful revision creates a new version, preserving the earlier version and the revision instruction.
-- **Inspect and export:** view the diagram with pan/zoom controls and export it as a PNG image.
+- **Inspect and export:** view the diagram with pan/zoom controls and export it from the Export menu as PNG, SVG, PDF or diagram source code, or download every diagram of the project as one ZIP.
 - **Track asynchronous work:** show progress and errors for extraction and diagram generation jobs.
 - **Gate AI processing with consent:** the integrated backend requires the user to agree to the current AI-processing policy before submitting requirements.
 
@@ -40,7 +40,7 @@ SDDG is a web application that turns natural-language software requirements into
 4. **Review and edit.** Correct extracted item names or descriptions and confirm the model.
 5. **Generate a diagram.** Generate a Use Case diagram from the confirmed model.
 6. **Iterate.** Describe a change in plain language. SDDG creates a new diagram version rather than overwriting the previous version.
-7. **Export.** Download the selected version as PNG.
+7. **Export.** Download the selected version as PNG, SVG, PDF or source code (`.puml` / `.dot` / `.mmd`), or the project's diagrams as a ZIP (latest version of each, or every version).
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ flowchart TD
     D --> E{Confirm model?}
     E -- No --> D
     E -- Yes --> F[Generate Use Case diagram]
-    F --> G[View and export PNG]
+    F --> G[View and export PNG / SVG / PDF]
     G --> H[Optional: request a revision]
     H --> I[Create a new diagram version]
     I --> G
@@ -68,7 +68,7 @@ flowchart LR
     A -->|Extract requirements / generate or revise diagram| AI[AI extraction service]
     AI --> L[Groq or Google Gemini]
     AI --> K[Kroki / PlantUML]
-    A -->|PNG export| K
+    A -->|PNG / SVG / PDF export| K
 ```
 
 - **Web app (`apps/web`)** — React, TypeScript, Vite, React Router, TanStack Query, and Tailwind CSS. It contains the project workflow, requirement review screens, diagram viewer, and a mock API mode for frontend development.
@@ -182,6 +182,15 @@ psql "$DATABASE_URL" -f apps/api/schema.sql
 
 The API needs the tables in `apps/api/schema.sql` before it can operate. The API startup code opens the connection pool; do not rely on startup to apply the schema automatically.
 
+The file is safe to run again, and it only adds what is missing. Run it again after pulling changes that touch it: for example, until the `diagrams.style` column exists, saving a diagram's look fails (diagrams still load and export with the default look).
+
+To move an existing deployment to the version with project membership and encrypted storage, do these steps in this order. A different order either stops the API from starting or shows `enc:...` text to users.
+
+1. Generate a key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and set it as `DATA_ENCRYPTION_KEY` on the host (for example Render) and in `apps/api/.env`. Keep a second copy in a password manager: if the key is lost, the stored content cannot be read.
+2. Run `apps/api/schema.sql` against the database.
+3. Deploy the API.
+4. Run `apps/api/schema.sql` once more (it adds any project created between steps 2 and 3 to its members), then run `python encrypt_existing.py` once from `apps/api` to encrypt content saved earlier.
+
 #### 3. Configure and start the AI extraction service
 
 In `services/ai-extraction/.env`, choose a provider and add its key. For Groq:
@@ -222,7 +231,7 @@ From the repository root, run:
 docker compose -f infra/kroki-compose.yml up -d
 ```
 
-Kroki is exposed on `http://localhost:8080`, matching the supplied environment examples. The current Use Case diagram flow requires Kroki to be reachable for rendering and PNG export.
+Kroki is exposed on `http://localhost:8080`, matching the supplied environment examples. The current Use Case diagram flow requires Kroki to be reachable for rendering and PNG / SVG / PDF export.
 
 #### 5. Configure and start the backend API
 
@@ -230,6 +239,7 @@ In `apps/api/.env`, check the following settings:
 
 ```dotenv
 DATABASE_URL=your_postgresql_connection_string
+DATA_ENCRYPTION_KEY=your_generated_key
 DEV_AUTH_BYPASS=true
 AI_SERVICE_URL=http://127.0.0.1:8001/api/v1
 KROKI_URL=http://127.0.0.1:8080
@@ -280,11 +290,13 @@ Open the URL printed by Vite (usually `http://localhost:5173`). Submit requireme
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string; required |
+| `DATA_ENCRYPTION_KEY` | Key that encrypts stored requirements, items and diagrams; required, keep a backup copy |
 | `DEV_AUTH_BYPASS` | Allows mock tokens in local development; keep disabled in deployments |
 | `SUPABASE_URL` | Supabase Auth endpoint when using real authentication |
 | `SUPABASE_PUBLISHABLE_KEY` | Public/publishable Supabase key used to validate tokens |
 | `AI_SERVICE_URL` | Base URL for the AI service API, including `/api/v1` |
-| `KROKI_URL` | Base URL for diagram PNG rendering |
+| `KROKI_URL` | Base URL for diagram rendering and PNG / SVG / PDF export |
+| `ZIP_MAX_VERSIONS` | Optional. Most diagram versions in one all-versions project ZIP (default 30) |
 | `AI_POLICY_VERSION` | Version of the AI-processing consent policy enforced by the API |
 | `CORS_ORIGINS` | Comma-separated frontend origins allowed by the API |
 
@@ -343,8 +355,8 @@ python tests_integration.py
 - Only **Use Case diagrams** are enabled end to end. Class, Activity, Sequence, DFD, and Component options are not implemented yet; State diagram support is also not wired into the current diagram-type model.
 - Input is plain text pasted into the application. PDF/DOCX/SRS file upload, file parsing, and richer input-source management are not implemented.
 - Review currently supports editing extracted item names and descriptions. It is not yet a full model editor for changing all relationships and properties.
-- Diagram editing is driven by natural-language instructions and produces a new version. Direct drag-and-drop element repositioning and a full visual style editor are not implemented.
-- PNG is the supported export format. SVG, PlantUML source download, PDF, and other export formats are not exposed as user export options.
+- Diagram editing is driven by natural-language instructions and produces a new version. Colour theme, layout direction and font size can be set per diagram; a version whose elements were moved by hand is drawn in the browser and keeps the standard look.
+- Export supports PNG, SVG, PDF, diagram source code and a project ZIP (PNG, SVG, PDF and source; latest version of each diagram or every version). PDF is not available for diagrams drawn with Mermaid (Kroki has no Mermaid PDF output).
 - Extraction and generation run as in-process FastAPI background tasks; a durable distributed job queue and production-scale worker management are not included.
 - The mock frontend mode is for demos and development only. It should not be treated as real AI output, persistent server storage, or production authentication.
 
@@ -369,12 +381,11 @@ The following is a working direction, not a committed release schedule.
 
 - Add direct diagram-canvas editing, including moving and repositioning elements.
 - Expand feedback-based regeneration and make changes easier to review or compare across versions.
-- Add visual customization before export, such as layout and style controls.
 
 ### 4. Validation, export, and navigation
 
 - Validate generated diagrams for structural consistency and unresolved references before marking a generation complete.
-- Add export options such as SVG, source text, and PDF where suitable.
+- ~~Add export options such as SVG, source text, and PDF~~ (done: PNG, SVG, PDF, source code and project ZIP).
 - Add search and filtering for projects, requirements, modelling items, and diagram versions.
 - Improve completion notifications and recovery guidance for failed or partial jobs.
 

@@ -540,6 +540,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/diagrams/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** The project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt; no PDF for Mermaid) */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description all (default) = every version; latest = newest version of each diagram */
+                    versions?: "all" | "latest";
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description ZIP file */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                /** @description The project has no diagrams yet */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description versions is not all/latest, or the all-versions ZIP is over the version cap (ZIP_MAX_VERSIONS, default 30) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -682,11 +743,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px). Drawn with the diagram's saved style (#38). */
+        /** The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, downloaded by Export. Pictures are drawn with the diagram's saved style (#38). */
         get: {
             parameters: {
                 query: {
-                    format: "png";
+                    format: "png" | "svg" | "pdf" | "source";
                 };
                 header?: never;
                 path: {
@@ -703,12 +764,100 @@ export interface paths {
                     };
                     content: {
                         "image/png": string;
+                        "image/svg+xml": string;
+                        "application/pdf": string;
+                        /** @description format=source: the diagram code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid) */
+                        "text/plain": string;
+                    };
+                };
+                /** @description Unsupported format */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
                     };
                 };
             };
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diagrams/{diagram_id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: components["parameters"]["DiagramId"];
+            };
+            cookie?: never;
+        };
+        /** Element positions and the lines between them, for moving elements by hand (#37). Positions are element centres. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiagramLayout"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Save moved elements. Returns the new version; the one it came from is kept. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    diagram_id: components["parameters"]["DiagramId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LayoutUpdate"];
+                };
+            };
+            responses: {
+                /** @description New version */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Diagram"];
+                    };
+                };
+                /** @description Not an element of this diagram */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -992,8 +1141,11 @@ export interface components {
          */
         LayoutDirection: "auto" | "TB" | "LR";
         DiagramStyle: {
-            /** @description Preset the colours came from; null once a colour is edited by hand */
-            preset: string | null;
+            /**
+             * @description Preset the colours came from; null once a colour is edited by hand
+             * @enum {string|null}
+             */
+            preset: "default" | "high_contrast" | "dark" | "blueprint" | "warm" | null;
             /** @description Canvas */
             background: string;
             /** @description Element boxes */
@@ -1005,6 +1157,45 @@ export interface components {
             direction: components["schemas"]["LayoutDirection"];
             /** @description Points */
             font_size: number;
+        };
+        Point: {
+            x: number;
+            y: number;
+        };
+        LayoutElement: {
+            id: string;
+            /** @description e.g. actor, use_case, class, process, start, decision */
+            kind: string;
+            label: string;
+            /** @description Centre of the element */
+            x: number;
+            /** @description Centre of the element */
+            y: number;
+        };
+        LayoutLine: {
+            id: string;
+            /** @description e.g. association, include, extend, message, data_flow, flow, or a class relation type */
+            kind: string;
+            /** @description Element id the line starts at */
+            source: string;
+            /** @description Element id the line ends at */
+            target: string;
+            /** @description Text drawn on the line: a flow name, message, relation name, dependency label, transition event or decision guard; null when the line has none */
+            label?: string | null;
+        };
+        DiagramLayout: {
+            diagram_id: string;
+            type: components["schemas"]["DiagramType"];
+            /** @description True when this version has positions moved by hand; false means the default grid */
+            saved: boolean;
+            elements: components["schemas"]["LayoutElement"][];
+            lines: components["schemas"]["LayoutLine"][];
+        };
+        LayoutUpdate: {
+            /** @description Only the elements that moved */
+            positions: {
+                [key: string]: components["schemas"]["Point"];
+            };
         };
     };
     responses: never;

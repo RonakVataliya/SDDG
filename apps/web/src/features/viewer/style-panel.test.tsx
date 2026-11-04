@@ -4,10 +4,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createQueryClient } from '@/lib/query-client'
 import { getDb } from '@/mocks/db'
+import { renderApp } from '@/test/render'
 import { seedDiagram } from '@/test/seed'
 import { StylePanel } from './style-panel'
 
-function renderPanel() {
+function renderPanel(diagramType: 'use_case' | 'activity' = 'use_case') {
   const queryClient = createQueryClient()
   queryClient.setDefaultOptions({
     queries: { retry: false },
@@ -18,7 +19,7 @@ function renderPanel() {
     <QueryClientProvider client={queryClient}>
       <StylePanel
         diagramId="dg_1"
-        diagramType="use_case"
+        diagramType={diagramType}
         onPreviewChange={() => {}}
       />
     </QueryClientProvider>,
@@ -56,6 +57,7 @@ describe('StylePanel', () => {
     expect(
       screen.getByText('Text might be hard to read. Apply anyway?'),
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
     expect(getDb().diagrams[0].style).toBeUndefined()
 
     await user.click(
@@ -149,5 +151,22 @@ describe('StylePanel', () => {
     renderPanel()
 
     expect(await screen.findByText('18 pt')).toBeInTheDocument()
+  })
+
+  it('hides layout direction for activity diagrams', async () => {
+    renderPanel('activity')
+    await screen.findByRole('heading', { name: 'Customise diagram' })
+    expect(screen.queryByLabelText('Layout direction')).not.toBeInTheDocument()
+  })
+
+  it('is offered on a version drawn by Kroki, and replaced by a note on a version with moved elements', async () => {
+    const { unmount } = renderApp('/projects/pr_1/diagrams/dg_1')
+    expect(await screen.findByRole('heading', { name: 'Customise diagram' })).toBeInTheDocument()
+    unmount()
+
+    getDb().diagrams[0].layout = { it_1: [150, 150] }
+    renderApp('/projects/pr_1/diagrams/dg_1')
+    expect(await screen.findByText(/were moved by hand, so it keeps the standard look/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Customise diagram' })).not.toBeInTheDocument()
   })
 })

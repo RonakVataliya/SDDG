@@ -19,6 +19,7 @@ FONT_SIZE_MIN, FONT_SIZE_MAX, NORMAL_FONT_SIZE = 8, 24, 12
 DIRECTIONS = ("auto", "TB", "LR")
 COLOUR_KEYS = ("background", "fill", "text", "line")
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+PRESETS = ("default", "high_contrast", "dark", "blueprint", "warm")  # ids of STYLE_PRESETS in style.ts
 
 # Same values as apps/web/src/features/viewer/style.ts (the "default" preset).
 DEFAULT_STYLE = {
@@ -50,8 +51,10 @@ def parse_style(body) -> dict:
     if isinstance(size, bool) or not isinstance(size, int) or not FONT_SIZE_MIN <= size <= FONT_SIZE_MAX:
         raise StyleError(f"Font size must be a whole number from {FONT_SIZE_MIN} to {FONT_SIZE_MAX} pt.")
     preset = body.get("preset")
+    if preset is not None and preset not in PRESETS:
+        raise StyleError("Choose one of the colour themes.")
     return {
-        "preset": preset if isinstance(preset, str) and preset else None,
+        "preset": preset,
         **{key: body[key].upper() for key in COLOUR_KEYS},
         "direction": body["direction"],
         "font_size": size,
@@ -97,8 +100,8 @@ def save_style(diagram_id, style):
 # ============================================================================
 
 def direction_supported(diagram_type) -> bool:
-    """Sequence diagrams always run top to bottom: lifelines have no other direction."""
-    return diagram_type != "sequence"
+    """Sequence and activity diagrams always run top to bottom: PlantUML has no other direction for them."""
+    return diagram_type not in ("sequence", "activity")
 
 
 def apply_style(source: str, engine: str, style: dict, diagram_type: str) -> str:
@@ -152,7 +155,7 @@ def _plantuml(source, s, direction, scale, diagram_type):
     ]
     for kind in _PUML_BOXES:
         skin += [f"skinparam {kind}BackgroundColor {s['fill']}", f"skinparam {kind}BorderColor {s['line']}"]
-    if direction != "auto" and diagram_type != "activity":  # activity diagrams always flow top to bottom
+    if direction != "auto":
         skin.insert(0, "left to right direction" if direction == "LR" else "top to bottom direction")
     # Right after @startuml: PlantUML fixes an arrow's colours when it reads the arrow, so skinparams placed
     # after the diagram body would miss them. The generators' own skinparams (shadowing, stereotypes) follow.
@@ -166,6 +169,14 @@ _DOT_HEX_LINE = re.compile(r'\bcolor="#[0-9A-Fa-f]{3,8}"')
 _DOT_BGCOLOR = re.compile(r'\bBGCOLOR="[^"]*"')
 _DOT_FONTSIZE = re.compile(r"\bfontsize=(\d+(?:\.\d+)?)")
 _DOT_RANKDIR = re.compile(r"\brankdir=\w+")
+_DOT_TABLE = re.compile(r"<TABLE\b([^>]*)>", re.IGNORECASE)
+_DOT_TABLE_COLOR = re.compile(r'\s*\bCOLOR="[^"]*"', re.IGNORECASE)
+_DOT_FONT = 14  # Graphviz's default fontsize, used where the generator set none
+
+
+def _table(m, colour):
+    attrs = _DOT_TABLE_COLOR.sub("", m.group(1))
+    return f'<TABLE COLOR="{colour}"{attrs}>'
 
 
 def _graphviz(source, s, direction, scale):
@@ -177,21 +188,24 @@ def _graphviz(source, s, direction, scale):
     out = _DOT_BLACK_FILL.sub(f'fillcolor="{s["text"]}"', out)  # start/end dots, so they show on dark backgrounds
     out = _DOT_HEX_LINE.sub(f'color="{s["line"]}"', out)
     out = _DOT_BGCOLOR.sub(f'BGCOLOR="{s["fill"]}"', out)
-    out = out.replace("<TABLE ", f'<TABLE COLOR="{s["line"]}" ')
+    out = _DOT_TABLE.sub(lambda m: _table(m, s["line"]), out)
     if direction != "auto":
         out = _DOT_RANKDIR.sub(f"rankdir={direction}", out) if _DOT_RANKDIR.search(out) else out
-    # Defaults go first, so the generator's own node/edge attributes still win where it set them.
+    # Defaults go first, so the generator's own node/edge attributes still win where it set them. Their fontsize
+    # scales labels the generator gave no size; explicit fontsize= values were scaled above.
+    font = f"fontsize={round(_DOT_FONT * scale, 1):g}"
     defaults = (
-        f'  graph [bgcolor="{s["background"]}", fontcolor="{s["text"]}"'
+        f'  graph [bgcolor="{s["background"]}", fontcolor="{s["text"]}", {font}'
         + (f", rankdir={direction}" if direction != "auto" and not _DOT_RANKDIR.search(out) else "")
         + "];\n"
-        f'  node [color="{s["line"]}", fontcolor="{s["text"]}"];\n'
-        f'  edge [color="{s["line"]}", fontcolor="{s["text"]}"];'
+        f'  node [color="{s["line"]}", fontcolor="{s["text"]}", {font}];\n'
+        f'  edge [color="{s["line"]}", fontcolor="{s["text"]}", {font}];'
     )
     brace = out.find("{")
     return out if brace < 0 else out[: brace + 1] + "\n" + defaults + out[brace + 1 :]
 
 
+_MERMAID_FRONTMATTER = re.compile(r"\A(\s*---\n.*?\n---[ \t]*\n)", re.DOTALL)
 _MERMAID_FLOW = re.compile(r"^(\s*)(flowchart|graph)\s+(TB|TD|BT|LR|RL)\b", re.MULTILINE)
 
 
@@ -208,5 +222,7 @@ def _mermaid(source, s, direction, scale):
     out = source
     if direction != "auto":
         out = _MERMAID_FLOW.sub(lambda m: f"{m.group(1)}{m.group(2)} {direction}", out, count=1)
-    init = "%%{init: " + json.dumps({"theme": "base", "themeVariables": variables}) + "}%%"
-    return init + "\n" + out
+    init = "%%{init: " + json.dumps({"theme": "base", "themeVariables": variables}) + "}%%\n"
+    # A leading --- frontmatter block must stay first, so the init line goes right after it.
+    front = _MERMAID_FRONTMATTER.match(out)
+    return out[: front.end()] + init + out[front.end() :] if front else init + out

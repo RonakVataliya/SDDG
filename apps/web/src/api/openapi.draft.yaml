@@ -113,6 +113,16 @@ paths:
         '200':
           description: OK
           content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DiagramSummary' } } } }
+  /projects/{project_id}/diagrams/export:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: The project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt; no PDF for Mermaid)
+      parameters:
+        - { name: versions, in: query, required: false, description: 'all (default) = every version; latest = newest version of each diagram', schema: { type: string, enum: [all, latest], default: all } }
+      responses:
+        '200': { description: ZIP file, content: { application/zip: { schema: { type: string, format: binary } } } }
+        '404': { description: The project has no diagrams yet, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: 'versions is not all/latest, or the all-versions ZIP is over the version cap (ZIP_MAX_VERSIONS, default 30)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /jobs/{job_id}:
     parameters: [{ name: job_id, in: path, required: true, schema: { type: string } }]
     get:
@@ -138,11 +148,32 @@ paths:
   /diagrams/{diagram_id}/export:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
-      summary: The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px). Drawn with the diagram's saved style (#38).
+      summary: The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, downloaded by Export. Pictures are drawn with the diagram's saved style (#38).
       parameters:
-        - { name: format, in: query, required: true, schema: { type: string, enum: [png] } }
+        - { name: format, in: query, required: true, schema: { type: string, enum: [png, svg, pdf, source] } }
       responses:
-        '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+        '200':
+          description: File
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/svg+xml: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+            text/plain: { description: 'format=source: the diagram code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid)', schema: { type: string } }
+        '422': { description: Unsupported format, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/layout:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: Element positions and the lines between them, for moving elements by hand (#37). Positions are element centres.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramLayout' } } } }
+    post:
+      summary: Save moved elements. Returns the new version; the one it came from is kept.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LayoutUpdate' } } }
+      responses:
+        '201': { description: New version, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+        '422': { description: Not an element of this diagram, or a position is not a number, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /diagrams/{diagram_id}/style:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
@@ -328,10 +359,48 @@ components:
       type: object
       required: [preset, background, fill, text, line, direction, font_size]
       properties:
-        preset: { type: [string, 'null'], description: Preset the colours came from; null once a colour is edited by hand }
+        preset: { type: [string, 'null'], enum: [default, high_contrast, dark, blueprint, warm, null], description: Preset the colours came from; null once a colour is edited by hand }
         background: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Canvas }
         fill: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Element boxes }
         text: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: All labels }
         line: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Borders and arrows }
         direction: { $ref: '#/components/schemas/LayoutDirection' }
         font_size: { type: integer, minimum: 8, maximum: 24, description: Points }
+    Point:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+    LayoutElement:
+      type: object
+      required: [id, kind, label, x, y]
+      properties:
+        id: { type: string }
+        kind: { type: string, description: 'e.g. actor, use_case, class, process, start, decision' }
+        label: { type: string }
+        x: { type: number, description: Centre of the element }
+        y: { type: number, description: Centre of the element }
+    LayoutLine:
+      type: object
+      required: [id, kind, source, target]
+      properties:
+        id: { type: string }
+        kind: { type: string, description: 'e.g. association, include, extend, message, data_flow, flow, or a class relation type' }
+        source: { type: string, description: Element id the line starts at }
+        target: { type: string, description: Element id the line ends at }
+        label: { type: [string, 'null'], description: 'Text drawn on the line: a flow name, message, relation name, dependency label, transition event or decision guard; null when the line has none' }
+    DiagramLayout:
+      type: object
+      required: [diagram_id, type, saved, elements, lines]
+      properties:
+        diagram_id: { type: string }
+        type: { $ref: '#/components/schemas/DiagramType' }
+        saved: { type: boolean, description: True when this version has positions moved by hand; false means the default grid }
+        elements: { type: array, items: { $ref: '#/components/schemas/LayoutElement' } }
+        lines: { type: array, items: { $ref: '#/components/schemas/LayoutLine' } }
+    LayoutUpdate:
+      type: object
+      required: [positions]
+      properties:
+        positions: { type: object, description: Only the elements that moved, by element id, additionalProperties: { $ref: '#/components/schemas/Point' } }

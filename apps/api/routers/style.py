@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from core.auth import User, get_current_user
 from core.styling import StyleError, parse_style, save_style, style_for
-from routers.integrated import render_png, require_diagram
+from routers.integrated import render_styled, require_diagram
 
 router = APIRouter()
 
@@ -37,4 +37,4 @@ def put_style(diagram_id: str, body=Body(None), user: User = Depends(get_current
 async def preview(diagram_id: str, body=Body(None), user: User = Depends(get_current_user)):
     """The diagram drawn with a style that is not saved yet, for the live preview while customising."""
     diagram = require_diagram(diagram_id, user)
-    return await render_png(diagram, checked(body))
+    return await render_styled(diagram, checked(body))

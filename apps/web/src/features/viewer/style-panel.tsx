@@ -336,6 +336,8 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
             <Button
               type="button"
               variant="secondary"
+              // Focus moves into the warning when it opens, so keyboard and screen reader users land on it.
+              autoFocus
               onClick={() => setShowContrastConfirm(false)}
             >
               Cancel

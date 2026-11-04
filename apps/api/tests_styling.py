@@ -50,6 +50,8 @@ def test_parse_style():
     for size in (8, 24):
         assert parse_style({**DEFAULT_STYLE, "font_size": size})["font_size"] == size
     rejects(None, "Send a style.")
+    rejects({**DEFAULT_STYLE, "preset": "x" * 5000}, "Choose one of the colour themes.")
+    assert parse_style({**DARK, "preset": None})["preset"] is None  # colours edited by hand
 
 
 def test_plantuml():
@@ -81,6 +83,12 @@ def test_graphviz():
     assert 'BGCOLOR="#2B2D36"' in out and '<TABLE COLOR="#A0A4B0" ' in out
     assert 'bgcolor="#1E1E24"' in out and 'color="#A0A4B0"' in out and "#444444" not in out
     assert '"E" -> "P" [label="details"];' in out  # edges untouched
+    # A table that already has a COLOR keeps exactly one.
+    twice = apply_style('digraph G { "P" [label=<<TABLE COLOR="red" BORDER="1"><TR><TD>x</TD></TR></TABLE>>]; }', "graphviz", DARK, "dfd")
+    assert twice.count("COLOR=") - twice.count("BGCOLOR=") == 1 and '<TABLE COLOR="#A0A4B0" BORDER="1">' in twice
+    # Labels with no fontsize of their own scale too, through the node/edge/graph defaults.
+    plain = apply_style('digraph G { a -> b; }', "graphviz", {**DEFAULT_STYLE, "font_size": 24}, "dfd")
+    assert plain.count("fontsize=28") == 3
     same = apply_style(DOT, "graphviz", DEFAULT_STYLE, "dfd")
     assert "rankdir=LR" in same and "fontsize=14" in same and "fontsize=11" in same  # auto + 12 pt keep the layout
 
@@ -90,6 +98,9 @@ def test_mermaid():
     first, rest = out.split("\n", 1)
     assert first.startswith("%%{init: ") and '"background": "#1E1E24"' in first
     assert rest.startswith("flowchart TB") and 'E["Student"] --> P("Order")' in rest
+    front = "---\ntitle: Canteen\n---\n" + MERMAID
+    lines = apply_style(front, "mermaid", DARK, "dfd").splitlines()
+    assert lines[:3] == ["---", "title: Canteen", "---"] and lines[3].startswith("%%{init: ") and lines[4] == "flowchart LR"
 
 
 DIAGRAM = {"id": "dg_1", "type": "use_case", "plantuml_source": PUML}
@@ -98,28 +109,28 @@ DIAGRAM = {"id": "dg_1", "type": "use_case", "plantuml_source": PUML}
 def with_fakes(fn):
     """Runs fn(client, store, drawn) with storage and drawing replaced by in-memory fakes."""
     store, drawn = {}, []
-    saved = {name: getattr(style_router, name) for name in ("require_diagram", "style_for", "save_style", "render_png")}
-    saved_export = (integrated.require_diagram, integrated.style_for, integrated.render_png)
+    saved = {name: getattr(style_router, name) for name in ("require_diagram", "style_for", "save_style", "render_styled")}
+    saved_export = (integrated.require_diagram, integrated.style_for, integrated.render_styled)
 
     def require(diagram_id, _user):
         if diagram_id != "dg_1":
             raise HTTPException(404, "Not found, or you do not have access to it.")
         return DIAGRAM
 
-    async def render(diagram, style):
+    async def render(diagram, style, fmt="png"):
         drawn.append(apply_style(diagram["plantuml_source"], "plantuml", style, diagram["type"]))
-        return Response(b"png", media_type="image/png")
+        return Response(fmt.encode(), media_type=integrated.EXPORT_MEDIA_TYPES[fmt])
 
     style_router.require_diagram = integrated.require_diagram = require
     style_router.style_for = integrated.style_for = lambda did: store.get(did, dict(DEFAULT_STYLE))
     style_router.save_style = lambda did, s: store.__setitem__(did, s)
-    style_router.render_png = integrated.render_png = render
+    style_router.render_styled = integrated.render_styled = render
     try:
         fn(TestClient(app, headers={"Authorization": "Bearer mock-token:dev@sddg.test"}), store, drawn)
     finally:
         for name, value in saved.items():
             setattr(style_router, name, value)
-        integrated.require_diagram, integrated.style_for, integrated.render_png = saved_export
+        integrated.require_diagram, integrated.style_for, integrated.render_styled = saved_export
 
 
 def test_endpoints():
@@ -141,8 +152,12 @@ def test_endpoints():
         assert r.status_code == 200 and r.headers["content-type"] == "image/png"
         assert "skinparam backgroundColor #FFFBF2" in drawn[-1] and store["dg_1"] == DARK  # preview saves nothing
 
-        r = client.get("/api/v1/diagrams/dg_1/export?format=png")
-        assert r.status_code == 200 and "skinparam backgroundColor #1E1E24" in drawn[-1]  # export uses the saved style
+        for fmt in ("png", "svg", "pdf"):
+            r = client.get(f"/api/v1/diagrams/dg_1/export?format={fmt}")
+            assert r.status_code == 200 and r.content == fmt.encode(), fmt
+            assert "skinparam backgroundColor #1E1E24" in drawn[-1]  # every picture export uses the saved style
+        r = client.get("/api/v1/diagrams/dg_1/export?format=source")
+        assert r.status_code == 200 and r.text == PUML  # the source download is the diagram's own code, unstyled
         assert DIAGRAM["plantuml_source"] == PUML  # the stored source is never rewritten
 
     with_fakes(check)

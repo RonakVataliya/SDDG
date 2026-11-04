@@ -7,14 +7,16 @@ This module coordinates the complete lifecycle of diagram generation:
 4. Extracted model items and human-in-the-loop review/confirmation
 5. Automated diagram generation via the AI service: Use Case (original path)
    plus every type registered in core/diagram_models.py (DFD, ...)
-6. Diagram revision requests and PNG export via Kroki
+6. Diagram revision requests and export: PNG / SVG / PDF via Kroki, diagram source, project ZIP
 """
 
 import asyncio
 import html
+import io
 import logging
 import os
 import re
+import zipfile
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
@@ -755,6 +757,7 @@ async def revise_diagram(
             processes,
             parent_id=diagram["id"],
             instruction=instruction,
+            layout=diagram.get("layout"),  # keep the user's positions
         )
     else:
         created = store_generated_diagram(
@@ -765,45 +768,213 @@ async def revise_diagram(
             load_ai_model(project_id, with_statements=False),
             parent_id=diagram["id"],
             instruction=instruction,
+            layout=diagram.get("layout"),  # keep the user's positions
         )
     return diagram_view(created)
 
 
+# Image export formats: format -> media type. Kroki renders these from the stored source.
+EXPORT_MEDIA_TYPES = {
+    "png": "image/png",
+    "svg": "image/svg+xml",
+    "pdf": "application/pdf",
+}
+# What each Kroki engine can output. Mermaid has no PDF output in Kroki.
+ENGINE_EXPORT_FORMATS = {
+    "plantuml": {"png", "svg", "pdf"},
+    "graphviz": {"png", "svg", "pdf"},
+    "mermaid": {"png", "svg"},
+}
+# format=source returns the stored diagram code itself (no Kroki call). Engine -> (media type, file extension);
+# the web app picks the file extension from the media type.
+SOURCE_TYPES = {
+    "plantuml": ("text/x-plantuml", "puml"),
+    "graphviz": ("text/vnd.graphviz", "dot"),
+    "mermaid": ("text/x-mermaid", "mmd"),
+}
+EXPORT_FORMATS = (*EXPORT_MEDIA_TYPES, "source")
+
+
+async def render_with_kroki(client, source: str, fmt: str) -> bytes:
+    """Renders a stored diagram source to png/svg/pdf with the engine that matches it."""
+    engine = kroki_engine_for_source(source)
+    response = await client.post(
+        f"{KROKI_URL}/{engine}/{fmt}",
+        content=source.encode("utf-8"),
+        headers={"Content-Type": "text/plain"},
+    )
+    response.raise_for_status()
+    return response.content
+
+
 @router.get("/diagrams/{diagram_id}/export")
-async def export_diagram_png(
+async def export_diagram(
     diagram_id: str,
     format: str = "png",
     user: User = Depends(get_current_user),
 ):
-    """Renders and exports the diagram as a PNG image using Kroki, drawn with its saved style (#38)."""
+    """Exports one diagram version as PNG, SVG or PDF (rendered by Kroki, with its saved style, #38) or as its
+    source code. The Kroki engine is read from the stored source itself (PlantUML, DOT or Mermaid), so it stays
+    correct even if ENGINE_FOR_DIAGRAM changes later."""
     diagram = require_diagram(diagram_id, user)
-    if format != "png":
-        raise HTTPException(422, "Only PNG export is supported.")
-    return await render_png(diagram, style_for(diagram["id"]))
+    fmt = format.lower()
+    if fmt not in EXPORT_FORMATS:
+        supported = ", ".join(f.upper() for f in EXPORT_FORMATS)
+        raise HTTPException(422, f"Unsupported export format. Choose one of: {supported}.")
+    if fmt == "source" and diagram["plantuml_source"]:
+        source = diagram["plantuml_source"]
+        return Response(source, media_type=SOURCE_TYPES[kroki_engine_for_source(source)][0])
+    return await render_styled(diagram, style_for(diagram["id"]), fmt)
 
 
-async def render_png(diagram, style):
-    """Draws a diagram as a PNG with Kroki, applying the style only to this drawing.
-
-    The Kroki engine is read from the stored source itself (PlantUML, DOT or
-    Mermaid), so it stays correct even if ENGINE_FOR_DIAGRAM changes later."""
-    if not diagram["plantuml_source"]:
+async def render_styled(diagram, style, fmt="png"):
+    """Draws a diagram with Kroki as png/svg/pdf, applying the style only to this drawing (never stored)."""
+    label = fmt.upper()
+    source = diagram["plantuml_source"]
+    if not source:
         raise HTTPException(
             409,
-            "This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting PNG.",
+            f"This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting {label}.",
         )
-    engine = kroki_engine_for_source(diagram["plantuml_source"])
-    source = apply_style(diagram["plantuml_source"], engine, style, diagram["type"])
+    engine = kroki_engine_for_source(source)
+    if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
+        raise HTTPException(422, f"{label} export is not available for this diagram's renderer ({engine}). Use PNG or SVG.")
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                f"{KROKI_URL}/{engine}/png",
-                content=source.encode("utf-8"),
-                headers={"Content-Type": "text/plain"},
-            )
-            response.raise_for_status()
-        return Response(response.content, media_type="image/png")
+            content = await render_with_kroki(client, apply_style(source, engine, style, diagram["type"]), fmt)
+        return Response(content, media_type=EXPORT_MEDIA_TYPES[fmt])
     except Exception as e:
-        logger.exception("PNG export of diagram %s failed", diagram["id"])
+        logger.exception("%s export of diagram %s failed", label, diagram["id"])
         # 424, not 502: the browser treats 502 as "the API is still waking up"
-        raise HTTPException(424, "PNG export failed because the diagram renderer is unavailable. Try again in a minute.") from e
+        raise HTTPException(424, f"{label} export failed because the diagram renderer is unavailable. Try again in a minute.") from e
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-") or "diagram"
+
+
+def zip_layout(rows):
+    """Names every diagram version in a project ZIP: '<title>/v<n>' (a folder per version, see zip_path). All diagrams with the same title (a type's first
+    generation, every "Generate again" and every edit) are versions of one diagram, numbered by creation time."""
+    groups = {}
+    for r in rows:
+        groups.setdefault(slugify(r["title"]), []).append(r)
+    names = {}
+    for folder, versions in groups.items():
+        for n, r in enumerate(sorted(versions, key=lambda r: r["created_at"]), start=1):
+            names[r["id"]] = f"{folder}/v{n}"
+    return names
+
+
+def zip_path(name: str, extension: str) -> str:
+    """Where a file goes in the ZIP. A version gets its own folder and a self-describing file name:
+    'library-use-case/v2' -> 'library-use-case/v2/library-use-case-v2.png'. Latest-only names have no folder:
+    'library-use-case' -> 'library-use-case.png'."""
+    if "/" not in name:
+        return f"{name}.{extension}"
+    return f"{name}/{name.replace('/', '-')}.{extension}"
+
+
+def latest_only(names):
+    """Keeps only the newest version of each diagram and drops the version folder: 'library-use-case/v3' ->
+    'library-use-case'."""
+    newest = {}
+    for diagram_id, name in names.items():
+        folder, version = name.rsplit("/v", 1)
+        if folder not in newest or int(version) > newest[folder][1]:
+            newest[folder] = (diagram_id, int(version))
+    return {diagram_id: folder for folder, (diagram_id, _) in newest.items()}
+
+
+ZIP_MAX_VERSIONS = int(os.getenv("ZIP_MAX_VERSIONS", "30"))
+
+
+def check_zip_size(count, versions):
+    """The ZIP is built in one request (up to 3 Kroki renders per version), so a long version history could run into
+    the host's gateway timeout. The all-versions ZIP is capped; "latest" has one version per diagram and is not."""
+    if versions == "all" and count > ZIP_MAX_VERSIONS:
+        raise HTTPException(422, f"This project has {count} diagram versions; the all-versions ZIP holds up to "
+                                 f"{ZIP_MAX_VERSIONS}. Download 'Latest diagrams (ZIP)' instead, or export versions one by one.")
+
+
+def moved_note(names, diagrams):
+    """README lines for versions whose elements the user moved (layout editing). Kroki draws from the source, which has
+    no positions, so the ZIP pictures of those versions show the default arrangement."""
+    moved = [names[d["id"]] for d in diagrams if d.get("layout")]
+    if not moved:
+        return []
+    return ["", "Moved by hand (the pictures here show the default arrangement; to get the moved one, open the",
+            "version in SDDG and use Export there):", *moved]
+
+
+@router.get("/projects/{project_id}/diagrams/export")
+async def export_project_diagrams(
+    project_id: str,
+    versions: str = "all",
+    user: User = Depends(get_current_user),
+):
+    """Downloads a project's diagrams as one ZIP: PNG, SVG, PDF and source code for each. The all-versions ZIP also
+    has a README.txt index of the versions and their edits.
+    versions=all (default) includes every version ('<title>/v<n>/<title>-v<n>.png'); versions=latest only the newest version of
+    each diagram ('<title>.png'). A version Kroki cannot render still gets its source; the README says what is missing."""
+    if versions not in ("all", "latest"):
+        raise HTTPException(422, "versions must be 'all' or 'latest'.")
+    project = require_project(project_id, user)
+    rows = db.list_diagrams(project_id)
+    if not rows:
+        raise HTTPException(404, "This project has no diagrams yet. Generate one first.")
+    check_zip_size(len(rows), versions)
+    names = zip_layout(rows)
+    if versions == "latest":
+        names = latest_only(names)
+        rows = [r for r in rows if r["id"] in names]
+    diagrams = [db.member_diagram(r["id"], user.id) for r in sorted(rows, key=lambda r: names[r["id"]])]
+    semaphore = asyncio.Semaphore(4)  # be gentle with Kroki
+
+    async def files_for(client, d):
+        name, source = names[d["id"]], d["plantuml_source"]
+        if not source:
+            return [], f"{name}: no stored source (made by an older build); regenerate it to export."
+        engine = kroki_engine_for_source(source)
+        out, missing = [(zip_path(name, SOURCE_TYPES[engine][1]), source.encode("utf-8"))], []
+        drawn = apply_style(source, engine, style_for(d["id"]), d["type"])  # pictures get the saved look (#38)
+        for fmt in ("png", "svg", "pdf"):
+            if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
+                continue  # e.g. Mermaid has no PDF output; README lists the formats
+            try:
+                async with semaphore:
+                    out.append((zip_path(name, fmt), await render_with_kroki(client, drawn, fmt)))
+            except Exception:
+                logger.exception("ZIP: %s render of diagram %s failed", fmt, d["id"])
+                missing.append(fmt.upper())
+        return out, f"{name}: {', '.join(missing)} could not be rendered (renderer unavailable)." if missing else None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        results = await asyncio.gather(*(files_for(client, d) for d in diagrams))
+
+    lines = [f"{project['name']} - diagrams exported from SDDG", "",
+             ("Each file is the latest version of one diagram." if versions == "latest" else
+              "Each folder is one diagram, with a v1, v2... folder per version: v1 is the first version and every\n"
+              "regeneration or edit is the next one."),
+             "Files: .png, .svg and .pdf pictures (no PDF for Mermaid diagrams), plus the diagram's source code",
+             "(.puml PlantUML, .dot Graphviz, .mmd Mermaid).", ""]
+    for d in diagrams:
+        lines.append(f"{names[d['id']]}  {d['title']}" + (f"  (edit: {d['instruction']})" if d["instruction"] else ""))
+    problems = [note for _, note in results if note]
+    if problems:
+        lines += ["", "Not included:", *problems]
+    moved = moved_note(names, diagrams)
+    lines += moved
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        # The README is the version index (which edit made which version). A latest-only ZIP has no versions,
+        # so it gets one only when something needs explaining (a missing file or a moved version).
+        if versions == "all" or problems or moved:
+            z.writestr("README.txt", "\n".join(lines) + "\n")
+        for files, _ in results:
+            for path, data in files:
+                z.writestr(path, data)
+    filename = f"{slugify(project['name'])}-diagrams{'-latest' if versions == 'latest' else ''}.zip"
+    return Response(buffer.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})

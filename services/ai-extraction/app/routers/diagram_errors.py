@@ -9,7 +9,7 @@ from typing import Any, Callable
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
-from app.logging_config import get_logger
+from app.logging_config import error_location, get_logger
 from app.rendering.engines import DiagramEngineError, EmptyDiagramError
 from app.services.ai_service import AIServiceError
 from app.services.kroki_service import KrokiServiceError
@@ -40,5 +40,5 @@ async def run_diagram_call(
         logger.error("%s_render_error", label)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error("%s_failed error_type=%s", label, type(exc).__name__)
+        logger.error("%s_failed error_type=%s at=%s", label, type(exc).__name__, error_location(exc))
         raise HTTPException(status_code=fallback_status, detail=fallback_detail) from exc

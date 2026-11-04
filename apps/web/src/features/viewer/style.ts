@@ -14,7 +14,7 @@ export const FONT_SIZE_MAX = 24
 export const DEFAULT_FONT_SIZE = 12
 
 /** Every preset passes 4.5:1 for text on fill and text on background (checked in style.test.ts). */
-export const STYLE_PRESETS: { id: string; label: string; colours: StyleColours }[] = [
+export const STYLE_PRESETS: { id: NonNullable<DiagramStyle['preset']>; label: string; colours: StyleColours }[] = [
   { id: 'default', label: 'Default', colours: { background: '#FFFFFF', fill: '#F4F6F8', text: '#1F2933', line: '#52606D' } },
   { id: 'high_contrast', label: 'High contrast', colours: { background: '#FFFFFF', fill: '#FFFFFF', text: '#000000', line: '#000000' } },
   { id: 'dark', label: 'Dark', colours: { background: '#1E1E24', fill: '#2B2D36', text: '#F5F5F5', line: '#A0A4B0' } },
@@ -35,12 +35,13 @@ export const DIRECTION_LABELS: Record<LayoutDirection, string> = {
   LR: 'Left to right',
 }
 
-/** Sequence diagrams always run top to bottom: lifelines have no other direction. */
-export const directionSupported = (type: DiagramType) => type !== 'sequence'
+/** Sequence and activity diagrams always run top to bottom: PlantUML has no other direction for them. */
+export const directionSupported = (type: DiagramType) => type !== 'sequence' && type !== 'activity'
 
 /** Same rules the server applies; returns plain-language problems, empty when the style is valid. */
 export function styleProblems(style: DiagramStyle): string[] {
   const problems: string[] = []
+  if (style.preset !== null && !STYLE_PRESETS.some((p) => p.id === style.preset)) problems.push('Choose one of the colour themes.')
   for (const key of ['background', 'fill', 'text', 'line'] as const) {
     if (!isHexColour(style[key])) problems.push(`The ${key} colour must look like #1A2B3C.`)
   }

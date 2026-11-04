@@ -40,8 +40,14 @@ describe('diagram style (#38)', () => {
     expect(withPreset(DEFAULT_STYLE, 'nope')).toBe(DEFAULT_STYLE)
   })
 
-  it('offers direction for every type except sequence', () => {
+  it('rejects a preset that is not one of the themes', () => {
+    expect(styleProblems({ ...DEFAULT_STYLE, preset: 'x'.repeat(5000) as never })).toEqual(['Choose one of the colour themes.'])
+    expect(styleProblems({ ...DEFAULT_STYLE, preset: null })).toEqual([])
+  })
+
+  it('offers direction for every type except sequence and activity', () => {
     expect(directionSupported('sequence')).toBe(false)
+    expect(directionSupported('activity')).toBe(false)
     expect(directionSupported('use_case')).toBe(true)
     expect(directionSupported('dfd')).toBe(true)
   })
