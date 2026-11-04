@@ -242,7 +242,7 @@ def main():
             assert source.headers['content-type'].startswith('text/x-plantuml')
             assert source.text == diagram['plantuml_source']
 
-            # Project ZIP: every version (generated + edited) as PNG, SVG and source, plus a README index.
+            # Project ZIP: every version (generated + edited) as PNG, SVG, PDF and source, plus a README index.
             zipped = client.get(f'/api/v1/projects/{pid}/diagrams/export', headers=headers)
             assert zipped.status_code == 200, zipped.text
             assert zipped.headers['content-type'] == 'application/zip'

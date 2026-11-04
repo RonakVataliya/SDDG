@@ -549,7 +549,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The project's diagrams as one ZIP: PNG, SVG and source code for each, plus README.txt. versions=all (default) or latest */
+        /** The project's diagrams as one ZIP: PNG, SVG, PDF and source code for each, plus README.txt. versions=all (default) or latest */
         get: {
             parameters: {
                 query?: {
@@ -574,6 +574,15 @@ export interface paths {
                 };
                 /** @description The project has no diagrams yet */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description versions is not all/latest, or the all-versions ZIP is over the version cap (ZIP_MAX_VERSIONS, default 30) */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };

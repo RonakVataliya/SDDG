@@ -880,6 +880,17 @@ def latest_only(names):
     return {diagram_id: folder for folder, (diagram_id, _) in newest.items()}
 
 
+ZIP_MAX_VERSIONS = int(os.getenv("ZIP_MAX_VERSIONS", "30"))
+
+
+def check_zip_size(count, versions):
+    """The ZIP is built in one request (up to 3 Kroki renders per version), so a long version history could run into
+    the host's gateway timeout. The all-versions ZIP is capped; "latest" has one version per diagram and is not."""
+    if versions == "all" and count > ZIP_MAX_VERSIONS:
+        raise HTTPException(422, f"This project has {count} diagram versions; the all-versions ZIP holds up to "
+                                 f"{ZIP_MAX_VERSIONS}. Download 'Latest diagrams (ZIP)' instead, or export versions one by one.")
+
+
 def moved_note(names, diagrams):
     """README lines for versions whose elements the user moved (layout editing). Kroki draws from the source, which has
     no positions, so the ZIP pictures of those versions show the default arrangement."""
@@ -906,6 +917,7 @@ async def export_project_diagrams(
     rows = db.list_diagrams(project_id)
     if not rows:
         raise HTTPException(404, "This project has no diagrams yet. Generate one first.")
+    check_zip_size(len(rows), versions)
     names = zip_layout(rows)
     if versions == "latest":
         names = latest_only(names)

@@ -294,6 +294,7 @@ Open the URL printed by Vite (usually `http://localhost:5173`). Submit requireme
 | `SUPABASE_PUBLISHABLE_KEY` | Public/publishable Supabase key used to validate tokens |
 | `AI_SERVICE_URL` | Base URL for the AI service API, including `/api/v1` |
 | `KROKI_URL` | Base URL for diagram rendering and PNG / SVG / PDF export |
+| `ZIP_MAX_VERSIONS` | Optional. Most diagram versions in one all-versions project ZIP (default 30) |
 | `AI_POLICY_VERSION` | Version of the AI-processing consent policy enforced by the API |
 | `CORS_ORIGINS` | Comma-separated frontend origins allowed by the API |
 

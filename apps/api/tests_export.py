@@ -8,7 +8,7 @@ from datetime import datetime
 os.environ.setdefault("DATABASE_URL", "postgresql://unused")  # core.db builds a pool at import; it is never opened
 
 from core.diagram_models import kroki_engine_for_source  # noqa: E402
-from routers.integrated import ENGINE_EXPORT_FORMATS, SOURCE_TYPES, latest_only, moved_note, slugify, zip_layout, zip_path  # noqa: E402
+from routers.integrated import ENGINE_EXPORT_FORMATS, SOURCE_TYPES, ZIP_MAX_VERSIONS, check_zip_size, latest_only, moved_note, slugify, zip_layout, zip_path  # noqa: E402
 
 
 def t(minute):
@@ -64,6 +64,18 @@ def test_moved_note_lists_versions_with_a_saved_layout():
     assert moved_note(names, [{"id": "a", "layout": None}, {"id": "b", "layout": {}}]) == []
     note = moved_note(names, [{"id": "a", "layout": None}, {"id": "b", "layout": {"uc1": [10, 20]}}])
     assert note[-1] == "library-use-case/v2" and "Export there" in note[2]
+
+
+def test_all_versions_zip_is_capped():
+    from fastapi import HTTPException
+    check_zip_size(ZIP_MAX_VERSIONS, "all")  # at the cap: fine
+    check_zip_size(ZIP_MAX_VERSIONS + 50, "latest")  # latest is one version per diagram: never capped
+    try:
+        check_zip_size(ZIP_MAX_VERSIONS + 1, "all")
+    except HTTPException as e:
+        assert e.status_code == 422 and "Latest diagrams" in e.detail
+    else:
+        raise AssertionError("expected 422 above the cap")
 
 
 if __name__ == "__main__":

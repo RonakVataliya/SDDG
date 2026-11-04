@@ -103,6 +103,9 @@ export function ExportMenu({ diagramId, title, versionIndex, png, projectId, pro
               <span className="font-medium text-ink">All versions (ZIP)</span>
               <span className="text-xs text-slate">Every version of every diagram, a folder per version</span>
             </M.Item>
+            <p className="max-w-64 px-3 pt-1 pb-1.5 text-xs text-slate">
+              ZIP pictures use the default layout. For moved elements, export that version above.
+            </p>
           </M.Content>
         </M.Portal>
       </M.Root>

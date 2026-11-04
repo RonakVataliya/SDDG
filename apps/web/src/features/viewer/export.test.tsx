@@ -64,13 +64,12 @@ describe('mock diagram source and ZIP writer', () => {
     expect(crc32(new TextEncoder().encode('123456789')).toString(16)).toBe('cbf43926')
   })
 
-  it('writes a ZIP whose central directory lists every file', async () => {
-    const blob = makeZip([
+  it('writes a ZIP whose central directory lists every file', () => {
+    const bytes = makeZip([
       { name: 'README.txt', data: 'hello\n' },
       { name: 'library-use-case/v1.puml', data: '@startuml\n@enduml\n' },
     ])
-    expect(blob.type).toBe('application/zip')
-    const view = new DataView(await blob.arrayBuffer())
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     expect(view.getUint32(0, true)).toBe(0x04034b50) // starts with a local file header
     const end = view.byteLength - 22
     expect(view.getUint32(end, true)).toBe(0x06054b50) // ends with the end-of-central-directory record

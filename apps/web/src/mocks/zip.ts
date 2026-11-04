@@ -15,7 +15,8 @@ export function crc32(data: Uint8Array) {
   return (c ^ 0xffffffff) >>> 0
 }
 
-export function makeZip(files: { name: string; data: string | Uint8Array }[]): Blob {
+/** Returns the ZIP's bytes, not a Blob: MSW reads a Blob body with .stream(), which jsdom's Blob lacks on Node 22. */
+export function makeZip(files: { name: string; data: string | Uint8Array }[]): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder()
   const parts: Uint8Array[] = []
   const central: Uint8Array[] = []
@@ -58,5 +59,12 @@ export function makeZip(files: { name: string; data: string | Uint8Array }[]): B
   end.setUint32(12, centralSize, true)
   end.setUint32(16, offset, true)
 
-  return new Blob([...parts, ...central, new Uint8Array(end.buffer)] as BlobPart[], { type: 'application/zip' })
+  const chunks = [...parts, ...central, new Uint8Array(end.buffer)]
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let at = 0
+  for (const c of chunks) {
+    out.set(c, at)
+    at += c.length
+  }
+  return out
 }

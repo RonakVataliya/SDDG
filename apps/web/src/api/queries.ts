@@ -190,7 +190,7 @@ export function fetchDiagramExport(diagramId: string, format: ExportFormat) {
   ) as Promise<Blob>
 }
 
-/** A project's diagrams as one ZIP (PNG, SVG and source code for each, plus README.txt): every version, or only the
+/** A project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt): every version, or only the
  *  latest version of each diagram. */
 export function fetchProjectDiagramsZip(projectId: string, versions: 'all' | 'latest') {
   return unwrap(
