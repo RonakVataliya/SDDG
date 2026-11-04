@@ -14,7 +14,7 @@ this project doesn't need yet (only PlantUML, for use-case diagrams).
 from time import perf_counter
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
 from app.logging_config import get_logger
@@ -24,6 +24,13 @@ logger = get_logger("kroki_service")
 
 class KrokiServiceError(RuntimeError):
     """Raised when Kroki is unreachable or rejects the diagram source."""
+
+
+def _transient(exc: BaseException) -> bool:
+    """Retry a dropped connection, a timeout or a 5xx (a waking Kroki); a 400 means the source is wrong and stays wrong."""
+    if isinstance(exc, requests.exceptions.HTTPError):
+        return exc.response is not None and exc.response.status_code >= 500
+    return isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout))
 
 
 class KrokiService:
@@ -46,18 +53,20 @@ class KrokiService:
             reraise=True,
             stop=stop_after_attempt(2),
             wait=wait_exponential(multiplier=1, min=1, max=4),
+            retry=retry_if_exception(_transient),
         )
         def _post() -> requests.Response:
-            return requests.post(
+            resp = requests.post(
                 url,
                 headers={"Content-Type": "text/plain"},
                 data=source.encode("utf-8"),
                 timeout=settings.KROKI_TIMEOUT_SECONDS,
             )
+            resp.raise_for_status()
+            return resp
 
         try:
             resp = _post()
-            resp.raise_for_status()
         except requests.exceptions.ConnectionError as exc:
             duration = perf_counter() - start
             logger.error("kroki_render_failed reason=connection_error engine=%s", engine)
@@ -67,7 +76,7 @@ class KrokiService:
             ) from exc
         except requests.exceptions.HTTPError as exc:
             duration = perf_counter() - start
-            logger.error(
+            logger.exception(
                 "kroki_render_failed reason=http_error engine=%s status=%s",
                 engine,
                 exc.response.status_code if exc.response is not None else "unknown",

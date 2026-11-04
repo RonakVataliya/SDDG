@@ -1,6 +1,5 @@
 import { ArrowUpIcon, DownloadIcon, MaximizeIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { StylePanel } from '@/features/viewer/style-panel'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
 import type { Diagram } from '@/api/client'
@@ -10,10 +9,11 @@ import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
+import { markExported } from '@/features/search/exported'
+import { StylePanel } from '@/features/viewer/style-panel'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
-
 
 const MAX_INSTRUCTION = 500
 
@@ -91,6 +91,7 @@ export function ViewerPage() {
     if (!image.data) return
     const slug = diagram!.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     saveBlob(image.data, `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`)
+    markExported(diagram!.id)
   }
 
   return (
@@ -153,12 +154,8 @@ export function ViewerPage() {
         )}
         {src && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
       </div>
-        <StylePanel
-          key={diagram.id}
-          diagramId={diagram.id}
-          diagramType={diagram.type}
-          onPreviewChange={setStylePreviewUrl}
-        />
+
+      <StylePanel key={diagram.id} diagramId={diagram.id} diagramType={diagram.type} onPreviewChange={setStylePreviewUrl} />
 
       {(edits.length > 0 || revise.isPending || revise.isError) && (
         <ol ref={threadRef} aria-label="Changes to this diagram" aria-live="polite" className="mx-5 mt-3 max-h-48 space-y-2.5 overflow-y-auto pr-1 text-sm">

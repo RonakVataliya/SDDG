@@ -185,7 +185,7 @@ export function styleFor(d: DiagramRow): DiagramStyle {
   return DEFAULT_STYLE
 }
 
-export function diagramView(d: DiagramRow): Diagram {
+export function diagramView(d: DiagramRow): Diagram & { elements: { label: string }[] } {
   return {
     id: d.id,
     type: d.type,
@@ -193,6 +193,7 @@ export function diagramView(d: DiagramRow): Diagram {
     created_at: d.created_at,
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
+    elements: [...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => ({ label: e.name })),
   }
 }
 

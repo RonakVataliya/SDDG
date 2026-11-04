@@ -5,6 +5,13 @@ CREATE TABLE IF NOT EXISTS projects (
   id text PRIMARY KEY, owner_id text NOT NULL, name text NOT NULL,
   created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, confirmed_at timestamptz);
 CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects (owner_id);
+-- Who may open a project. Every project route checks this table, not owner_id.
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE, user_id text NOT NULL,
+  PRIMARY KEY (project_id, user_id));
+CREATE INDEX IF NOT EXISTS project_members_user_idx ON project_members (user_id);
+INSERT INTO project_members (project_id, user_id) SELECT id, owner_id FROM projects ON CONFLICT DO NOTHING;
+ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS statements (
   id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
   ref text NOT NULL, text text NOT NULL, label text, source_document text NOT NULL,
@@ -43,6 +50,22 @@ ALTER TABLE statements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE diagrams ENABLE ROW LEVEL SECURITY;
+
+-- Requirement flags from the quality checker; explained and resolved by the user.
+CREATE TABLE IF NOT EXISTS flags (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  statement_id text NOT NULL REFERENCES statements ON DELETE CASCADE,
+  type text NOT NULL,                 -- ambiguous | incomplete | conflict
+  reason text NOT NULL,
+  trigger_text text,
+  related_statement_id text,          -- the other requirement of a conflict
+  question text, answer text, suggested_fix text,
+  status text NOT NULL DEFAULT 'open', -- open | resolved
+  resolved_by text, resolved_at timestamptz,
+  created_at timestamptz NOT NULL,
+  seq bigint GENERATED ALWAYS AS IDENTITY);
+ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
 
 -- Diagram look chosen by the user (#38): JSON, see core/styling.py. NULL = inherit from parent_id, else default.
 ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS style text;

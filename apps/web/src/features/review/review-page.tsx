@@ -1,6 +1,6 @@
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, PencilIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { ExtractedItem, ItemCategory, RequirementStatement } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { ITEMS_PAGE_SIZE, useConfirmExtraction, useItems, useStatements } from '@/api/queries'
@@ -21,6 +21,7 @@ export function ReviewPage() {
   const [editing, setEditing] = useState<ExtractedItem | null>(null)
   const items = useItems(project.id, category, page)
   const statements = useStatements(project.id)
+  const highlight = useSearchParams()[0].get('requirement') // set by search: open and highlight this requirement
   const canEdit = project.role !== 'viewer'
 
   const byId = useMemo(
@@ -151,7 +152,7 @@ export function ReviewPage() {
         </nav>
       )}
 
-      <StatementList statements={statements.data ?? []} />
+      <StatementList statements={statements.data ?? []} highlight={highlight} />
 
       <ConfirmBar />
 
@@ -176,8 +177,8 @@ function SourceRefs({ ids, byId }: { ids: string[]; byId: Map<string, Requiremen
   )
 }
 
-function StatementList({ statements }: { statements: RequirementStatement[] }) {
-  const [open, setOpen] = useState(false)
+function StatementList({ statements, highlight }: { statements: RequirementStatement[]; highlight: string | null }) {
+  const [open, setOpen] = useState(highlight !== null)
   if (statements.length === 0) return null
   return (
     <div className="rounded-lg border border-rule bg-surface">
@@ -193,7 +194,11 @@ function StatementList({ statements }: { statements: RequirementStatement[] }) {
       {open && (
         <ol className="divide-y divide-rule border-t border-rule">
           {statements.map((s) => (
-            <li key={s.id} className="flex gap-3 px-4 py-2.5 text-sm">
+            <li
+              key={s.id}
+              ref={s.ref === highlight ? (el) => el?.scrollIntoView?.({ block: 'center' }) : undefined}
+              className={cn('flex gap-3 px-4 py-2.5 text-sm', s.ref === highlight && 'bg-teal-wash')}
+            >
               <RefTag className="h-fit shrink-0">{s.ref}</RefTag>
               <p className="min-w-0 flex-1">
                 {s.label && <span className="mr-1.5 text-slate">{s.label}</span>}

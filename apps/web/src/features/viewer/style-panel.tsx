@@ -52,7 +52,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
     }
   }, [saved.data])
 
-   useEffect(() => {
+  useEffect(() => {
     if (!previewStyle || !preview.data) {
       onPreviewChange(null)
       return
@@ -77,23 +77,23 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
   }
 
   async function applyStyle() {
-  try {
-    const result = await save.mutateAsync(draft)
-    setDraft(result)
-    setPreviewStyle(null)
-  } catch {
-    // The mutation error is displayed below.
-  }
-}
-
-function saveStyle() {
-  if (contrastWarnings.length > 0) {
-    setShowContrastConfirm(true)
-    return
+    try {
+      const result = await save.mutateAsync(draft)
+      setDraft(result)
+      setPreviewStyle(null)
+    } catch {
+      // The mutation error is displayed below.
+    }
   }
 
-  void applyStyle()
-}
+  function saveStyle() {
+    if (contrastWarnings.length > 0) {
+      setShowContrastConfirm(true)
+      return
+    }
+
+    void applyStyle()
+  }
 
   if (saved.isPending) {
     return (
@@ -295,15 +295,15 @@ function saveStyle() {
 
         {previewStyle && (
           <Button
-  type="button"
-  variant="ghost"
-  onClick={() => {
-    setPreviewStyle(null)
-    onPreviewChange(null)
-  }}
->
-  Clear preview
-</Button>
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setPreviewStyle(null)
+              onPreviewChange(null)
+            }}
+          >
+            Clear preview
+          </Button>
         )}
       </div>
 
@@ -318,7 +318,8 @@ function saveStyle() {
           Save failed: {errorMessage(save.error)}
         </p>
       )}
-            {showContrastConfirm && (
+
+      {showContrastConfirm && (
         <div
           className="mt-4 rounded-md border border-amber p-4"
           role="alertdialog"
@@ -352,7 +353,6 @@ function saveStyle() {
           </div>
         </div>
       )}
-
-            </section>
-    )
+    </section>
+  )
 }
