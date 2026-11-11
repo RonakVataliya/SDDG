@@ -14,6 +14,14 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class ProjectRename(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class ProjectDelete(BaseModel):
+    confirm_name: str = Field(max_length=200)
+
+
 class ItemUpdate(BaseModel):
     name: str | None = None
     description: str | None = None

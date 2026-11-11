@@ -92,13 +92,16 @@ def require_diagram(diagram_id, user):
 # Presentation & Serialization Helpers
 # ============================================================================
 
-def project_view(p):
+def project_view(p, user):
     """Formats a project record and its summary counts for API responses."""
     counts = db.project_counts(p["id"])
     return {
         "id": p["id"],
         "name": p["name"],
         "role": "owner",
+        "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5); role is still "owner" for everyone until C2
+        "archived_at": p["archived_at"],
+        "archived_by": p["archived_by"],
         "created_at": p["created_at"],
         "updated_at": p["updated_at"],
         "statement_count": counts["statement_count"],
@@ -535,24 +538,30 @@ def give_consent(payload: ConsentCreate, user: User = Depends(get_current_user))
 @router.get("/projects")
 def list_projects(user: User = Depends(get_current_user)):
     """Lists the projects the authenticated user is a member of."""
-    return [project_view(p) for p in db.project_rows(user.id)]
+    return [project_view(p, user) for p in db.project_rows(user.id)]
 
 
 @router.post("/projects", status_code=201)
 def create_project(payload: ProjectCreate, user: User = Depends(get_current_user)):
     """Creates a new project with a unique name for the authenticated user."""
-    name = payload.name.strip()
+    name = clean_project_name(payload.name, user)
+    return project_view(db.create_project(user.id, name), user)
+
+
+def clean_project_name(name, user, project_id=None):
+    """The trimmed name, unique (any case) among the user's projects other than project_id; else 422 or 409."""
+    name = name.strip()
     if not name:
         raise HTTPException(422, "Project name must not be empty.")
-    if any(p["name"].lower() == name.lower() for p in db.project_rows(user.id)):
+    if any(p["name"].lower() == name.lower() and p["id"] != project_id for p in db.project_rows(user.id)):
         raise HTTPException(409, "You already have a project with this name.")
-    return project_view(db.create_project(user.id, name))
+    return name
 
 
 @router.get("/projects/{project_id}")
 def get_project(project_id: str, user: User = Depends(get_current_user)):
     """Retrieves a single project by ID."""
-    return project_view(require_project(project_id, user))
+    return project_view(require_project(project_id, user), user)
 
 
 # ============================================================================
@@ -647,7 +656,7 @@ def confirm_project(project_id: str, user: User = Depends(get_current_user)):
     latest = db.get_latest_extraction_job(project_id)
     if not latest or latest["status"] != "succeeded":
         raise HTTPException(409, "Wait for extraction to finish before confirming the model.")
-    return project_view(db.set_confirmed(project_id))
+    return project_view(db.set_confirmed(project_id), user)
 
 
 @router.post("/projects/{project_id}/generations", status_code=202)

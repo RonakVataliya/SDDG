@@ -67,3 +67,14 @@ CREATE TABLE IF NOT EXISTS flags (
   created_at timestamptz NOT NULL,
   seq bigint GENERATED ALWAYS AS IDENTITY);
 ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
+
+-- Stream 5: PM reporting and client management (FR3b, FR3e, FR20, FR21, FR32).
+-- The client is stored on the project (no client directory). archived_at marks an archived project: the web app
+-- shows it read-only and Home lists it under Archived; the API does not block writes to it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_name text;     -- encrypted; Home groups projects by it
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contact_email text;   -- lowercased
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_by text;
+
+-- Design packs and reviews were dropped from Stream 5. Removes them where an earlier PM build created them.
+DROP TABLE IF EXISTS reviews, design_packs;

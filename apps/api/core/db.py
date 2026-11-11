@@ -112,6 +112,21 @@ def create_project(user_id, name):
     )
 
 
+def rename_project(pid, name):
+    return one("UPDATE projects SET name=%s, updated_at=%s WHERE id=%s RETURNING *", encrypt(name), now(), pid)
+
+
+def delete_project(pid):
+    run("DELETE FROM projects WHERE id=%s", pid)  # every child table cascades
+
+
+def set_archived(pid, by):
+    """by = the archiving user's email; None reopens."""
+    t = now()
+    return one("UPDATE projects SET archived_at=%s, archived_by=%s, updated_at=%s WHERE id=%s RETURNING *",
+               t if by else None, by, t, pid)
+
+
 def touch_project(pid, clear_confirmation=False):
     run(
         "UPDATE projects SET updated_at=%s, confirmed_at=CASE WHEN %s THEN NULL ELSE confirmed_at END WHERE id=%s",
