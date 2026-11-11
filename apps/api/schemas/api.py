@@ -33,3 +33,20 @@ class GenerationCreate(BaseModel):
 
 class RevisionCreate(BaseModel):
     instruction: str = Field(min_length=1, max_length=500)
+
+
+class DocumentResponse(BaseModel):
+    id: str
+    project_id: str
+    filename: str
+    storage_path: str
+    content_type: str
+    size_bytes: int
+    page_count: int
+    status: str
+    warning: str | None = None
+    skipped_pages: list[int] = Field(default_factory=list)
+    job_id: str | None = None
+    created_at: str
+    updated_at: str
+
