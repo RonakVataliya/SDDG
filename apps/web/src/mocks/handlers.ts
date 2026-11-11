@@ -4,7 +4,7 @@ import { AI_SECTION_VERSION } from '@/features/privacy/policy'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, projectView, publicJob, save, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, touch, uid, type DiagramRow } from './db'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
@@ -138,6 +138,52 @@ export const handlers = [
       return p ? HttpResponse.json(getDb().statements[p.id] ?? []) : notFound()
     }),
   ),
+
+  /* ---------- requirement editing (requirements-first workflow) ---------- */
+  http.post(
+    u('/projects/:project_id/statements'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const { text, label } = (await request.json()) as { text?: string; label?: string | null }
+      if (!text?.trim()) return fail(422, 'Requirement text can’t be empty.')
+      const db = getDb()
+      const n = db.nextStatement[p.id] ?? (db.statements[p.id]?.length ?? 0) + 1
+      db.nextStatement[p.id] = n + 1
+      const st = { id: uid('st'), ref: `R-${String(n).padStart(3, '0')}`, text: text.trim(), label: label ?? null, source: { document: 'added by you', page: null, paragraph: null } }
+      db.statements[p.id] = [...(db.statements[p.id] ?? []), st]
+      resetModel(p.id)
+      save()
+      return HttpResponse.json(st, { status: 201 })
+    }),
+  ),
+  http.patch(
+    u('/projects/:project_id/statements/:statement_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      const st = p && (getDb().statements[p.id] ?? []).find((s) => s.id === params.statement_id)
+      if (!p || !st) return notFound()
+      const { text, label } = (await request.json()) as { text?: string; label?: string | null }
+      if (text !== undefined && !text.trim()) return fail(422, 'Requirement text can’t be empty.')
+      if (text !== undefined) st.text = text.trim()
+      if (label) st.label = label
+      resetModel(p.id)
+      save()
+      return HttpResponse.json(st)
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id/statements/:statement_id'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      const db = getDb()
+      if (!p || !(db.statements[p.id] ?? []).some((s) => s.id === params.statement_id)) return notFound()
+      db.statements[p.id] = db.statements[p.id].filter((s) => s.id !== params.statement_id)
+      resetModel(p.id)
+      save()
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ),
   http.get(
     u('/projects/:project_id/items'),
     authed(({ email, params, request }) => {
@@ -172,7 +218,7 @@ export const handlers = [
       if (body.name !== undefined) item.name = body.name.trim()
       if (body.description !== undefined) item.description = body.description
       if (item.origin === 'system-extracted') item.origin = 'user-edited' // FR5b
-      touch(p.id, { clearConfirmation: true }) // FR5e
+      touch(p.id) // requirements-first: an item fix only makes diagrams stale
       save()
       return HttpResponse.json(item)
     }),
@@ -182,7 +228,7 @@ export const handlers = [
     authed(({ email, params }) => {
       const p = ownedProject(email, params.project_id)
       if (!p) return notFound()
-      if (!(getDb().items[p.id]?.length)) return fail(409, 'There is nothing to confirm yet.')
+      if (!(getDb().statements[p.id]?.length)) return fail(409, 'Add some requirements first.')
       p.confirmed_at = new Date().toISOString()
       save()
       return HttpResponse.json(projectView(p), { status: 201 })
@@ -195,7 +241,7 @@ export const handlers = [
       const p = ownedProject(email, params.project_id)
       if (!p) return notFound()
       // FR5e: enforced on the server, not only by the disabled button.
-      if (!p.confirmed_at) return fail(409, 'Confirm the extracted items before generating.', 'not_confirmed')
+      if (!p.confirmed_at) return fail(409, 'Confirm the requirements before generating.', 'not_confirmed')
       const { diagram_types } = (await request.json()) as { diagram_types: string[] }
       if (diagram_types.some((t) => t !== 'use_case'))
         return fail(422, 'Only the Use Case diagram is available in this version.')

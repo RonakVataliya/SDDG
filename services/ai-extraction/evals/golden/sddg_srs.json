@@ -1,0 +1,256 @@
+{
+  "id": "sddg_srs",
+  "title": "SDDG SRS (this project, FR1-FR30)",
+  "style": "srs-real",
+  "reviewed": false,
+  "requirement_count": 30,
+  "text": "FR1: The system shall accept requirements through these input methods: typed or pasted text; uploaded PDF or DOCX SRS documents (maximum 10 MB per file); existing user stories; and existing FR/NFR lists. Input language is English.\nFR2: The system shall validate every input before processing. It shall reject, with a specific error message stating what is wrong, any file that exceeds the size limit, has an unsupported type, is corrupted, is password-protected, or is a PDF with no extractable text on any page. A PDF that has both text pages and image-only pages shall be accepted: only the text pages are extracted and the user is warned which pages were skipped. The system shall never generate content from an unreadable page and shall never fail silently.\nFR3: The system shall let users create, name, rename, list, switch between and delete projects. Project names are unique per owner (case-insensitive). Within a project, users shall be able to upload multiple documents and combine typed or pasted text, uploaded files, user stories and FR/NFR lists, up to a maximum of 15 documents or 100 total pages per project, whichever limit is reached first.\nFR4: The system shall split all input into individually identified requirement statements (each with a unique ID and source location) and extract from them the modelling information: actors, entities/classes, processes, data flows, data stores, interactions and relationships between elements. Each extracted item shall link to its source requirement statement(s).\nFR5: Before any diagram is generated, the system shall let the user view, edit, add, delete and explicitly confirm the extracted information. Any later change clears the confirmation. Generation shall be impossible without current confirmation, enforced on the server.\nFR6: The system shall detect ambiguous, incomplete, inconsistent and contradictory requirements and record each finding as a flag on the affected requirement(s).\nFR7: For each flag the system shall highlight the requirement, explain in plain language why it was flagged, and either ask the user a clarifying question or let the user resolve it manually, with a suggested fix where possible.\nFR8: The system shall still allow diagrams to be generated with unresolved flags (there is no blocking severity), and the warnings for unresolved flags shall remain visible on the diagrams.\nFR9: The system shall analyse the requirements to recommend suitable diagram types with a reason for each, let the user add or remove types, and require the user to confirm the final selection before generation starts.\nFR10: The system shall generate Use Case, Class, Activity, Sequence, DFD and Component diagrams (delivered progressively per the sprint plan) from the confirmed requirements, and shall show a progress or status indicator during generation. Start and end times of every run shall be recorded.\nFR11: The system shall notify the user in-app, and optionally by email (off by default), when a generation or regeneration completes or fails, including when the user has left the project.\nFR12: The system shall present every generated diagram as an editable draft supporting adding, removing, renaming and moving elements, changing relationships, and editing diagram-specific properties. Edits are held in the editor until the user saves; each save creates a new version.\nFR13: The system shall support regenerating either a selected portion or the entire diagram. Before an entire diagram is regenerated, its current state shall be saved as a version.\nFR14: The system shall allow users to modify source requirements, tell them which diagrams are affected, and regenerate the affected diagrams after the user approves (FR17). It shall keep a version history of each diagram (latest 20 versions) so users can view or revert to a previous version without losing newer ones.\nFR15: The system shall allow users to customise the visual presentation of a diagram (colour scheme, layout direction, font size) before export, without altering its structural content.\nFR16: The system shall maintain a single shared requirements model behind all generated diagrams. Diagram elements reference model items rather than holding copies, so a change to the model is reflected in every dependent diagram’s traceability view.\nFR17: The system shall explain how each diagram element was derived from the requirements; flag any requirement not represented in any diagram; prompt the user to propagate a requirement change to the diagrams it affects (declining leaves them marked “out of date”); warn the user when a manual diagram edit drifts from the current requirements; and flag shared elements (actors, entities, processes) that are named inconsistently across diagrams of the same project, matching by model item ID and offering to apply one name everywhere.\nFR18: The system shall allow diagrams to be exported as PNG, SVG and PDF (A4) with consistent page sizing and readable labels, and from Sprint 3 as editable draw.io XML and as PlantUML text. It shall provide a one-click export using the user’s default format (PNG unless changed).\nFR19: The system shall guide the user through the full pipeline, from raw requirements to a reviewed and finalised diagram (guidance can be dismissed permanently), and shall offer contextual explanations for any diagram notation element.\nFR20: The system shall provide a project-level summary showing requirement coverage: how many requirements have generated diagrams, how many have unresolved flags (FR6 to FR8), and how many are not represented in any diagram (FR17).\nFR21: The system shall allow a project Owner to export a combined project report (requirements, diagrams and open issues) as a single PDF suitable for sharing outside the tool.\nFR22: The system shall log key project activity (who changed a requirement, who edited, saved, regenerated or reverted a diagram, and when) so that Owners can review recent changes.\nFR23: The system shall allow a System Administrator to view, add, deactivate and reactivate user accounts. Deactivation revokes access but does not delete the user’s projects.\nFR24: The system shall allow a project Owner or a System Administrator to invite collaborators and assign each a role (Viewer, Editor or Owner, Section 2.4), and allow Owners to remove collaborators. Roles shall be enforced on the server and take effect on the next request. The system shall detect when a save is based on an outdated revision and warn the user instead of overwriting.\nFR25: The system shall allow a System Administrator to view system usage and configuration: active user count, total projects, storage used against defined limits, recent error and failure logs, generation- time statistics against the NFR1 target, and the current limits and settings (read-only, no secrets).\nFR26: The system shall allow users to search and filter requirements and diagrams within a project by keyword, ID, status (flagged, unresolved, exported) or diagram type. Filters of different categories combine with AND; values within one category combine with OR.\nFR27: The system shall let users report issues or give feedback on a specific diagram or requirement inside the tool. Owners see the reports on their projects and administrators see all reports.\nFR28: The system shall let users create an account by signing up with email and password (email verification required; password of at least 8 characters with a letter and a digit) or by signing in with Google; log in and out; and reset a forgotten password by a single-use link valid for 1 hour. Five failed logins lock the account for 15 minutes.\nFR29: After generation the system shall validate each diagram against its notation rules (DR1), against the confirmed extracted items and for structural problems, show the resulting warnings and suggestions on the diagram, and let the user either edit the diagram or accept a warning as-is.\nFR30: The system shall handle external-service problems gracefully: on AI-provider rate limits it shall queue and automatically retry (up to 3 retries within 5 minutes); on failure it shall show a plain- language message with a Retry option and shall not lose the user’s inputs or edits; and when the backend is starting up it shall tell the user instead of showing an error.\n",
+  "labels": {
+    "actors": [
+      [
+        "User",
+        "Team member",
+        "Project member"
+      ],
+      [
+        "Owner",
+        "Project owner"
+      ],
+      [
+        "System administrator",
+        "Administrator",
+        "Admin"
+      ],
+      [
+        "Editor"
+      ],
+      [
+        "Viewer"
+      ],
+      [
+        "AI provider",
+        "External AI provider",
+        "LLM provider"
+      ]
+    ],
+    "entities": [
+      [
+        "Project"
+      ],
+      [
+        "Requirement statement",
+        "Requirement"
+      ],
+      [
+        "Document",
+        "Input document",
+        "Uploaded document"
+      ],
+      [
+        "Flag",
+        "Quality flag"
+      ],
+      [
+        "Diagram"
+      ],
+      [
+        "Diagram version",
+        "Version"
+      ],
+      [
+        "Extracted item",
+        "Model item",
+        "Item"
+      ],
+      [
+        "User account",
+        "Account",
+        "User"
+      ],
+      [
+        "Collaborator",
+        "Project member",
+        "Role"
+      ],
+      [
+        "Report",
+        "Project report"
+      ],
+      [
+        "Activity log",
+        "Activity"
+      ],
+      [
+        "Feedback",
+        "Issue report"
+      ],
+      [
+        "Notification"
+      ]
+    ],
+    "processes": [
+      [
+        "Submit requirements",
+        "Upload document",
+        "Input requirements"
+      ],
+      [
+        "Validate input"
+      ],
+      [
+        "Manage projects",
+        "Create project"
+      ],
+      [
+        "Extract requirements",
+        "Split requirements",
+        "Extract model"
+      ],
+      [
+        "Review extracted items",
+        "Confirm extracted information",
+        "Edit items"
+      ],
+      [
+        "Detect flags",
+        "Detect ambiguity",
+        "Flag requirements"
+      ],
+      [
+        "Resolve flag",
+        "Explain flag"
+      ],
+      [
+        "Recommend diagram types",
+        "Recommend diagrams"
+      ],
+      [
+        "Generate diagram",
+        "Generate diagrams"
+      ],
+      [
+        "Notify user",
+        "Send notification"
+      ],
+      [
+        "Edit diagram"
+      ],
+      [
+        "Regenerate diagram"
+      ],
+      [
+        "Modify requirements",
+        "Change requirement"
+      ],
+      [
+        "Customise diagram",
+        "Customize presentation"
+      ],
+      [
+        "Trace elements",
+        "Explain derivation",
+        "Check consistency"
+      ],
+      [
+        "Export diagram"
+      ],
+      [
+        "Guide user",
+        "Show guidance"
+      ],
+      [
+        "View coverage summary",
+        "View project summary"
+      ],
+      [
+        "Export project report",
+        "Export report"
+      ],
+      [
+        "Log activity",
+        "View activity log"
+      ],
+      [
+        "Manage user accounts",
+        "Manage users"
+      ],
+      [
+        "Invite collaborator",
+        "Manage collaborators"
+      ],
+      [
+        "View system usage",
+        "View usage"
+      ],
+      [
+        "Search requirements",
+        "Search and filter"
+      ],
+      [
+        "Give feedback",
+        "Report issue"
+      ],
+      [
+        "Sign up",
+        "Create account"
+      ],
+      [
+        "Log in",
+        "Login"
+      ],
+      [
+        "Reset password"
+      ],
+      [
+        "Validate diagram"
+      ],
+      [
+        "Retry on failure",
+        "Handle service errors"
+      ]
+    ],
+    "interactions": [
+      [
+        "User",
+        "Submit requirements"
+      ],
+      [
+        "User",
+        "Manage projects"
+      ],
+      [
+        "User",
+        "Review extracted items"
+      ],
+      [
+        "User",
+        "Generate diagram"
+      ],
+      [
+        "User",
+        "Export diagram"
+      ],
+      [
+        "User",
+        "Search requirements"
+      ],
+      [
+        "Owner",
+        "Export project report"
+      ],
+      [
+        "Owner",
+        "Invite collaborator"
+      ],
+      [
+        "System administrator",
+        "Manage user accounts"
+      ],
+      [
+        "System administrator",
+        "View system usage"
+      ]
+    ]
+  },
+  "forbidden": []
+}

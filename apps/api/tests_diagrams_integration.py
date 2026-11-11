@@ -213,6 +213,10 @@ class FakeClient:
         def ok(data):
             return httpx.Response(200, json=data, request=request)
 
+        if url.endswith("/extraction/split"):
+            return ok({"requirements": EXTRACTION["requirements"],
+                       "metadata": {"model_used": "fake", "requirement_count": len(EXTRACTION["requirements"]),
+                                    "total_duration_seconds": 0.01}})
         if url.endswith("/extraction/extract"):
             return ok(EXTRACTION)
         if url.endswith("/png"):

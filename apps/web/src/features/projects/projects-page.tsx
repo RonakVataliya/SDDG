@@ -68,7 +68,7 @@ export function ProjectsPage() {
                       <p className="truncate font-medium group-hover:text-teal-deep">{p.name}</p>
                       <p className="mt-0.5 text-sm text-slate">
                         {p.statement_count > 0
-                          ? `${plural(p.statement_count, 'requirement')} · ${plural(p.item_count, 'item')}`
+                          ? plural(p.statement_count, 'requirement')
                           : 'No requirements yet'}
                         {' · '}updated {formatRelative(p.updated_at)}
                       </p>

@@ -15,7 +15,6 @@ type Step = { n: number; to: string; label: string; detail: string; state: StepS
 
 function buildSteps(project: Project, latestDiagramId?: string): Step[] {
   const stage = projectStage(project)
-  const extracted = project.item_count > 0
   return [
     {
       n: 1,
@@ -30,12 +29,10 @@ function buildSteps(project: Project, latestDiagramId?: string): Step[] {
       label: 'Review and confirm',
       detail: project.confirmed
         ? 'Confirmed'
-        : extracted
-          ? `${plural(project.item_count, 'item')} to check`
-          : project.extraction?.status === 'succeeded'
-            ? 'No items found'
-            : 'Waiting for extraction',
-      state: project.confirmed ? 'done' : extracted ? 'open' : 'locked',
+        : project.statement_count
+          ? `${plural(project.statement_count, 'requirement')} to check`
+          : 'Waiting for requirements',
+      state: project.confirmed ? 'done' : project.statement_count ? 'open' : 'locked',
     },
     {
       n: 3,

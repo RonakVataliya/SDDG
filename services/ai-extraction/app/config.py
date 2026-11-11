@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Server-side only. Never echoed in responses or logs.
     GOOGLE_API_KEY: str = Field(default="", repr=False)
     GEMINI_MODEL: str = "gemini-3.5-flash"
-    GEMINI_TEMPERATURE: float = 0.1
+    GEMINI_TEMPERATURE: float = 0.0  # consistency (plan 3.5)
     GEMINI_MAX_OUTPUT_TOKENS: int = 8192
 
     # --- Groq / LangChain Latest model -----------------------------------------------
@@ -44,8 +44,36 @@ class Settings(BaseSettings):
     # https://console.groq.com/docs/rate-limits
     GROQ_API_KEY: str = Field(default="", repr=False)
     GROQ_MODEL: str = "openai/gpt-oss-120b"
-    GROQ_TEMPERATURE: float = 0.1
+    GROQ_TEMPERATURE: float = 0.0  # consistency (plan 3.5)
     GROQ_MAX_OUTPUT_TOKENS: int = 16384  # gpt-oss counts its hidden reasoning here; 8192 cut long specs off
+
+    # --- Gateway: provider order, limits, waiting (app/llm, plan 3) -------------------------
+    # Preference order and the ONLY providers used (one name = no failover); empty = LLM_PROVIDER first, then the other. Limits are working values (~80% of the
+    # provider's documented limit for the tier in use; 0 = no limit). See README "LLM limits".
+    LLM_PROVIDERS: str = ""
+    LLM_FAILOVER_WAIT_SECONDS: float = 20.0  # no X-LLM-Provider: use the next provider if the wait is longer
+    LLM_MAX_WAIT_SECONDS: float = 120.0  # longest a call waits for capacity before answering 429 ai_busy
+    LLM_SEED: int | None = 7  # sent where the provider supports it (consistency, plan 3.5)
+    GROQ_RPM: int = 24
+    GROQ_TPM: int = 6400
+    GROQ_RPD: int = 800
+    GROQ_TPD: int = 160000
+    GROQ_MAX_CONCURRENCY: int = 2
+    GROQ_MAX_REQUEST_TOKENS: int = 6000
+    GROQ_REASONING: str = ""  # reasoning_effort for gpt-oss: low | medium | high; "" = model default
+    GROQ_EXTRACTION_MODE: str = "per_node"
+    GEMINI_RPM: int = 8
+    GEMINI_TPM: int = 200000
+    GEMINI_RPD: int = 200
+    GEMINI_TPD: int = 0
+    GEMINI_MAX_CONCURRENCY: int = 2
+    GEMINI_MAX_REQUEST_TOKENS: int = 100000
+    GEMINI_REASONING: str = ""  # a thinking budget in tokens, e.g. "0" or "512"; "" = model default
+    GEMINI_EXTRACTION_MODE: str = "per_node"
+
+    # "llm" (default) or "rules_first": structured lists are split by code, the LLM only gets what code cannot
+    # segment (app/graph/deterministic_split.py). Experiment: adopt only if the eval shows no loss (plan 1.6).
+    SPLIT_MODE: str = "llm"
 
     # --- Retry hooks --------------------------------------------------
     MAX_RETRIES: int = 3

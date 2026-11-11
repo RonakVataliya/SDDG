@@ -311,11 +311,103 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        /** Add a requirement (next R-number). Clears the confirmation and the building blocks. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StatementWrite"];
+                };
+            };
+            responses: {
+                /** @description Added */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RequirementStatement"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/statements/{statement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                statement_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    statement_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Edit a requirement; 422 "Requirement text can't be empty." */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    statement_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StatementWrite"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RequirementStatement"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/projects/{project_id}/items": {
@@ -862,161 +954,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/diagrams/{diagram_id}/validation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: components["parameters"]["DiagramId"];
-            };
-            cookie?: never;
-        };
-        /** Problems found in a generated diagram (#39): confirmed items it leaves out (only once the project is confirmed), lines with a missing end, use cases no actor reaches, no initial state, unreachable states and more. Accepted warnings stay in the list with who accepted them. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    diagram_id: components["parameters"]["DiagramId"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DiagramValidation"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/diagrams/{diagram_id}/validation/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: components["parameters"]["DiagramId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Accept a warning as it is. It stays accepted on versions made from this one. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    diagram_id: components["parameters"]["DiagramId"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["WarningRef"];
-                };
-            };
-            responses: {
-                /** @description The validation with the warning accepted */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DiagramValidation"];
-                    };
-                };
-                /** @description That warning no longer applies */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/diagrams/{diagram_id}/validation/fix": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: components["parameters"]["DiagramId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Apply the warning's suggested fix as a chat revision. Returns the new version; the one it came from is kept. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    diagram_id: components["parameters"]["DiagramId"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["WarningRef"];
-                };
-            };
-            responses: {
-                /** @description New version */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Diagram"];
-                    };
-                };
-                /** @description The warning no longer applies, it has no suggested fix, or the diagram has no spec (made before editing existed) */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description The suggested fix is too long to apply automatically */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1055,11 +992,13 @@ export interface components {
             item_count: number;
             /** @description Latest extraction job */
             extraction: components["schemas"]["Job"] | null;
-            /** @description Current extraction is confirmed (cleared by any change) */
+            /** @description The requirements are confirmed (cleared by any requirement change) */
             confirmed: boolean;
             /** Format: date-time */
             confirmed_at?: string | null;
             diagram_count: number;
+            /** @description Extraction nodes already run on the confirmed requirements (actors, entities, ...) */
+            extracted_nodes: string[];
         };
         ProjectCreate: {
             name: string;
@@ -1082,6 +1021,11 @@ export interface components {
             source: components["schemas"]["SourceLocation"];
         };
         /** @enum {string} */
+        StatementWrite: {
+            text?: string;
+            /** @enum {string|null} */
+            label?: "functional" | "non_functional" | "user_story" | "constraint" | "unknown" | null;
+        };
         ItemCategory: "actor" | "entity" | "process" | "data_flow" | "data_store" | "interaction" | "relationship";
         /** @enum {string} */
         ItemOrigin: "system-extracted" | "user-added" | "user-edited";
@@ -1121,8 +1065,11 @@ export interface components {
         GenerationCreate: {
             diagram_types: components["schemas"]["DiagramType"][];
         };
-        /** @enum {string} */
-        JobStatus: "queued" | "running" | "succeeded" | "failed";
+        /**
+         * @description waiting = the AI provider is at its rate limit; the job resumes by itself
+         * @enum {string}
+         */
+        JobStatus: "queued" | "running" | "waiting" | "succeeded" | "failed";
         Job: {
             id: string;
             /** @enum {string} */
@@ -1198,29 +1145,6 @@ export interface components {
             positions: {
                 [key: string]: components["schemas"]["Point"];
             };
-        };
-        ValidationWarning: {
-            /** @description Stable id, kind:subject, e.g. dangling:CR-3, missing:it_4 or no_initial:diagram */
-            id: string;
-            /** @description Plain-language problem */
-            message: string;
-            /** @description The element or line to highlight; null when the warning is about the whole diagram or something missing from it */
-            element_id: string | null;
-            /** @description Suggested fix */
-            fix: string | null;
-            /** @description Email of whoever accepted it as it is; null while open */
-            accepted_by: string | null;
-            /** Format: date-time */
-            accepted_at: string | null;
-        };
-        DiagramValidation: {
-            diagram_id: string;
-            warnings: components["schemas"]["ValidationWarning"][];
-            /** @description A note to show with the list: "No validation issues" when nothing is wrong, "Generate it again to validate it" for a diagram made before editing existed, or that missing items are only checked once the extracted items are confirmed. Null when there are warnings and nothing else to say, so it can be null even when warnings is not empty */
-            message: string | null;
-        };
-        WarningRef: {
-            warning_id: string;
         };
     };
     responses: never;
