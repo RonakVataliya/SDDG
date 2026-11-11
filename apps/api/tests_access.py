@@ -69,13 +69,14 @@ def check(client):
     db.save_flags(pid, [{'statement_id': statement['id'], 'type': 'ambiguous', 'reason': 'Vague.'}], [statement['id']])
     flag_id = client.get(f'{api}/projects/{pid}/flags', headers=mine).json()[0]['id']
     db.update_job(job['id'], status='failed', error=f'Kroki rejected: {SECRET_TEXT}')  # failure text can echo requirements
+    client.patch(f'{api}/projects/{pid}/client', headers=mine, json={'client_name': SECRET_TEXT})
 
     # 1. A stranger gets 404 on every route that takes a resource id, whatever the method.
     ids = {'project_id': pid, 'item_id': item['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id}
     bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
               '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
-              '/layout': {'positions': {}}, '/projects/{project_id}': {'name': 'Hacked', 'confirm_name': 'Secret project'}}
+              '/layout': {'positions': {}}, '/projects/{project_id}': {'name': 'Hacked', 'confirm_name': 'Secret project'}, '/client': {'client_name': 'Hacked'}}
     swept = 0
     for path, methods in app.openapi()['paths'].items():
         if not any(f'{{{k}}}' in path for k in ids):
@@ -85,7 +86,7 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 25, swept  # a new route with a resource id must be added to this check
+    assert swept == 28, swept  # a new route with a resource id must be added to this check
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)

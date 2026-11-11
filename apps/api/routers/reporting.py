@@ -1,8 +1,11 @@
-"""Stream 5, project side (FR3b, FR3e): rename, delete and archive a project (Owner only)."""
+"""Stream 5, project side (FR3b, FR3e, FR20, FR21): rename, delete and archive a project (Owner only), the coverage
+summary and the combined report (any member)."""
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import HTMLResponse
 
 from core import db
 from core.auth import User, get_current_user
+from core.reporting import REPORT_CSP, coverage, diagram_versions, latest_versions, report_html
 from routers.integrated import NOT_FOUND, clean_project_name, project_view, require_project
 from schemas.api import ProjectDelete, ProjectRename
 
@@ -50,3 +53,20 @@ def reopen_project(project_id: str, user: User = Depends(get_current_user)):
     require_owner(project_id, user)
     return project_view(db.set_archived(project_id, None), user)
 
+
+@router.get("/projects/{project_id}/coverage")
+def get_coverage(project_id: str, user: User = Depends(get_current_user)):
+    """FR20: coverage totals and one row per requirement (see core/reporting.coverage)."""
+    require_project(project_id, user)
+    return coverage(project_id)
+
+
+@router.get("/projects/{project_id}/report.html", response_class=HTMLResponse)
+def get_report(project_id: str, user: User = Depends(get_current_user)):
+    """FR21: the combined report as one self-contained, print-styled page (the browser saves it as PDF): cover,
+    coverage, requirements, the latest version of each diagram, open issues and tests."""
+    project = require_project(project_id, user)
+    latest = sorted(latest_versions(diagram_versions(db.diagram_rows(project_id))).values(), key=lambda v: v[0])
+    diagrams = sorted((db.member_diagram(i, user.id) | {"version": n} for i, n in latest), key=lambda d: d["created_at"])
+    page = report_html(project, coverage(project_id), diagrams, db.list_flags(project_id, "open"), db.now())
+    return HTMLResponse(page, headers={"Content-Security-Policy": REPORT_CSP})

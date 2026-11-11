@@ -18,7 +18,7 @@ pool = ConnectionPool(
 JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout")
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
-    "projects": ("name",),
+    "projects": ("name", "client_name"),
     "statements": ("text", "source_excerpt"),
     "items": ("name", "description"),
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
@@ -103,13 +103,19 @@ def project_counts(pid):
     )
 
 
-def create_project(user_id, name):
+def create_project(user_id, name, client_name=None, contact_email=None):
     t = now()
     return one(  # the creator is the first member
-        "WITH p AS (INSERT INTO projects(id, owner_id, name, created_at, updated_at) VALUES (%s,%s,%s,%s,%s) RETURNING *), "
+        "WITH p AS (INSERT INTO projects(id, owner_id, name, client_name, contact_email, created_at, updated_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *), "
         "m AS (INSERT INTO project_members(project_id, user_id) SELECT id, owner_id FROM p) SELECT * FROM p",
-        uid("pr"), user_id, encrypt(name), t, t,
+        uid("pr"), user_id, encrypt(name), encrypt(client_name), contact_email, t, t,
     )
+
+
+def set_client(pid, client_name, contact_email):
+    return one("UPDATE projects SET client_name=%s, contact_email=%s, updated_at=%s WHERE id=%s RETURNING *",
+               encrypt(client_name), contact_email, now(), pid)
 
 
 def rename_project(pid, name):
@@ -356,6 +362,11 @@ def list_diagrams(pid):
         "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
         pid,
     )
+
+
+def diagram_rows(pid):
+    """Every diagram version without its drawing: what version grouping and coverage need."""
+    return many("SELECT id, type, title, created_at, statement_ids FROM diagrams WHERE project_id=%s", pid)
 
 
 def list_flags(pid, status=None):

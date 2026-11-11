@@ -26,6 +26,7 @@ from core import db
 from core.auth import User, get_current_user
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
 from core.quality import detect
+from core.reporting import diagram_versions, slugify
 from schemas.api import (
     ConsentCreate,
     GenerationCreate,
@@ -102,6 +103,8 @@ def project_view(p, user):
         "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5); role is still "owner" for everyone until C2
         "archived_at": p["archived_at"],
         "archived_by": p["archived_by"],
+        "client_name": p["client_name"],  # Home groups projects by client
+        "contact_email": p["contact_email"],
         "created_at": p["created_at"],
         "updated_at": p["updated_at"],
         "statement_count": counts["statement_count"],
@@ -545,7 +548,7 @@ def list_projects(user: User = Depends(get_current_user)):
 def create_project(payload: ProjectCreate, user: User = Depends(get_current_user)):
     """Creates a new project with a unique name for the authenticated user."""
     name = clean_project_name(payload.name, user)
-    return project_view(db.create_project(user.id, name), user)
+    return project_view(db.create_project(user.id, name, payload.client_name, payload.contact_email), user)
 
 
 def clean_project_name(name, user, project_id=None):
@@ -852,21 +855,10 @@ async def export_diagram(
         raise HTTPException(424, f"{label} export failed because the diagram renderer is unavailable. Try again in a minute.") from e
 
 
-def slugify(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-") or "diagram"
-
-
 def zip_layout(rows):
     """Names every diagram version in a project ZIP: '<title>/v<n>' (a folder per version, see zip_path). All diagrams with the same title (a type's first
     generation, every "Generate again" and every edit) are versions of one diagram, numbered by creation time."""
-    groups = {}
-    for r in rows:
-        groups.setdefault(slugify(r["title"]), []).append(r)
-    names = {}
-    for folder, versions in groups.items():
-        for n, r in enumerate(sorted(versions, key=lambda r: r["created_at"]), start=1):
-            names[r["id"]] = f"{folder}/v{n}"
-    return names
+    return {diagram_id: f"{folder}/v{n}" for diagram_id, (folder, n) in diagram_versions(rows).items()}
 
 
 def zip_path(name: str, extension: str) -> str:
