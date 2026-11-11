@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.auth import User, get_current_user
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
-from core.styling import apply_style, style_for
+from core.styling import apply_style, export_style
 from core.quality import detect
 from schemas.api import (
     ConsentCreate,
@@ -824,7 +824,7 @@ async def export_diagram(
     if fmt == "source" and diagram["plantuml_source"]:
         source = diagram["plantuml_source"]
         return Response(source, media_type=SOURCE_TYPES[kroki_engine_for_source(source)][0])
-    return await render_styled(diagram, style_for(diagram["id"]), fmt)
+    return await render_styled(diagram, export_style(diagram), fmt)
 
 
 async def render_styled(diagram, style, fmt="png"):
@@ -937,7 +937,7 @@ async def export_project_diagrams(
             return [], f"{name}: no stored source (made by an older build); regenerate it to export."
         engine = kroki_engine_for_source(source)
         out, missing = [(zip_path(name, SOURCE_TYPES[engine][1]), source.encode("utf-8"))], []
-        drawn = apply_style(source, engine, style_for(d["id"]), d["type"])  # pictures get the saved look (#38)
+        drawn = apply_style(source, engine, export_style(d), d["type"])  # saved look (#38); moved versions the standard one
         for fmt in ("png", "svg", "pdf"):
             if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
                 continue  # e.g. Mermaid has no PDF output; README lists the formats

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useBlocker } from 'react-router'
 import type { DiagramType } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { Button } from '@/components/ui/button'
+import { Notice } from '@/components/ui/notice'
 import {
   useDiagramStyle,
   useSaveDiagramStyle,
@@ -28,6 +30,11 @@ type StylePanelProps = {
   onPreviewChange: (url: string | null) => void
 }
 
+const STYLE_KEYS = ['preset', 'background', 'fill', 'text', 'line', 'direction', 'font_size'] as const
+
+/** Colours compare case-insensitively: the colour picker gives lower case, the server upper case. */
+const sameStyle = (a: DiagramStyle, b: DiagramStyle) => STYLE_KEYS.every((k) => String(a[k]).toUpperCase() === String(b[k]).toUpperCase())
+
 const colourFields: { key: keyof StyleColours; label: string }[] = [
   { key: 'background', label: 'Diagram background' },
   { key: 'fill', label: 'Shape fill' },
@@ -52,6 +59,20 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
     }
   }, [saved.data])
 
+  // The warning is about the settings it was opened for; any change closes it.
+  useEffect(() => setShowContrastConfirm(false), [draft])
+
+  // Like the layout editor: changes would be dropped without a word on another version or Back, so ask first.
+  const unsaved = !!saved.data && !sameStyle(draft, saved.data)
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => unsaved && currentLocation.pathname !== nextLocation.pathname)
+
+  useEffect(() => {
+    if (!unsaved) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault() // the browser asks before throwing the changes away
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [unsaved])
+
   useEffect(() => {
     if (!previewStyle || !preview.data) {
       onPreviewChange(null)
@@ -68,7 +89,6 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
   }, [preview.data, previewStyle, onPreviewChange])
 
   function changeColour(key: keyof StyleColours, value: string) {
-    setShowContrastConfirm(false)
     setDraft((current) => ({
       ...current,
       [key]: value,
@@ -115,6 +135,20 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
 
   return (
     <section className="mx-5 mt-4 rounded-lg border border-rule bg-surface p-4">
+      {blocker.state === 'blocked' && (
+        <Notice tone="warning" title="Leave without saving the new look?" className="mb-4">
+          <span className="block">Your colour, direction or font size changes have not been saved. Leaving drops them.</span>
+          <span className="mt-2 flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => blocker.reset?.()}>
+              Stay
+            </Button>
+            <Button size="sm" onClick={() => blocker.proceed?.()}>
+              Leave without saving
+            </Button>
+          </span>
+        </Notice>
+      )}
+
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-ink">
           Customise diagram

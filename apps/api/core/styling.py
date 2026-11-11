@@ -91,6 +91,12 @@ def style_for(diagram_id) -> dict:
     return saved_style(diagram_id) or dict(DEFAULT_STYLE)
 
 
+def export_style(diagram) -> dict:
+    """The look for a Kroki drawing of this version. A version with moved elements is shown and exported in the
+    browser with the standard look, so its Kroki pictures (project ZIP) use the standard look too, not an inherited one."""
+    return dict(DEFAULT_STYLE) if diagram.get("layout") else style_for(diagram["id"])
+
+
 def save_style(diagram_id, style):
     db.run("UPDATE diagrams SET style=%s WHERE id=%s", json.dumps(style), diagram_id)
 
@@ -125,12 +131,17 @@ _PUML_BOXES = (
 )
 _PUML_DIRECTION = re.compile(r"^\s*(left to right|top to bottom) direction\s*$", re.IGNORECASE)
 _PUML_FONT = 14  # PlantUML's default font size
+# A generator's own colours for one stereotype (e.g. DFD "BackgroundColor<<entity>> #EEF2F7") come after the
+# style's skinparams and would win, so they are rewritten to the style's colours.
+_PUML_STEREO_COLOUR = re.compile(r"\b(BackgroundColor|BorderColor|FontColor)(<<[^>]+>>\s+)#[0-9A-Fa-f]{3,8}\b")
 
 
 def _plantuml(source, s, direction, scale, diagram_type):
     lines = source.splitlines()
     if direction != "auto":
         lines = [ln for ln in lines if not _PUML_DIRECTION.match(ln)]
+    colour = {"BackgroundColor": s["fill"], "BorderColor": s["line"], "FontColor": s["text"]}
+    lines = [_PUML_STEREO_COLOUR.sub(lambda m: f"{m.group(1)}{m.group(2)}{colour[m.group(1)]}", ln) for ln in lines]
     size = max(6, round(_PUML_FONT * scale))
     skin = [
         f"skinparam backgroundColor {s['background']}",
@@ -205,8 +216,27 @@ def _graphviz(source, s, direction, scale):
     return out if brace < 0 else out[: brace + 1] + "\n" + defaults + out[brace + 1 :]
 
 
-_MERMAID_FRONTMATTER = re.compile(r"\A(\s*---\n.*?\n---[ \t]*\n)", re.DOTALL)
+_MERMAID_FRONTMATTER = re.compile(r"\A(\s*---\r?\n.*?\r?\n---[ \t]*\r?\n)", re.DOTALL)
 _MERMAID_FLOW = re.compile(r"^(\s*)(flowchart|graph)\s+(TB|TD|BT|LR|RL)\b", re.MULTILINE)
+# Class and state diagrams take their direction from a "direction XX" line right after the header.
+_MERMAID_DIRECTED = re.compile(r"^([ \t]*)(classDiagram|stateDiagram(?:-v2)?)[ \t]*(\r?\n)", re.MULTILINE)
+_MERMAID_CLASSDEF = re.compile(r"^[ \t]*classDef\b.*$", re.MULTILINE)
+_MERMAID_DEF_COLOUR = re.compile(r"\b(fill|stroke|color):(#[0-9A-Fa-f]{3,8})\b")
+_DARK = ("#111", "#111111", "#000", "#000000")
+_LIGHT = ("#fff", "#ffffff")
+
+
+def _classdef(line, s):
+    """A generator classDef with the style's colours: near-black dots and bars take the text colour (like the
+    Graphviz start/end dots), so they show on dark backgrounds; their white label takes the background colour."""
+    def colour(m):
+        key, value = m.group(1), m.group(2).lower()
+        if value in _DARK:
+            return f"{key}:{s['text']}"
+        if key == "color" and value in _LIGHT:
+            return f"color:{s['background']}"
+        return f"{key}:{ {'fill': s['fill'], 'stroke': s['line'], 'color': s['text']}[key] }"
+    return _MERMAID_DEF_COLOUR.sub(colour, line)
 
 
 def _mermaid(source, s, direction, scale):
@@ -222,6 +252,9 @@ def _mermaid(source, s, direction, scale):
     out = source
     if direction != "auto":
         out = _MERMAID_FLOW.sub(lambda m: f"{m.group(1)}{m.group(2)} {direction}", out, count=1)
+        # shortcut: adds a line rather than replacing one; the generators write no top-level direction of their own.
+        out = _MERMAID_DIRECTED.sub(lambda m: f"{m.group(0)}{m.group(1)}  direction {direction}{m.group(3)}", out, count=1)
+    out = _MERMAID_CLASSDEF.sub(lambda m: _classdef(m.group(0), s), out)
     init = "%%{init: " + json.dumps({"theme": "base", "themeVariables": variables}) + "}%%\n"
     # A leading --- frontmatter block must stay first, so the init line goes right after it.
     front = _MERMAID_FRONTMATTER.match(out)

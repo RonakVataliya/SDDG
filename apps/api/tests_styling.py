@@ -10,9 +10,10 @@ os.environ["DEV_AUTH_BYPASS"] = "true"
 from fastapi import HTTPException, Response  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+import core.styling as styling  # noqa: E402
 import routers.integrated as integrated  # noqa: E402
 import routers.style as style_router  # noqa: E402
-from core.styling import DEFAULT_STYLE, StyleError, apply_style, parse_style  # noqa: E402
+from core.styling import DEFAULT_STYLE, StyleError, apply_style, export_style, parse_style  # noqa: E402
 from main import app  # noqa: E402
 
 DARK = {**DEFAULT_STYLE, "preset": "dark", "background": "#1E1E24", "fill": "#2B2D36", "text": "#F5F5F5", "line": "#A0A4B0"}
@@ -70,6 +71,8 @@ def test_plantuml():
 
     seq = apply_style(PUML, "plantuml", {**DEFAULT_STYLE, "direction": "TB"}, "sequence").splitlines()
     assert "top to bottom direction" not in seq and "left to right direction" in seq  # sequence keeps its own
+    dfd = "@startuml\nskinparam rectangle {\n  BackgroundColor<<entity>> #EEF2F7\n}\nrectangle \"Student\" <<entity>> as E\n@enduml"
+    assert "BackgroundColor<<entity>> #2B2D36" in apply_style(dfd, "plantuml", DARK, "dfd")  # stereotype fill follows the theme
     act = apply_style("@startuml\nstart\n:a;\nstop\n@enduml", "plantuml", {**DEFAULT_STYLE, "direction": "LR"}, "activity")
     assert "direction" not in act.replace("LayoutDirection", "")
 
@@ -101,6 +104,31 @@ def test_mermaid():
     front = "---\ntitle: Canteen\n---\n" + MERMAID
     lines = apply_style(front, "mermaid", DARK, "dfd").splitlines()
     assert lines[:3] == ["---", "title: Canteen", "---"] and lines[3].startswith("%%{init: ") and lines[4] == "flowchart LR"
+    crlf = apply_style(front.replace("\n", "\r\n"), "mermaid", DARK, "dfd")
+    assert crlf.startswith("---\r\ntitle: Canteen\r\n---\r\n%%{init: ")  # Windows line endings too
+
+    cls = apply_style("classDiagram\n  class Order", "mermaid", {**DEFAULT_STYLE, "direction": "LR"}, "class").splitlines()
+    assert cls[1:3] == ["classDiagram", "  direction LR"]
+    state = apply_style("stateDiagram-v2\r\n  [*] --> A", "mermaid", {**DEFAULT_STYLE, "direction": "TB"}, "state")
+    assert "stateDiagram-v2\r\n  direction TB\r\n" in state
+    assert "direction" not in apply_style("classDiagram\n  class Order", "mermaid", DEFAULT_STYLE, "class").split("\n", 1)[1]
+
+    defs = apply_style(
+        "flowchart TD\n  classDef terminal fill:#111,stroke:#111,color:#fff\n  classDef entity fill:#eef2f7,stroke:#334155",
+        "mermaid", DARK, "activity",
+    ).splitlines()
+    assert defs[2] == "  classDef terminal fill:#F5F5F5,stroke:#F5F5F5,color:#1E1E24"  # dots show on dark
+    assert defs[3] == "  classDef entity fill:#2B2D36,stroke:#A0A4B0"
+
+
+def test_export_style():
+    saved = styling.style_for
+    styling.style_for = lambda _id: DARK  # e.g. inherited from the version before the move
+    try:
+        assert export_style({"id": "dg_1"}) == DARK
+        assert export_style({"id": "dg_2", "layout": {"E": [1, 2]}}) == DEFAULT_STYLE  # moved: standard look, like the screen
+    finally:
+        styling.style_for = saved
 
 
 DIAGRAM = {"id": "dg_1", "type": "use_case", "plantuml_source": PUML}
@@ -110,7 +138,7 @@ def with_fakes(fn):
     """Runs fn(client, store, drawn) with storage and drawing replaced by in-memory fakes."""
     store, drawn = {}, []
     saved = {name: getattr(style_router, name) for name in ("require_diagram", "style_for", "save_style", "render_styled")}
-    saved_export = (integrated.require_diagram, integrated.style_for, integrated.render_styled)
+    saved_export = (integrated.require_diagram, styling.style_for, integrated.render_styled)
 
     def require(diagram_id, _user):
         if diagram_id != "dg_1":
@@ -122,7 +150,7 @@ def with_fakes(fn):
         return Response(fmt.encode(), media_type=integrated.EXPORT_MEDIA_TYPES[fmt])
 
     style_router.require_diagram = integrated.require_diagram = require
-    style_router.style_for = integrated.style_for = lambda did: store.get(did, dict(DEFAULT_STYLE))
+    style_router.style_for = styling.style_for = lambda did: store.get(did, dict(DEFAULT_STYLE))
     style_router.save_style = lambda did, s: store.__setitem__(did, s)
     style_router.render_styled = integrated.render_styled = render
     try:
@@ -130,7 +158,7 @@ def with_fakes(fn):
     finally:
         for name, value in saved.items():
             setattr(style_router, name, value)
-        integrated.require_diagram, integrated.style_for, integrated.render_styled = saved_export
+        integrated.require_diagram, styling.style_for, integrated.render_styled = saved_export
 
 
 def test_endpoints():
@@ -164,7 +192,7 @@ def test_endpoints():
 
 
 if __name__ == "__main__":
-    for test in (test_parse_style, test_plantuml, test_graphviz, test_mermaid, test_endpoints):
+    for test in (test_parse_style, test_plantuml, test_graphviz, test_mermaid, test_export_style, test_endpoints):
         test()
         print("ok", test.__name__)
     print("styling tests passed")
