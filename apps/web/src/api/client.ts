@@ -17,6 +17,9 @@ export type DiagramLayout = Schemas['DiagramLayout']
 export type LayoutElement = Schemas['LayoutElement']
 export type LayoutLine = Schemas['LayoutLine']
 export type Point = Schemas['Point']
+export type ProjectDocument = Schemas['ProjectDocument']
+export type DocumentUploadResponse = Schemas['DocumentUploadResponse']
+
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {

@@ -15,6 +15,7 @@ export const keys = {
   diagramLayout: (id: string) => ['diagrams', id, 'layout'] as const,
   job: (id: string) => ['jobs', id] as const,
   consent: ['me', 'consent'] as const,
+  documents: (id: string) => ['projects', id, 'documents'] as const,
 }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
@@ -69,6 +70,61 @@ export function useSubmitInput(projectId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.project(projectId) }),
   })
 }
+
+/* ---------- documents (FR1b/c, FR2) ---------- */
+
+export function useDocuments(projectId: string) {
+  return useQuery({
+    queryKey: keys.documents(projectId),
+    queryFn: () =>
+      unwrap(api.GET('/projects/{project_id}/documents', { params: { path: { project_id: projectId } } })),
+    refetchInterval: (q) =>
+      q.state.data?.some((d) => d.status === 'uploaded' || d.status === 'processing') ? 1500 : false,
+  })
+}
+
+export function useUploadDocument(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData()
+      formData.append('file', file, file.name)
+      return unwrap(
+        api.POST('/projects/{project_id}/documents', {
+          params: { path: { project_id: projectId } },
+          headers: {
+            'x-filename': encodeURIComponent(file.name),
+            'x-filesize': String(file.size),
+          },
+          body: formData as unknown as { file: unknown },
+          bodySerializer: (body) => body as unknown as FormData,
+        }),
+      )
+    },
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: keys.documents(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId) })
+      if (data?.job) qc.setQueryData(keys.job(data.job.id), data.job)
+    },
+  })
+}
+
+export function useDeleteDocument(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (documentId: string) =>
+      unwrap(
+        api.DELETE('/projects/{project_id}/documents/{document_id}', {
+          params: { path: { project_id: projectId, document_id: documentId } },
+        }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.documents(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId) })
+    },
+  })
+}
+
 
 /** FR10g: poll a job until it finishes. */
 export function useJob(jobId: string | null | undefined) {

@@ -225,6 +225,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** List documents uploaded to a project */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of project documents */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectDocument"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Upload a PDF or DOCX document and start extraction */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        file: unknown;
+                    };
+                };
+            };
+            responses: {
+                /** @description Upload accepted and extraction started */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DocumentUploadResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    document_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            deleted: boolean;
+                            id: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/inputs": {
         parameters: {
             query?: never;
@@ -905,6 +1017,29 @@ export interface components {
             /** Format: date-time */
             confirmed_at?: string | null;
             diagram_count: number;
+            document_count?: number;
+            document_page_count?: number;
+        };
+        ProjectDocument: {
+            id: string;
+            project_id: string;
+            filename: string;
+            storage_path: string;
+            content_type: string;
+            size_bytes: number;
+            page_count: number;
+            status: "uploaded" | "processing" | "processed" | "failed";
+            warning?: string | null;
+            skipped_pages?: number[];
+            job_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DocumentUploadResponse: {
+            document: components["schemas"]["ProjectDocument"];
+            job: components["schemas"]["Job"];
         };
         ProjectCreate: {
             name: string;
@@ -924,6 +1059,14 @@ export interface components {
             text: string;
             /** @description Label the input already carried */
             label?: string | null;
+            source_label?: string | null;
+            metadata?: {
+                role?: string;
+                goal?: string;
+                reason?: string;
+                structured?: boolean;
+                [key: string]: unknown;
+            } | null;
             source: components["schemas"]["SourceLocation"];
         };
         /** @enum {string} */
