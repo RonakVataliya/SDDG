@@ -21,4 +21,9 @@ def encrypt(text):
 
 def decrypt(text):
     """Rows saved before encryption was added have no prefix and are returned as they are."""
-    return fernet().decrypt(text[len(PREFIX):].encode()).decode() if text.startswith(PREFIX) else text
+    if text and isinstance(text, str) and text.startswith(PREFIX):
+        try:
+            return fernet().decrypt(text[len(PREFIX):].encode()).decode()
+        except Exception:
+            return text
+    return text

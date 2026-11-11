@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS statements (
   id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
   ref text NOT NULL, text text NOT NULL, label text, source_document text NOT NULL,
   source_page int, source_paragraph int, source_line_start int, source_line_end int, source_excerpt text);
+ALTER TABLE statements
+ADD COLUMN IF NOT EXISTS source_label text;
+
+ALTER TABLE statements
+ADD COLUMN IF NOT EXISTS metadata text;
 CREATE TABLE IF NOT EXISTS items (
   id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
   category text NOT NULL, name text NOT NULL, description text, origin text NOT NULL,
@@ -67,3 +72,28 @@ CREATE TABLE IF NOT EXISTS flags (
   created_at timestamptz NOT NULL,
   seq bigint GENERATED ALWAYS AS IDENTITY);
 ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
+
+-- Project documents (FR1b, FR1c, FR2). Stored in Supabase Storage, tracked here.
+CREATE TABLE IF NOT EXISTS documents (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  filename text NOT NULL,
+  storage_path text NOT NULL,
+  content_type text NOT NULL,
+  size_bytes bigint NOT NULL,
+  page_count int NOT NULL,
+  status text NOT NULL,
+  warning text,
+  skipped_pages text,
+  job_id text,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS documents_project_idx ON documents (project_id);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS job_id text;
+CREATE INDEX IF NOT EXISTS documents_job_idx ON documents (job_id);
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS document_id text;
+CREATE INDEX IF NOT EXISTS jobs_document_idx ON jobs (document_id);
+
