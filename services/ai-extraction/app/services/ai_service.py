@@ -10,10 +10,13 @@ AI-service module.
   count and status -- never the prompt or the extracted content.
 - Retry hooks: only failures that can succeed on a second try (rate limits,
   timeouts, transport and server errors, malformed model output) are
-  retried via tenacity; a rate limit waits 20 s then 40 s, others back off
-  fast. A bad request or a rejected key fails at once. The retry
-  callback is metadata-only as well.
+  retried via tenacity. Rate limits are avoided rather than retried: the
+  gateway's limiter (app/llm) waits for budget before every attempt, and a
+  429 that still happens puts the provider on cooldown for its Retry-After.
+  A bad request or a rejected key fails at once. The retry callback is
+  metadata-only as well.
 """
+import json
 from functools import lru_cache
 from time import perf_counter
 from typing import Type, TypeVar
@@ -31,6 +34,9 @@ from tenacity import (
 )
 
 from app.config import get_settings
+from app.llm.gateway import get_gateway, record_call, requested_provider
+from app.llm.limiter import AIBusy
+from app.llm.providers import CHARS_PER_TOKEN, estimate_tokens
 from app.logging_config import get_logger
 
 logger = get_logger("ai_service")
@@ -40,6 +46,10 @@ TSchema = TypeVar("TSchema", bound=BaseModel)
 
 class AIServiceError(RuntimeError):
     """Raised when the AI service cannot produce a valid structured result."""
+
+
+class RequestTooLarge(AIServiceError):
+    """One call would exceed the provider's per-request budget; the caller must chunk its input (plan 3.4)."""
 
 
 class MalformedOutputError(AIServiceError):
@@ -88,58 +98,60 @@ def is_retryable(exc: BaseException) -> bool:
     )
 
 
+def _retry_after(exc: BaseException) -> float | None:
+    """Seconds from a 429's Retry-After header, when the provider sent one."""
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    try:
+        return float(headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _wait_for(settings):
-    """Rate limits are per minute on the free tiers, so wait 20 s, then 40 s; anything else backs off fast."""
+    """A rate limit puts the provider on cooldown in the limiter, which does the waiting before the next attempt,
+    so tenacity only pauses briefly; anything else backs off fast."""
     fast = wait_exponential(multiplier=1, min=settings.RETRY_MIN_WAIT_SECONDS, max=settings.RETRY_MAX_WAIT_SECONDS)
 
     def wait(retry_state) -> float:
         exc = retry_state.outcome.exception()
         if exc is not None and is_rate_limited(exc):
-            return 20.0 * retry_state.attempt_number
+            return 1.0
         return fast(retry_state)
 
     return wait
 
 
 @lru_cache
-def _get_llm(temperature: float | None = None) -> BaseChatModel:
-    """
-    Builds (and caches) the LangChain chat client for whichever provider is
-    configured (Settings.LLM_PROVIDER). Cached per-temperature so different
-    nodes can request different temperatures without rebuilding a client
-    each call. The API key is read from Settings here and only here -- it
-    never leaves this process boundary. Every node calls this same factory,
-    so switching providers is a one-line .env change, not a code change.
-    """
-    settings = get_settings()
-    if not settings.has_api_key:
+def _client(provider: str, temperature: float | None = None) -> BaseChatModel:
+    """Builds (and caches) the LangChain chat client for one provider. Keys are read from settings here and only
+    here; they never leave the process."""
+    spec = get_gateway().providers.get(provider)
+    if spec is None:
+        raise AIServiceError(f"Unknown LLM provider '{provider}'. Expected 'gemini' or 'groq'.")
+    if not spec.available:
         raise AIServiceError(
-            f"No API key configured for LLM_PROVIDER='{settings.LLM_PROVIDER}'. "
-            "Set GOOGLE_API_KEY (provider=gemini) or GROQ_API_KEY (provider=groq) "
-            "in the environment or .env file."
+            f"No API key configured for provider '{provider}'. "
+            "Set GOOGLE_API_KEY (provider=gemini) or GROQ_API_KEY (provider=groq) in the environment or .env file."
         )
-
-    if settings.LLM_PROVIDER == "groq":
+    settings = get_settings()
+    temp = spec.temperature if temperature is None else temperature
+    if provider == "groq":
+        extra = {"reasoning_effort": spec.reasoning} if spec.reasoning else {}
         return ChatGroq(
-            model=settings.GROQ_MODEL,
-            api_key=settings.GROQ_API_KEY,
-            temperature=settings.GROQ_TEMPERATURE if temperature is None else temperature,
-            max_tokens=settings.GROQ_MAX_OUTPUT_TOKENS,
-            timeout=settings.REQUEST_TIMEOUT_SECONDS,
+            model=spec.model, api_key=spec.api_key, temperature=temp, max_tokens=spec.max_output_tokens,
+            timeout=settings.REQUEST_TIMEOUT_SECONDS, max_retries=0,  # retries and waiting are ours (limiter)
+            model_kwargs={"seed": spec.seed} if spec.seed is not None else {}, **extra,
         )
-
-    if settings.LLM_PROVIDER == "gemini":
-        return ChatGoogleGenerativeAI(
-            model=settings.GEMINI_MODEL,
-            google_api_key=settings.GOOGLE_API_KEY,
-            temperature=settings.GEMINI_TEMPERATURE if temperature is None else temperature,
-            max_output_tokens=settings.GEMINI_MAX_OUTPUT_TOKENS,
-            timeout=settings.REQUEST_TIMEOUT_SECONDS,
-        )
-
-    raise AIServiceError(
-        f"Unknown LLM_PROVIDER='{settings.LLM_PROVIDER}'. Expected 'gemini' or 'groq'."
+    extra = {"thinking_budget": int(spec.reasoning)} if spec.reasoning else {}
+    return ChatGoogleGenerativeAI(
+        model=spec.model, google_api_key=spec.api_key, temperature=temp, max_output_tokens=spec.max_output_tokens,
+        timeout=settings.REQUEST_TIMEOUT_SECONDS, seed=spec.seed, max_retries=0, **extra,
     )
+
+
+def _get_llm(temperature: float | None = None, provider: str | None = None) -> BaseChatModel:
+    """The client for `provider` (default: the configured LLM_PROVIDER)."""
+    return _client(provider or get_settings().LLM_PROVIDER, temperature)
 
 
 class AIService:
@@ -168,64 +180,95 @@ class AIService:
         schema: Type[TSchema],
     ) -> tuple[TSchema, dict]:
         """
-        Calls the configured LLM with a structured-output schema and returns
-        (parsed_result, call_metadata). call_metadata is safe to log/store
-        as-is: {"node", "model", "duration_seconds", "attempts", "status",
-        "input_chars"}.
-        """
-        llm = _get_llm()
-        structured_llm = llm.with_structured_output(schema)
+        Calls an LLM with a structured-output schema and returns (parsed_result, call_metadata).
 
-        attempts = {"count": 0}
+        The gateway picks the provider and its limiter waits for budget before each attempt (AIBusy when the
+        wait would be too long). call_metadata is safe to log/store as-is: node, provider, model, tokens,
+        wait and duration, attempts, status, input_chars -- never content.
+        """
+        gateway = get_gateway()
+        est = estimate_tokens(system_prompt, user_content, json.dumps(schema.model_json_schema()), node_name)
+        provider = gateway.choose(est)
+        spec = gateway.providers[provider]
+        if est > spec.max_request_tokens:
+            raise RequestTooLarge(f"node={node_name} needs ~{est} tokens; {provider} allows {spec.max_request_tokens} per call")
+        limiter = gateway.limiters[provider]
+        structured_llm = _get_llm(provider=provider).with_structured_output(schema, include_raw=True)
+        messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_content)]
+        stats = {"attempts": 0, "wait": 0.0, "rate_limited": 0, "input_tokens": 0, "output_tokens": 0}
         start = perf_counter()
 
         @self._retry_decorator()
         def _invoke() -> TSchema:
-            attempts["count"] += 1
-            messages = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_content),
-            ]
-            result = structured_llm.invoke(messages)
-            if not isinstance(result, schema):
-                raise MalformedOutputError(f"Unexpected structured output type for node={node_name}")
-            return result
+            stats["attempts"] += 1
+            lease = limiter.acquire(est, self.settings.LLM_MAX_WAIT_SECONDS)
+            stats["wait"] += lease.waited
+            used = None
+            try:
+                out = structured_llm.invoke(messages)
+                usage = (getattr(out.get("raw"), "usage_metadata", None) or {}) if isinstance(out, dict) else {}
+                if usage:
+                    used = int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
+                    stats["input_tokens"] += int(usage.get("input_tokens", 0))
+                    stats["output_tokens"] += int(usage.get("output_tokens", 0))
+                result = out.get("parsed") if isinstance(out, dict) else out
+                if not isinstance(result, schema):
+                    raise MalformedOutputError(f"Unexpected structured output type for node={node_name}")
+                return result
+            except Exception as exc:
+                if is_rate_limited(exc):
+                    stats["rate_limited"] += 1
+                    limiter.cool_down(_retry_after(exc) or 20.0)
+                raise
+            finally:
+                limiter.release(lease, used)
 
-        status = "ok"
+        metadata = {"node": node_name, "provider": provider, "model": spec.model, "input_chars": len(user_content)}
         try:
             result = _invoke()
+        except AIBusy:
+            raise
         except Exception:
-            status = "error"
-            duration = perf_counter() - start
+            metadata.update(self._timing(stats, start), status="error")
+            record_call(metadata)
             logger.error(
-                "ai_call_failed node=%s model=%s duration_seconds=%.3f attempts=%d "
+                "ai_call_failed node=%s provider=%s model=%s duration_seconds=%.3f attempts=%d rate_limited=%d "
                 "input_chars=%d",
-                node_name,
-                self.settings.active_model,
-                duration,
-                attempts["count"],
+                node_name, provider, spec.model, perf_counter() - start, stats["attempts"], stats["rate_limited"],
                 len(user_content),
             )
             raise
 
-        duration = perf_counter() - start
-        metadata = {
-            "node": node_name,
-            "model": self.settings.active_model,
-            "duration_seconds": round(duration, 4),
-            "attempts": attempts["count"],
-            "status": status,
-            "input_chars": len(user_content),
-        }
+        metadata.update(self._timing(stats, start), status="ok")
+        record_call(metadata)
         logger.info(
-            "ai_call_ok node=%s model=%s duration_seconds=%.3f attempts=%d input_chars=%d",
-            node_name,
-            self.settings.active_model,
-            duration,
-            attempts["count"],
-            len(user_content),
+            "ai_call_ok node=%s provider=%s model=%s duration_seconds=%.3f wait_seconds=%.3f attempts=%d "
+            "input_tokens=%d output_tokens=%d input_chars=%d",
+            node_name, provider, spec.model, metadata["duration_seconds"], stats["wait"], stats["attempts"],
+            stats["input_tokens"], stats["output_tokens"], len(user_content),
         )
         return result, metadata
+
+    def content_budget(self, node_name: str, system_prompt: str, schema) -> int:
+        """Characters of user content one call of this node may carry on the provider this request will use
+        (the X-LLM-Provider one, else the first with a key); the node chunks its input to stay under it."""
+        gateway = get_gateway()
+        wanted = requested_provider.get()
+        names = [wanted] if wanted in gateway.providers else []
+        names += [n for n, p in gateway.providers.items() if p.available]
+        if not names:
+            return 10**9
+        fixed = estimate_tokens(system_prompt, "", json.dumps(schema.model_json_schema()), node_name)
+        return int((gateway.providers[names[0]].max_request_tokens - fixed) * CHARS_PER_TOKEN)
+
+    @staticmethod
+    def _timing(stats, start) -> dict:
+        duration = perf_counter() - start
+        return {
+            "duration_seconds": round(duration, 4), "duration_ms": round(duration * 1000),
+            "wait_ms": round(stats["wait"] * 1000), "attempts": stats["attempts"], "rate_limited": stats["rate_limited"],
+            "input_tokens": stats["input_tokens"] or None, "output_tokens": stats["output_tokens"] or None,
+        }
 
 
 @lru_cache

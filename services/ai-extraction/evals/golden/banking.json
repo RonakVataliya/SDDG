@@ -1,0 +1,204 @@
+{
+  "id": "banking",
+  "title": "Retail banking app",
+  "style": "mixed-fr-nfr",
+  "reviewed": false,
+  "requirement_count": 12,
+  "text": "FR-1 A customer shall log in with a customer ID, password and a one-time password sent to their phone.\nFR-2 A customer shall view the balance and the last 50 transactions of each of their accounts.\nFR-3 A customer shall transfer money between their own accounts.\nFR-4 A customer shall transfer money to a registered beneficiary.\nFR-5 A customer shall add a beneficiary; the beneficiary becomes usable 30 minutes after it is added.\nFR-6 A customer shall download a monthly statement as PDF.\nFR-7 A customer shall block a lost debit card.\nFR-8 A bank officer shall approve loan applications submitted by customers.\nFR-9 The core banking system shall post every transfer and return the new balance.\nNFR-1 Every transfer shall complete within 5 seconds for 95% of requests.\nNFR-2 Sessions shall expire after 5 minutes of inactivity.\nNFR-3 All data shall be encrypted in transit with TLS 1.2 or later.\n",
+  "labels": {
+    "actors": [
+      [
+        "Customer"
+      ],
+      [
+        "Bank officer",
+        "Officer"
+      ],
+      [
+        "Core banking system",
+        "Core banking"
+      ]
+    ],
+    "entities": [
+      [
+        "Customer"
+      ],
+      [
+        "Account",
+        "Bank account"
+      ],
+      [
+        "Transaction"
+      ],
+      [
+        "Beneficiary"
+      ],
+      [
+        "Statement"
+      ],
+      [
+        "Debit card",
+        "Card"
+      ],
+      [
+        "Loan application",
+        "Loan"
+      ],
+      [
+        "Transfer",
+        "Fund transfer"
+      ]
+    ],
+    "processes": [
+      [
+        "Log in",
+        "Login",
+        "Authenticate"
+      ],
+      [
+        "View balance",
+        "View account",
+        "View transactions"
+      ],
+      [
+        "Transfer between own accounts",
+        "Transfer money",
+        "Transfer funds"
+      ],
+      [
+        "Transfer to beneficiary",
+        "Pay beneficiary"
+      ],
+      [
+        "Add beneficiary"
+      ],
+      [
+        "Download statement"
+      ],
+      [
+        "Block card",
+        "Block debit card"
+      ],
+      [
+        "Approve loan",
+        "Approve loan application"
+      ],
+      [
+        "Apply for loan",
+        "Submit loan application"
+      ],
+      [
+        "Post transfer",
+        "Post transaction"
+      ]
+    ],
+    "interactions": [
+      [
+        "Customer",
+        "Log in"
+      ],
+      [
+        "Customer",
+        "View balance"
+      ],
+      [
+        "Customer",
+        "Transfer between own accounts"
+      ],
+      [
+        "Customer",
+        "Transfer to beneficiary"
+      ],
+      [
+        "Customer",
+        "Add beneficiary"
+      ],
+      [
+        "Customer",
+        "Download statement"
+      ],
+      [
+        "Customer",
+        "Block card"
+      ],
+      [
+        "Customer",
+        "Apply for loan"
+      ],
+      [
+        "Bank officer",
+        "Approve loan"
+      ],
+      [
+        "Core banking system",
+        "Post transfer"
+      ]
+    ],
+    "relationships": [
+      [
+        "Customer",
+        "Account"
+      ],
+      [
+        "Account",
+        "Transaction"
+      ],
+      [
+        "Customer",
+        "Beneficiary"
+      ],
+      [
+        "Account",
+        "Statement"
+      ],
+      [
+        "Customer",
+        "Debit card"
+      ],
+      [
+        "Customer",
+        "Loan application"
+      ],
+      [
+        "Transfer",
+        "Account"
+      ]
+    ],
+    "data_stores": [
+      [
+        "Accounts",
+        "Account records"
+      ],
+      [
+        "Transactions",
+        "Transaction records"
+      ],
+      [
+        "Beneficiaries"
+      ]
+    ],
+    "data_flows": [
+      [
+        "Customer",
+        "Transfer to beneficiary"
+      ],
+      [
+        "Transfer to beneficiary",
+        "Core banking system"
+      ],
+      [
+        "Core banking system",
+        "Transactions"
+      ],
+      [
+        "Add beneficiary",
+        "Beneficiaries"
+      ],
+      [
+        "Accounts",
+        "View balance"
+      ]
+    ]
+  },
+  "forbidden": []
+}

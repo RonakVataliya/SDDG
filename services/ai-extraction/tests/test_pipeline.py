@@ -3,6 +3,8 @@ Exercises the full split -> extract -> merge graph with a fake AI service,
 so CI can verify the pipeline's wiring, state merging, and timing metadata
 without calling the real Groq API.
 """
+import re
+
 from app.schemas.elements import (
     Actor,
     ActorExtraction,
@@ -20,10 +22,20 @@ from app.schemas.elements import (
 from app.schemas.requirements import RequirementSplitResult, RequirementStatement
 
 
+def _id(prefix, content, default):
+    """The first id with this prefix that the node was given (ids are hashes after canonicalisation)."""
+    m = re.search(rf"\b{prefix}-[0-9a-z]+\b", content or "")
+    return m.group(0) if m else default
+
+
 class FakeAIService:
-    """Stands in for AIService, returning one canned object per node."""
+    """Stands in for AIService, returning one canned object per node; relations use the ids the node was given."""
 
     def structured_extract(self, *, node_name, system_prompt, user_content, schema):
+        a, p, e = _id("A", user_content, "A-001"), _id("P", user_content, None), _id("E", user_content, "E-001")
+        entities = re.findall(r"\bE-[0-9a-z]+\b", user_content or "")
+        rel_source = p or (entities[1] if len(entities) > 1 else "E-002")  # a class run has no processes
+        p = p or "P-001"
         meta = {
             "node": node_name,
             "model": "fake-model",
@@ -45,7 +57,8 @@ class FakeAIService:
             return ActorExtraction(actors=[Actor(id="A-001", name="User", source_refs=["R-001"])]), meta
         if schema is EntityExtraction:
             return (
-                EntityExtraction(entities=[Entity(id="E-001", name="Account", source_refs=["R-001"])]),
+                EntityExtraction(entities=[Entity(id="E-001", name="Account", source_refs=["R-001"]),
+                                           Entity(id="E-002", name="Sessions", source_refs=["R-001"])]),
                 meta,
             )
         if schema is ProcessExtraction:
@@ -60,8 +73,8 @@ class FakeAIService:
                         DataFlow(
                             id="DF-001",
                             name="Credentials",
-                            source_id="A-001",
-                            target_id="P-001",
+                            source_id=a,
+                            target_id=p,
                             source_refs=["R-001"],
                         )
                     ],
@@ -74,7 +87,7 @@ class FakeAIService:
                 InteractionExtraction(
                     interactions=[
                         Interaction(
-                            id="I-001", source_id="A-001", target_id="P-001", source_refs=["R-001"]
+                            id="I-001", source_id=a, target_id=p, source_refs=["R-001"]
                         )
                     ]
                 ),
@@ -84,7 +97,7 @@ class FakeAIService:
             return (
                 RelationshipExtraction(
                     relationships=[
-                        Relationship(id="REL-001", source_id="P-001", target_id="E-001")
+                        Relationship(id="REL-001", source_id=rel_source, target_id=e)
                     ]
                 ),
                 meta,
@@ -99,6 +112,7 @@ def test_full_pipeline_with_fake_ai_service(monkeypatch):
     import app.graph.nodes.extract_interactions as interactions_mod
     import app.graph.nodes.extract_processes as processes_mod
     import app.graph.nodes.extract_relationships as relationships_mod
+    import app.graph.node_runner as runner_mod
     import app.graph.nodes.split as split_mod
 
     fake = FakeAIService()
@@ -110,20 +124,21 @@ def test_full_pipeline_with_fake_ai_service(monkeypatch):
         dataflows_mod,
         interactions_mod,
         relationships_mod,
+        runner_mod,
     ):
-        monkeypatch.setattr(mod, "get_ai_service", lambda: fake)
+        monkeypatch.setattr(mod, "get_ai_service", lambda: fake, raising=False)
 
     from app.services.extraction_service import run_extraction_pipeline
 
     result = run_extraction_pipeline("The user shall log in.", project_name="Test Project")
 
     assert len(result.requirements) == 1
-    assert result.actors[0].id == "A-001"
-    assert result.entities[0].id == "E-001"
-    assert result.processes[0].id == "P-001"
-    assert result.data_flows[0].source_id == "A-001"
-    assert result.interactions[0].target_id == "P-001"
-    assert result.relationships[0].source_id == "P-001"
+    # ids are hashes of (kind, normalised name), so a re-run reproduces them; relations point at them
+    assert result.actors[0].id.startswith("A-") and result.actors[0].id != "A-001"
+    assert result.data_flows[0].source_id == result.actors[0].id
+    assert result.interactions[0].target_id == result.processes[0].id
+    assert result.relationships[0].source_id == result.processes[0].id
+    assert result.relationships[0].target_id == result.entities[0].id
 
     # timing metadata present and total duration measured.
     assert result.metadata.total_duration_seconds >= 0
@@ -152,9 +167,11 @@ def _patch_ai(monkeypatch):
                 node_name=node_name, system_prompt=system_prompt, user_content=user_content, schema=schema
             )
 
+    import app.graph.node_runner as runner_mod
+
     fake = Recording()
-    for mod in (split_mod, actors_mod, entities_mod, processes_mod, dataflows_mod, interactions_mod, relationships_mod):
-        monkeypatch.setattr(mod, "get_ai_service", lambda: fake)
+    for mod in (split_mod, actors_mod, entities_mod, processes_mod, dataflows_mod, interactions_mod, relationships_mod, runner_mod):
+        monkeypatch.setattr(mod, "get_ai_service", lambda: fake, raising=False)
     return calls
 
 

@@ -61,7 +61,7 @@ export function buildResults(input: {
     id: i.id,
     title: i.name,
     subtitle: categoryLabel[i.category],
-    to: '../review',
+    to: '../items',
     fields: [i.name],
     statuses: itemStatuses(i),
   }))

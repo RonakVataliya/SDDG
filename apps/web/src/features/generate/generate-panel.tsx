@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } f
 import { Notice } from '@/components/ui/notice'
 import { Spinner } from '@/components/ui/spinner'
 import { cn, formatRelative } from '@/lib/utils'
-import { DIAGRAM_TYPES, typeLabel } from './diagram-types'
+import { DIAGRAM_TYPES, NEEDS, typeLabel } from './diagram-types'
 
 /** Right-hand workspace panel: pick diagram types and start a run (FR9d), then find every version made so far. */
 export function GeneratePanel({ project }: { project: Project }) {
@@ -26,17 +26,17 @@ export function GeneratePanel({ project }: { project: Project }) {
     <div className="flex h-full flex-col gap-4">
       <div>
         <h2 className="font-semibold tracking-tight">Generate diagrams</h2>
-        <p className="mt-0.5 text-sm text-slate">Choose which diagrams to generate from your confirmed items.</p>
+        <p className="mt-0.5 text-sm text-slate">Choose which diagrams to generate from your confirmed requirements.</p>
       </div>
 
       {locked && (
         <p className="flex items-start gap-2 rounded-md border border-dashed border-rule-strong px-3 py-2 text-sm text-slate">
           <LockIcon className="mt-1 size-3.5 shrink-0" aria-hidden />
           <span>
-            Locked until you confirm the extracted items.{' '}
-            {project.item_count > 0 && (
+            Locked until you confirm the requirements.{' '}
+            {project.statement_count > 0 && (
               <Link to="review" className="font-medium text-teal hover:underline">
-                Review items
+                Review requirements
               </Link>
             )}
           </span>
@@ -76,6 +76,12 @@ export function GeneratePanel({ project }: { project: Project }) {
         </div>
       </fieldset>
 
+      {!locked && selected.length > 0 && (
+        <p className="text-xs text-slate">
+          The AI first extracts the {[...new Set(selected.flatMap((t) => NEEDS[t]))].join(', ')} these diagrams need, then draws them.
+        </p>
+      )}
+
       {start.isError && (
         <Notice tone="error" title="Couldn't start generation">
           {errorMessage(start.error)}
@@ -108,6 +114,12 @@ export function GeneratePanel({ project }: { project: Project }) {
           </ul>
         ) : (
           <p className="mt-1 text-sm text-slate">Diagrams you generate will appear here.</p>
+        )}
+        {project.item_count > 0 && (
+          <Link to="items" className="mt-3 block rounded-md border border-dashed border-rule-strong px-2.5 py-2 text-sm hover:bg-ink/4">
+            <span className="block font-medium">Building blocks</span>
+            <span className="block text-xs text-slate">Check the extracted items (optional)</span>
+          </Link>
         )}
       </div>
 

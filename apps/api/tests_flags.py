@@ -31,7 +31,7 @@ EXTRACTION = {"requirements": [
 
 class FakeAI(FakeAIClient):
     async def post(self, url, **kwargs):
-        return FakeResponse(EXTRACTION) if url.endswith("/extract") else await super().post(url, **kwargs)
+        return FakeResponse(EXTRACTION) if url.endswith(("/extract", "/split")) else await super().post(url, **kwargs)
 
 
 CALLS_ON_EVENT_LOOP = []

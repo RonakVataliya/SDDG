@@ -1,0 +1,104 @@
+{
+  "id": "gym",
+  "title": "Gym membership",
+  "style": "nfr-heavy",
+  "reviewed": false,
+  "requirement_count": 10,
+  "text": "FR1: A member shall buy a monthly or yearly membership online.\nFR2: A member shall book a place in a group class.\nFR3: A trainer shall publish the weekly class schedule.\nFR4: The front desk shall scan a member's QR code at the entrance.\nNFR1: The booking page shall load within 2 seconds on a 4G connection.\nNFR2: The system shall be available 99.5% of the time between 6:00 and 23:00.\nNFR3: Card details shall never be stored; payments go through the payment provider.\nNFR4: The app shall support Android 11 and later and iOS 16 and later.\nNFR5: Member data shall be deleted 30 days after a membership ends.\nNFR6: The system shall handle 300 concurrent bookings without errors.\n",
+  "labels": {
+    "actors": [
+      [
+        "Member"
+      ],
+      [
+        "Trainer"
+      ],
+      [
+        "Front desk",
+        "Receptionist"
+      ],
+      [
+        "Payment provider"
+      ]
+    ],
+    "entities": [
+      [
+        "Member"
+      ],
+      [
+        "Membership"
+      ],
+      [
+        "Class",
+        "Group class"
+      ],
+      [
+        "Booking",
+        "Class booking"
+      ],
+      [
+        "Schedule",
+        "Class schedule"
+      ],
+      [
+        "Payment"
+      ]
+    ],
+    "processes": [
+      [
+        "Buy membership",
+        "Purchase membership"
+      ],
+      [
+        "Book class",
+        "Book group class"
+      ],
+      [
+        "Publish schedule",
+        "Publish class schedule"
+      ],
+      [
+        "Scan QR code",
+        "Check in member",
+        "Check in"
+      ]
+    ],
+    "interactions": [
+      [
+        "Member",
+        "Buy membership"
+      ],
+      [
+        "Member",
+        "Book class"
+      ],
+      [
+        "Trainer",
+        "Publish schedule"
+      ],
+      [
+        "Front desk",
+        "Scan QR code"
+      ]
+    ],
+    "relationships": [
+      [
+        "Member",
+        "Membership"
+      ],
+      [
+        "Member",
+        "Booking"
+      ],
+      [
+        "Booking",
+        "Class"
+      ],
+      [
+        "Class",
+        "Schedule"
+      ]
+    ]
+  },
+  "forbidden": []
+}

@@ -1,0 +1,283 @@
+{
+  "id": "logistics",
+  "title": "Courier logistics platform (large)",
+  "style": "srs-shall",
+  "reviewed": false,
+  "requirement_count": 45,
+  "text": "1. A sender shall create a shipment with pickup address, delivery address, weight and size.\n2. A sender shall get a price quote before confirming a shipment.\n3. A sender shall pay for a shipment by card, UPI or company account.\n4. A sender shall print a shipping label with a barcode.\n5. A sender shall schedule a pickup slot.\n6. A sender shall track a shipment by its tracking number.\n7. A sender shall cancel a shipment before it is picked up.\n8. A sender shall download an invoice for each shipment.\n9. A business customer shall upload many shipments at once from a CSV file.\n10. A business customer shall be billed monthly on credit.\n11. A recipient shall track a shipment by its tracking number.\n12. A recipient shall choose a new delivery date after a failed delivery.\n13. A recipient shall redirect a shipment to a pickup point.\n14. A recipient shall sign for a delivery on the courier's device.\n15. A courier shall see the day's pickups and deliveries in route order.\n16. A courier shall scan a parcel's barcode at pickup.\n17. A courier shall record a failed delivery with a reason.\n18. A courier shall record proof of delivery with a photo or signature.\n19. A courier shall mark cash on delivery as collected.\n20. The hub operator shall scan parcels in when they arrive at a hub.\n21. The hub operator shall sort parcels into outbound bags by destination.\n22. The hub operator shall scan bags out when they leave the hub.\n23. The hub operator shall report a damaged parcel with photos.\n24. The dispatcher shall assign pickups and deliveries to couriers.\n25. The dispatcher shall plan routes for each courier.\n26. The dispatcher shall reassign a delivery when a courier is unavailable.\n27. The dispatcher shall see every courier's live location on a map.\n28. The customer support agent shall look up any shipment.\n29. The customer support agent shall open a claim for a lost or damaged parcel.\n30. The claims officer shall approve or reject a claim and set the refund amount.\n31. The finance team shall issue refunds for approved claims.\n32. The finance team shall reconcile cash collected by couriers each day.\n33. The finance team shall send monthly invoices to business customers.\n34. The administrator shall add and deactivate couriers and hub operators.\n35. The administrator shall set prices by weight band and zone.\n36. The administrator shall define service areas by postcode.\n37. The system shall send the recipient an SMS when a parcel is out for delivery.\n38. The system shall send the sender an email when a parcel is delivered.\n39. The system shall compute an estimated delivery date for each shipment.\n40. The system shall flag a shipment that has not moved for 48 hours.\n41. The system shall keep a scan history for each parcel.\n42. The system shall return undeliverable parcels to the sender after 3 failed attempts.\n43. The management team shall view on-time delivery rates by hub and by courier.\n44. The management team shall view revenue per day, week and month.\n45. The payment gateway shall confirm each card or UPI payment.\n",
+  "labels": {
+    "actors": [
+      [
+        "Sender",
+        "Shipper"
+      ],
+      [
+        "Business customer",
+        "Business client"
+      ],
+      [
+        "Recipient",
+        "Receiver"
+      ],
+      [
+        "Courier",
+        "Delivery agent",
+        "Driver"
+      ],
+      [
+        "Hub operator"
+      ],
+      [
+        "Dispatcher"
+      ],
+      [
+        "Customer support agent",
+        "Support agent"
+      ],
+      [
+        "Claims officer"
+      ],
+      [
+        "Finance team",
+        "Finance"
+      ],
+      [
+        "Administrator",
+        "Admin"
+      ],
+      [
+        "Management team",
+        "Management",
+        "Manager"
+      ],
+      [
+        "Payment gateway"
+      ]
+    ],
+    "entities": [
+      [
+        "Shipment",
+        "Consignment"
+      ],
+      [
+        "Parcel",
+        "Package"
+      ],
+      [
+        "Address"
+      ],
+      [
+        "Quote",
+        "Price quote"
+      ],
+      [
+        "Payment"
+      ],
+      [
+        "Shipping label",
+        "Label"
+      ],
+      [
+        "Pickup slot",
+        "Pickup"
+      ],
+      [
+        "Tracking number"
+      ],
+      [
+        "Invoice"
+      ],
+      [
+        "Courier"
+      ],
+      [
+        "Hub"
+      ],
+      [
+        "Bag",
+        "Outbound bag"
+      ],
+      [
+        "Route"
+      ],
+      [
+        "Claim"
+      ],
+      [
+        "Refund"
+      ],
+      [
+        "Proof of delivery",
+        "POD"
+      ],
+      [
+        "Delivery attempt",
+        "Failed delivery"
+      ],
+      [
+        "Price band",
+        "Rate",
+        "Tariff"
+      ],
+      [
+        "Service area",
+        "Zone"
+      ],
+      [
+        "Scan event",
+        "Scan history",
+        "Scan"
+      ],
+      [
+        "Pickup point"
+      ]
+    ],
+    "processes": [
+      [
+        "Create shipment"
+      ],
+      [
+        "Get quote",
+        "Get price quote"
+      ],
+      [
+        "Pay for shipment",
+        "Make payment"
+      ],
+      [
+        "Print label",
+        "Print shipping label"
+      ],
+      [
+        "Schedule pickup"
+      ],
+      [
+        "Track shipment"
+      ],
+      [
+        "Cancel shipment"
+      ],
+      [
+        "Download invoice"
+      ],
+      [
+        "Bulk upload shipments",
+        "Upload shipments"
+      ],
+      [
+        "Reschedule delivery",
+        "Choose new delivery date"
+      ],
+      [
+        "Redirect shipment",
+        "Redirect to pickup point"
+      ],
+      [
+        "Sign for delivery"
+      ],
+      [
+        "View route",
+        "View pickups and deliveries"
+      ],
+      [
+        "Scan parcel at pickup",
+        "Scan parcel"
+      ],
+      [
+        "Record failed delivery"
+      ],
+      [
+        "Record proof of delivery"
+      ],
+      [
+        "Collect cash on delivery",
+        "Mark cash collected"
+      ],
+      [
+        "Scan parcels in",
+        "Hub scan in"
+      ],
+      [
+        "Sort parcels"
+      ],
+      [
+        "Scan bags out"
+      ],
+      [
+        "Report damaged parcel"
+      ],
+      [
+        "Assign couriers",
+        "Assign deliveries"
+      ],
+      [
+        "Plan routes"
+      ],
+      [
+        "Reassign delivery"
+      ],
+      [
+        "View courier locations",
+        "Track couriers"
+      ],
+      [
+        "Look up shipment"
+      ],
+      [
+        "Open claim",
+        "File claim"
+      ],
+      [
+        "Approve claim",
+        "Review claim"
+      ],
+      [
+        "Issue refund"
+      ],
+      [
+        "Reconcile cash"
+      ],
+      [
+        "Send monthly invoices",
+        "Bill business customers"
+      ],
+      [
+        "Manage staff",
+        "Add courier",
+        "Manage couriers"
+      ],
+      [
+        "Set prices",
+        "Manage pricing"
+      ],
+      [
+        "Define service areas"
+      ],
+      [
+        "Send notifications",
+        "Notify recipient"
+      ],
+      [
+        "Estimate delivery date"
+      ],
+      [
+        "Flag stuck shipment",
+        "Flag delayed shipment"
+      ],
+      [
+        "Return to sender"
+      ],
+      [
+        "View delivery performance",
+        "View on-time rates"
+      ],
+      [
+        "View revenue"
+      ],
+      [
+        "Confirm payment"
+      ]
+    ]
+  },
+  "forbidden": []
+}
