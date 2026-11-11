@@ -1,4 +1,5 @@
 """Issue #39 test: validate generated diagrams of every type. Run: PYTHONPATH=. python tests_validation.py"""
+import contextlib
 import json
 import os
 import uuid
@@ -28,6 +29,28 @@ class ReviseClient(FakeClient):
             rid = body["instruction"].split()[-1].rstrip(".")
             body["spec"]["relations"] = [r for r in body["spec"]["relations"] if r["id"] != rid]
         return await super().post(url, **kwargs)
+
+
+class CopyFails:
+    """Stands in for db.pool: the accepted-warnings copy inside create_diagram raises, everything else runs as normal.
+    Proves the rollback without touching the schema, so it is safe on a shared database."""
+
+    def __init__(self, pool):
+        self.pool = pool
+
+    @contextlib.contextmanager
+    def connection(self):
+        with self.pool.connection() as c:
+            yield self.Conn(c)
+
+    class Conn:
+        def __init__(self, c):
+            self.c = c
+
+        def execute(self, sql, *args, **kwargs):
+            if sql.startswith("INSERT INTO accepted_warnings"):
+                raise RuntimeError("copy failed")
+            return self.c.execute(sql, *args, **kwargs)
 
 
 def check_every_rule():
@@ -191,14 +214,14 @@ def main():
 
             # a new version and its carried-over acceptances are one write: if copying fails, no version is left
             before = db.one("SELECT count(*) AS n FROM diagrams WHERE project_id=%s", pid)["n"]
-            db.run("ALTER TABLE accepted_warnings RENAME TO accepted_warnings_off")
+            real_pool, db.pool = db.pool, CopyFails(db.pool)
             try:
                 db.create_diagram(pid, "use_case", "x", "<svg/>", [], [], parent_id=fresh, spec={})
                 raise AssertionError("the copy should have failed")
-            except psycopg.errors.UndefinedTable:
-                pass
+            except RuntimeError as e:
+                assert str(e) == "copy failed", e
             finally:
-                db.run("ALTER TABLE accepted_warnings_off RENAME TO accepted_warnings")
+                db.pool = real_pool
             assert db.one("SELECT count(*) AS n FROM diagrams WHERE project_id=%s", pid)["n"] == before
         print(f"issue #39 test passed ({len(types)} diagram types)")
     finally:

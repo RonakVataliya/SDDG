@@ -1216,7 +1216,7 @@ export interface components {
         DiagramValidation: {
             diagram_id: string;
             warnings: components["schemas"]["ValidationWarning"][];
-            /** @description A note to show with the list: "No validation issues" when nothing is wrong, "Generate it again to validate it" for a diagram made before editing existed, or that missing items are only checked once the extracted items are confirmed; null otherwise */
+            /** @description A note to show with the list: "No validation issues" when nothing is wrong, "Generate it again to validate it" for a diagram made before editing existed, or that missing items are only checked once the extracted items are confirmed. Null when there are warnings and nothing else to say, so it can be null even when warnings is not empty */
             message: string | null;
         };
         WarningRef: {
