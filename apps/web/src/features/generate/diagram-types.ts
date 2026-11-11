@@ -9,4 +9,14 @@ export const DIAGRAM_TYPES: { value: DiagramType; label: string; shows: string; 
   { value: 'component', label: 'Component', shows: 'System parts and their interfaces', available: false },
 ]
 
+/** Extraction nodes each diagram needs (mirrors services/ai-extraction/app/graph/node_sets.py DIAGRAM_NODES + hard prerequisites). */
+export const NEEDS: Record<DiagramType, string[]> = {
+  use_case: ['actors', 'processes', 'interactions'],
+  dfd: ['actors', 'processes', 'data flows'],
+  class: ['entities', 'relationships'],
+  sequence: ['actors', 'entities', 'processes', 'interactions'],
+  activity: ['processes'],
+  component: ['processes', 'entities', 'relationships'],
+}
+
 export const typeLabel = Object.fromEntries(DIAGRAM_TYPES.map((t) => [t.value, t.label])) as Record<DiagramType, string>

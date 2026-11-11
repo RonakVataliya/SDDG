@@ -11,6 +11,8 @@ type ProjectRow = {
   created_at: string
   updated_at: string
   confirmed_at: string | null
+  /** Extraction nodes already run on the confirmed requirements (requirements-first workflow). */
+  extracted_nodes?: string[]
 }
 type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
 /** The server keeps the model and drawing; the API only exposes the summary fields and the PNG. */
@@ -64,8 +66,8 @@ const now = () => new Date().toISOString()
 
 const QUEUE_MS = 1200
 const STEP_MS = 1600
-const EXTRACTION_STEPS = ['Splitting into requirement statements', 'Extracting modelling items', 'Merging and checking items']
-const GENERATION_STEPS = ['Building the diagram model', 'Rendering the diagram', 'Checking notation']
+const EXTRACTION_STEPS = ['Splitting the text into requirements', 'Checking requirement quality', 'Requirements ready to review']
+const GENERATION_STEPS = ['Extracting building blocks', 'Rendering the diagram', 'Checking notation']
 
 export function advance(job: JobRow): JobRow {
   if (job.status === 'succeeded' || job.status === 'failed') return job
@@ -110,10 +112,25 @@ function applyExtraction(job: JobRow) {
   db.nextStatement[pid] = start + statements.length
   db.statements[pid] = [...(db.statements[pid] ?? []), ...statements]
 
-  const drafts = extractItems(db.statements[pid])
+  resetModel(pid) // requirements-first: building blocks are extracted later, for the chosen diagrams
+}
+
+/** A requirement changed: drop the building blocks and the confirmation (mirrors db.reset_model). */
+export function resetModel(pid: string) {
+  // Items the user added or edited are kept, like the API.
+  db.items[pid] = (db.items[pid] ?? []).filter((i) => i.origin !== 'system-extracted')
+  const p = db.projects.find((x) => x.id === pid)
+  if (p) p.extracted_nodes = []
+  touch(pid, { clearConfirmation: true })
+}
+
+/** Mirrors the API's extract_building_blocks: the mock extracts every node once, over the confirmed requirements. */
+function extractBuildingBlocks(pid: string) {
+  const p = db.projects.find((x) => x.id === pid)!
+  if (p.extracted_nodes?.length) return
+  const drafts = extractItems(db.statements[pid] ?? [])
   const idFor = new Map(drafts.map((d) => [d.key, uid('it')]))
-  // Keep user-added / user-edited items: they are never overwritten by re-extraction (A18).
-  const kept = (db.items[pid] ?? []).filter((i) => i.origin !== 'system-extracted')
+  const kept = db.items[pid] ?? []
   db.items[pid] = [
     ...kept,
     ...drafts
@@ -125,12 +142,13 @@ function applyExtraction(job: JobRow) {
         target_item_id: d.target_item_id ? (idFor.get(d.target_item_id) ?? null) : null,
       })),
   ]
-  touch(pid, { clearConfirmation: true })
+  p.extracted_nodes = ['actors', 'dataflows', 'entities', 'interactions', 'processes', 'relationships']
 }
 
 function applyGeneration(job: JobRow) {
   const pid = job.project_id
   const project = db.projects.find((p) => p.id === pid)!
+  extractBuildingBlocks(pid)
   const model = buildUseCaseModel(db.items[pid] ?? [], project.name)
   const diagram: DiagramRow = {
     id: uid('dg'),
@@ -206,5 +224,6 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     confirmed: p.confirmed_at !== null,
     confirmed_at: p.confirmed_at,
     diagram_count: db.diagrams.filter((d) => d.project_id === p.id).length,
+    extracted_nodes: p.extracted_nodes ?? [],
   }
 }

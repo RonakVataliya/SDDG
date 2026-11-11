@@ -66,7 +66,7 @@ describe('NFR5d AI consent before first submission', () => {
     const user = userEvent.setup()
     renderApp('/projects/pr_1/input')
     await user.type(await screen.findByLabelText('Requirement text'), 'A member can reserve a book.')
-    const extract = screen.getByRole('button', { name: 'Extract items' })
+    const extract = screen.getByRole('button', { name: 'Extract requirements' })
     await waitFor(() => expect(extract).toBeEnabled()) // waits for the consent status to load
     await user.click(extract)
 
@@ -75,37 +75,52 @@ describe('NFR5d AI consent before first submission', () => {
     await user.click(within(dialog).getByRole('button', { name: /don.t send/i }))
     expect(getDb().jobs.filter((j) => j.payload)).toHaveLength(0)
 
-    await user.click(screen.getByRole('button', { name: 'Extract items' }))
+    await user.click(screen.getByRole('button', { name: 'Extract requirements' }))
     const again = await screen.findByRole('dialog')
     await user.click(within(again).getByRole('checkbox'))
     await user.click(within(again).getByRole('button', { name: 'Agree and extract' }))
 
     await waitFor(() => expect(getDb().jobs.filter((j) => j.payload)).toHaveLength(1))
     expect(getDb().consent['dev@sddg.test'].version).toBe('2026-09-01')
-    expect(await screen.findByText('Reading your requirements')).toBeInTheDocument()
+    expect(await screen.findByText('Finding your requirements')).toBeInTheDocument()
   })
 })
 
-describe('FR5b / FR5e review', () => {
-  it('editing an item marks it user-edited and clears the confirmation', async () => {
+describe('requirements-first review', () => {
+  it('editing a requirement clears the confirmation and the building blocks', async () => {
     seedProject({ confirmed: true })
     const user = userEvent.setup()
     renderApp('/projects/pr_1/review')
-
     expect(await screen.findByRole('button', { name: 'Continue to Generate' })).toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: 'Edit Librarian' }))
-    const name = screen.getByLabelText('Name')
-    await user.clear(name)
-    await user.type(name, 'Head librarian')
-    await user.click(screen.getByRole('button', { name: 'Save changes' }))
-
-    expect(await screen.findByText('Head librarian')).toBeInTheDocument()
-    expect(screen.getByText('Edited by you')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Confirm extracted items' })).toBeInTheDocument()
-    expect(getDb().items.pr_1[0].origin).toBe('user-edited')
+    await user.click(screen.getByRole('button', { name: 'Edit R-001' }))
+    const box = screen.getByLabelText('Requirement text')
+    await user.clear(box)
+    expect(screen.getByText('Requirement text can’t be empty.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await user.type(box, 'The librarian shall lend a book to a member.')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('The librarian shall lend a book to a member.')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Confirm 1 requirement' })).toBeInTheDocument()
+    expect(getDb().items.pr_1).toHaveLength(0)
+    expect(getDb().projects[0].confirmed_at).toBeNull()
   })
 
-  it('the server rejects generation when items are not confirmed', async () => {
+  it('adds and deletes requirements, then confirms', async () => {
+    seedProject()
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('button', { name: /Add requirement/ }))
+    await user.type(screen.getByLabelText('New requirement'), 'A member can renew a book once.{Enter}')
+    expect(await screen.findByText('A member can renew a book once.')).toBeInTheDocument()
+    expect(getDb().statements.pr_1.map((s) => s.ref)).toEqual(['R-001', 'R-002'])
+    await user.click(screen.getByRole('button', { name: 'Delete R-002' }))
+    await user.click(screen.getByRole('button', { name: 'Delete R-002' }))
+    await waitFor(() => expect(getDb().statements.pr_1).toHaveLength(1))
+    await user.click(await screen.findByRole('button', { name: 'Confirm 1 requirement' }))
+    await waitFor(() => expect(getDb().projects[0].confirmed_at).not.toBeNull())
+  })
+
+  it('the server rejects generation when the requirements are not confirmed', async () => {
     seedProject()
     const res = await fetch('http://localhost/api/v1/projects/pr_1/generations', {
       method: 'POST',
@@ -118,7 +133,22 @@ describe('FR5b / FR5e review', () => {
   it('shows Generate as locked until confirmed', async () => {
     seedProject()
     renderApp('/projects/pr_1/generate')
-    expect(await screen.findByText('Confirm the extracted items first')).toBeInTheDocument()
+    expect(await screen.findByText('Confirm the requirements first')).toBeInTheDocument()
+  })
+
+  it('an item fix (optional check) marks it user-edited and keeps the confirmation', async () => {
+    seedDiagram()
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/items')
+    await user.click(await screen.findByRole('button', { name: 'Edit Librarian' }))
+    const name = screen.getByLabelText('Name')
+    await user.clear(name)
+    await user.type(name, 'Head librarian')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText('Head librarian')).toBeInTheDocument()
+    expect(screen.getByText('Edited by you')).toBeInTheDocument()
+    expect(getDb().items.pr_1[0].origin).toBe('user-edited')
+    expect(getDb().projects[0].confirmed_at).not.toBeNull()
   })
 })
 

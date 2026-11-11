@@ -15,10 +15,10 @@ pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout")
+JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes")
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
-    "projects": ("name",),
+    "projects": ("name", "client_name"),
     "statements": ("text", "source_excerpt"),
     "items": ("name", "description"),
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
@@ -98,18 +98,40 @@ def project_counts(pid):
     return one(
         "SELECT (SELECT count(*) FROM statements WHERE project_id=%s) AS statement_count, "
         "(SELECT count(*) FROM items WHERE project_id=%s) AS item_count, "
-        "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count",
-        pid, pid, pid,
+        "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count, "
+        "(SELECT count(*) FROM flags WHERE project_id=%s AND status='open') AS open_flag_count",
+        pid, pid, pid, pid,
     )
 
 
-def create_project(user_id, name):
+def create_project(user_id, name, client_name=None, contact_email=None):
     t = now()
     return one(  # the creator is the first member
-        "WITH p AS (INSERT INTO projects(id, owner_id, name, created_at, updated_at) VALUES (%s,%s,%s,%s,%s) RETURNING *), "
+        "WITH p AS (INSERT INTO projects(id, owner_id, name, client_name, contact_email, created_at, updated_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *), "
         "m AS (INSERT INTO project_members(project_id, user_id) SELECT id, owner_id FROM p) SELECT * FROM p",
-        uid("pr"), user_id, encrypt(name), t, t,
+        uid("pr"), user_id, encrypt(name), encrypt(client_name), contact_email, t, t,
     )
+
+
+def set_client(pid, client_name, contact_email):
+    return one("UPDATE projects SET client_name=%s, contact_email=%s, updated_at=%s WHERE id=%s RETURNING *",
+               encrypt(client_name), contact_email, now(), pid)
+
+
+def rename_project(pid, name):
+    return one("UPDATE projects SET name=%s, updated_at=%s WHERE id=%s RETURNING *", encrypt(name), now(), pid)
+
+
+def delete_project(pid):
+    run("DELETE FROM projects WHERE id=%s", pid)  # every child table cascades
+
+
+def set_archived(pid, by):
+    """by = the archiving user's email; None reopens."""
+    t = now()
+    return one("UPDATE projects SET archived_at=%s, archived_by=%s, updated_at=%s WHERE id=%s RETURNING *",
+               t if by else None, by, t, pid)
 
 
 def touch_project(pid, clear_confirmation=False):
@@ -137,8 +159,8 @@ def set_consent(user_id, version):
     )
 
 
-def insert_statements(pid, statements):
-    """Store extracted statements; returns their new ids in order."""
+def insert_statements(pid, statements, document="pasted requirements"):
+    """Store statements (from the splitter or typed by the user); returns their new ids in order."""
     with pool.connection() as c:
         # Lock the project row so two extractions finishing together cannot both pick the next R-number;
         # numbering continues from the highest ref, so a ref is never reused.
@@ -159,7 +181,7 @@ def insert_statements(pid, statements):
                 f"R-{n + i + 1:03d}",
                 encrypt(s["text"]),
                 (s.get("labels") or ["unknown"])[0],
-                "pasted requirements",
+                document,
                 src.get("page"),
                 src.get("paragraph"),
                 src.get("line_start"),
@@ -319,29 +341,14 @@ def update_job(jid, **fields):
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
                    parent_id=None, instruction=None, spec=None, layout=None):
-    # One transaction: a new version never exists without the accepted warnings it carries over.
-    with pool.connection() as c:
-        d = c.execute(
-            "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-            "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-            "RETURNING *",
-            (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
-             json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
-             encrypt(json.dumps(spec)) if spec is not None else None,
-             json.dumps(layout) if layout else None),
-        ).fetchone()
-        if parent_id:  # accepted warnings stay accepted on versions made from this one
-            c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
-                      "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
-    return _decode(d)
-
-
-def accepted_warnings(did):
-    return {r["warning_id"]: r for r in many("SELECT * FROM accepted_warnings WHERE diagram_id=%s", did)}
-
-
-def accept_warning(did, warning_id, email):
-    run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
+    return one(
+        "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
+        "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
+        json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
+        encrypt(json.dumps(spec)) if spec is not None else None,
+        json.dumps(layout) if layout else None,
+    )
 
 
 def member_diagram(did, user_id):
@@ -356,6 +363,11 @@ def list_diagrams(pid):
         "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
         pid,
     )
+
+
+def diagram_rows(pid):
+    """Every diagram version without its drawing: what version grouping and coverage need."""
+    return many("SELECT id, type, title, created_at, statement_ids FROM diagrams WHERE project_id=%s", pid)
 
 
 def list_flags(pid, status=None):
@@ -412,3 +424,39 @@ def update_flag(pid, fid, **fields):
 
 def set_statement_text(pid, sid, text):
     run("UPDATE statements SET text=%s WHERE id=%s AND project_id=%s", encrypt(text), sid, pid)
+
+
+def get_statement(pid, sid):
+    return next((s for s in get_statements(pid) if s["id"] == sid), None)
+
+
+def update_statement(pid, sid, text=None, label=None):
+    """text/label None keeps the current value."""
+    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label) WHERE id=%s AND project_id=%s",
+        encrypt(text), label, sid, pid)
+    return get_statement(pid, sid)
+
+
+def delete_statement(pid, sid):
+    """Its flags go with it (FK cascade); so do conflict flags on other requirements that pointed at it."""
+    with pool.connection() as c:
+        c.execute("DELETE FROM flags WHERE project_id=%s AND related_statement_id=%s", (pid, sid))
+        return c.execute("DELETE FROM statements WHERE id=%s AND project_id=%s", (sid, pid)).rowcount > 0
+
+
+def reset_model(pid):
+    """A requirement changed: drop the system-extracted building blocks and the confirmation, so the next generation
+    extracts again from the confirmed requirements. Items the user added or edited are kept (they are the user's
+    work); relations left with a missing end are dropped. Diagrams already drawn are kept.
+    shortcut: a kept user-edited item can be extracted again under its old name; Phase 4 (incremental extraction)
+    replaces this wipe-and-redo with re-extracting only the changed statements."""
+    with pool.connection() as c:
+        c.execute("DELETE FROM items WHERE project_id=%s AND origin='system-extracted'", (pid,))
+        c.execute("DELETE FROM items i WHERE project_id=%s AND ("
+                  "(source_item_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM items s WHERE s.id=i.source_item_id)) OR "
+                  "(target_item_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM items t WHERE t.id=i.target_item_id)))", (pid,))
+        c.execute("UPDATE projects SET extracted_nodes='[]', confirmed_at=NULL, updated_at=%s WHERE id=%s", (now(), pid))
+
+
+def set_extracted_nodes(pid, nodes):
+    run("UPDATE projects SET extracted_nodes=%s WHERE id=%s", json.dumps(sorted(set(nodes))), pid)

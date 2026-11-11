@@ -35,13 +35,6 @@ CREATE TABLE IF NOT EXISTS diagrams (
   plantuml_source text, parent_id text, instruction text, spec text);
 CREATE INDEX IF NOT EXISTS diagrams_project_idx ON diagrams (project_id);
 ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS layout text;  -- element positions {id: [x, y]} (issue #37)
--- Validation warnings the user accepted as-is (per diagram version, copied to edited versions).
-CREATE TABLE IF NOT EXISTS accepted_warnings (
-  diagram_id text NOT NULL REFERENCES diagrams ON DELETE CASCADE,
-  warning_id text NOT NULL,
-  accepted_by text NOT NULL, accepted_at timestamptz NOT NULL,
-  PRIMARY KEY (diagram_id, warning_id));
-ALTER TABLE accepted_warnings ENABLE ROW LEVEL SECURITY;
 
 -- Insertion order for statements/items (Postgres has no rowid; ids are random).
 ALTER TABLE statements ADD COLUMN IF NOT EXISTS seq bigint GENERATED ALWAYS AS IDENTITY;
@@ -74,3 +67,18 @@ CREATE TABLE IF NOT EXISTS flags (
   created_at timestamptz NOT NULL,
   seq bigint GENERATED ALWAYS AS IDENTITY);
 ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
+
+-- Stream 5: PM reporting and client management (FR3b, FR3e, FR20, FR21, FR32).
+-- The client is stored on the project (no client directory). archived_at marks an archived project: the web app
+-- shows it read-only and Home lists it under Archived; the API does not block writes to it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_name text;     -- encrypted; Home groups projects by it
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contact_email text;   -- lowercased
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_by text;
+
+-- Requirements-first workflow: which extraction nodes (actors, entities, …) have run on the confirmed
+-- requirements, as a JSON list. Reset whenever a requirement changes, so the next generation re-extracts.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS extracted_nodes text NOT NULL DEFAULT '[]';
+
+-- Design packs and reviews were dropped from Stream 5. Removes them where an earlier PM build created them.
+DROP TABLE IF EXISTS reviews, design_packs;
