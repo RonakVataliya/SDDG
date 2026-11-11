@@ -109,19 +109,19 @@ def main():
             assert validation(ids["state"])["message"] == "No validation issues"
 
             # state: a transition to a removed state and no initial state are reported
-            row = db.owned_diagram(ids["state"], f"dev:{EMAIL}")
+            row = db.member_diagram(ids["state"], f"dev:{EMAIL}")
             spec = row["spec"]
             spec["states"] = [s for s in spec["states"] if s["kind"] != "initial"]
             spec["transitions"].append({"id": "T-BAD", "source_id": "S-002", "target_id": "S-GONE"})
-            db.run("UPDATE diagrams SET spec=%s WHERE id=%s", json.dumps(spec), ids["state"])
+            db.run("UPDATE diagrams SET spec=%s WHERE id=%s", db.encrypt(json.dumps(spec)), ids["state"])
             got = {w["id"] for w in validation(ids["state"])["warnings"]}
             assert {"dangling:T-BAD", "no_initial:diagram"} <= got, got
 
             # dangling relationship -> one-click fix -> new version without the warning
-            row = db.owned_diagram(ids["class"], f"dev:{EMAIL}")
+            row = db.member_diagram(ids["class"], f"dev:{EMAIL}")
             spec = row["spec"]
             spec["relations"].append({"id": "CR-BAD", "source_id": "C-001", "target_id": "C-GONE", "type": "association"})
-            db.run("UPDATE diagrams SET spec=%s WHERE id=%s", json.dumps(spec), ids["class"])
+            db.run("UPDATE diagrams SET spec=%s WHERE id=%s", db.encrypt(json.dumps(spec)), ids["class"])
             w = next(w for w in validation(ids["class"])["warnings"] if w["id"] == "dangling:CR-BAD")
             assert w["message"] == "The relation CR-BAD has no target." and w["element_id"] == "CR-BAD"
             r = c.post(f"/api/v1/diagrams/{ids['class']}/validation/fix", headers=H, json={"warning_id": w["id"]})
