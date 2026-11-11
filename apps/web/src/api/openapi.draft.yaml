@@ -198,6 +198,33 @@ paths:
       responses:
         '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
         '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/validation:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: 'Problems found in a generated diagram (#39): confirmed items it leaves out (only once the project is confirmed), lines with a missing end, use cases no actor reaches, no initial state, unreachable states and more. Accepted warnings stay in the list with who accepted them.'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramValidation' } } } }
+  /diagrams/{diagram_id}/validation/accept:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post:
+      summary: Accept a warning as it is. It stays accepted on versions made from this one.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/WarningRef' } } }
+      responses:
+        '200': { description: The validation with the warning accepted, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramValidation' } } } }
+        '409': { description: That warning no longer applies, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/validation/fix:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post:
+      summary: Apply the warning's suggested fix as a chat revision. Returns the new version; the one it came from is kept.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/WarningRef' } } }
+      responses:
+        '201': { description: New version, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+        '409': { description: 'The warning no longer applies, it has no suggested fix, or the diagram has no spec (made before editing existed)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: The suggested fix is too long to apply automatically, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -404,3 +431,25 @@ components:
       required: [positions]
       properties:
         positions: { type: object, description: Only the elements that moved, by element id, additionalProperties: { $ref: '#/components/schemas/Point' } }
+    ValidationWarning:
+      type: object
+      required: [id, message, element_id, fix, accepted_by, accepted_at]
+      properties:
+        id: { type: string, description: 'Stable id, kind:subject, e.g. dangling:CR-3, missing:it_4 or no_initial:diagram' }
+        message: { type: string, description: Plain-language problem, safe to show the user }
+        element_id: { type: [string, 'null'], description: The element or line to highlight; null when the warning is about the whole diagram or something missing from it }
+        fix: { type: [string, 'null'], description: Suggested fix, written as a revision instruction; null when there is none }
+        accepted_by: { type: [string, 'null'], description: Email of whoever accepted it as it is; null while open }
+        accepted_at: { type: [string, 'null'], format: date-time }
+    DiagramValidation:
+      type: object
+      required: [diagram_id, warnings, message]
+      properties:
+        diagram_id: { type: string }
+        warnings: { type: array, items: { $ref: '#/components/schemas/ValidationWarning' } }
+        message: { type: [string, 'null'], description: 'A note to show with the list: "No validation issues" when nothing is wrong, "Generate it again to validate it" for a diagram made before editing existed, or that missing items are only checked once the extracted items are confirmed. Null when there are warnings and nothing else to say, so it can be null even when warnings is not empty' }
+    WarningRef:
+      type: object
+      required: [warning_id]
+      properties:
+        warning_id: { type: string }
