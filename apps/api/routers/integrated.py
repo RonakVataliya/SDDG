@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 
 from core import db
 from core.auth import User, get_current_user
+from core.ai_client import AIBusyTimeout, AIJob
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
 from core.quality import detect
 from core.reporting import diagram_versions, slugify
@@ -47,8 +48,9 @@ logger = logging.getLogger("sddg.api")
 AI_URL = os.getenv("AI_SERVICE_URL", "http://127.0.0.1:8001/api/v1")
 # Shared secret the AI service requires on every call (its INTERNAL_API_KEY); send it with every AI request.
 AI_HEADERS = {"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")}
-# The AI service retries rate limits for up to ~4 minutes (20 s + 40 s waits on top of each attempt).
+# One AI call may wait up to LLM_MAX_WAIT_SECONDS (120 s) for provider capacity, plus its retries.
 AI_TIMEOUT = 300
+REVISION_BUSY_WAIT = 60  # a revision runs inside the request: wait at most this long for AI capacity
 KROKI_URL = os.getenv("KROKI_URL", "http://127.0.0.1:8080")
 POLICY_VERSION = os.getenv("AI_POLICY_VERSION", "2026-09-01")
 NOT_FOUND = "Not found, or you do not have access to it."
@@ -113,6 +115,8 @@ def project_view(p, user):
         "confirmed": p["confirmed_at"] is not None,
         "confirmed_at": p["confirmed_at"],
         "diagram_count": counts["diagram_count"],
+        "open_flag_count": counts["open_flag_count"],
+        "extracted_nodes": p.get("extracted_nodes") or [],
     }
 
 
@@ -167,8 +171,10 @@ def approved_model(project_id):
     return items, actors, processes
 
 
-def convert_extraction_to_items(result, statement_map):
-    """Turns the AI extraction result into item dicts, remapping AI ids to local ids."""
+def convert_extraction_to_items(result, statement_map, known_ids=()):
+    """Turns the AI extraction result into item dicts, remapping AI ids to local ids.
+    Relations may point at items from an earlier run (sent to the AI service as `known`); those keep their id."""
+    known_ids = set(known_ids)
     items, local_ids = [], {}
     for category, field in CATEGORY_FIELDS:
         for el in result.get(field, []):
@@ -193,7 +199,7 @@ def convert_extraction_to_items(result, statement_map):
     for item in items:
         for k in ("source_item_id", "target_item_id"):
             if item[k]:
-                item[k] = local_ids.get(item[k])
+                item[k] = local_ids.get(item[k], item[k] if item[k] in known_ids else None)
 
     return items
 
@@ -338,7 +344,8 @@ def fail_job(job_id, message):
 
 
 async def extraction_worker(job_id, project_id, text, project_name):
-    """Background worker that calls the AI service to extract requirements and models."""
+    """Requirements-first: the AI service only splits the text into numbered requirements here (fast).
+    Building blocks (actors, entities, …) are extracted later, for the diagrams the user picks."""
     try:
         db.update_job(
             job_id,
@@ -347,26 +354,16 @@ async def extraction_worker(job_id, project_id, text, project_name):
             started_at=db.now(),
             progress_step=1,
             progress_total=3,
-            progress_label="Sending requirements to AI extraction service",
+            progress_label="Splitting the text into requirements",
         )
         async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
-            response = await client.post(
-                f"{AI_URL}/extraction/extract",
-                json={"text": text, "project_name": project_name},
-            )
-            response.raise_for_status()
-            result = response.json()
+            ai = AIJob(client, project_id, job_id)
+            await ai.start(est_tokens=len(text) // 3 + 3000)
+            result = await ai.post("/extraction/split", {"text": text, "project_name": project_name})
 
-        db.update_job(
-            job_id,
-            progress_step=2,
-            progress_label="Saving requirement statements and modelling items",
-        )
-        raw = result.get("requirements", [])
-        saved_ids = db.insert_statements(project_id, raw)
-        statement_map = {r["id"]: sid for r, sid in zip(raw, saved_ids) if "id" in r}
-        db.add_system_items(project_id, convert_extraction_to_items(result, statement_map))
-        db.touch_project(project_id, clear_confirmation=True)
+        db.update_job(job_id, progress_step=2, progress_label="Checking requirement quality")
+        db.insert_statements(project_id, result.get("requirements", []))
+        db.reset_model(project_id)  # new requirements: confirm again, building blocks are extracted afresh
         await asyncio.to_thread(detect, project_id)  # quality flags, off the event loop; never fails the job
         db.update_job(
             job_id,
@@ -374,12 +371,40 @@ async def extraction_worker(job_id, project_id, text, project_name):
             queue_position=None,
             progress_step=3,
             progress_total=3,
-            progress_label="Extraction complete",
+            progress_label="Requirements ready to review",
             finished_at=db.now(),
         )
     except Exception as e:
         logger.exception("extraction job %s failed", job_id)
-        fail_job(job_id, f"Extraction failed: {ai_error_detail(e)}")
+        fail_job(job_id, f"Finding requirements failed: {ai_error_detail(e)}")
+
+
+async def extract_building_blocks(ai, project, diagram_types):
+    """Runs the extraction nodes the chosen diagrams need over the confirmed requirements (skipping nodes already
+    run) and stores the new items. Returns the nodes that ran."""
+    statements = db.get_statements(project["id"])
+    by_ref = {s["ref"]: s["id"] for s in statements}
+    ref_of = {s["id"]: s["ref"] for s in statements}
+    items = db.get_items(project["id"])
+    model = build_ai_model(items, statements)
+    as_refs = lambda els: [dict(e, source_refs=[ref_of.get(r, r) for r in e["source_refs"]]) for e in els]  # noqa: E731
+    labels = {"functional", "non_functional", "user_story", "constraint", "unknown"}
+    payload = {
+        "project_name": project["name"],
+        "requirements": [
+            {"id": s["ref"], "text": s["text"], "labels": [s["label"] if s["label"] in labels else "unknown"]}
+            for s in statements
+        ],
+        "diagram_types": diagram_types,
+        "done_nodes": project.get("extracted_nodes") or [],
+        "known": {k: as_refs(model[k]) for k in ("actors", "entities", "processes", "data_stores")},
+    }
+    result = await ai.post("/extraction/extract", payload)
+    db.add_system_items(project["id"], convert_extraction_to_items(result, by_ref, known_ids={i["id"] for i in items}),
+                        model_used=ai.model_used)
+    ran = result.get("metadata", {}).get("nodes_run", [])
+    db.set_extracted_nodes(project["id"], list(payload["done_nodes"]) + list(ran))
+    return ran
 
 
 def ai_error_detail(exc):
@@ -392,6 +417,8 @@ def ai_error_detail(exc):
         except Exception:
             pass
         return f"the AI service returned HTTP {exc.response.status_code}"
+    if isinstance(exc, AIBusyTimeout):
+        return "the AI service is busy (provider rate limits). Try again in a few minutes"
     if isinstance(exc, httpx.TimeoutException):
         return "the AI service timed out"
     if isinstance(exc, httpx.TransportError):
@@ -399,7 +426,7 @@ def ai_error_detail(exc):
     return "an unexpected server error"  # the details are in the server log, never shown to users
 
 
-async def generate_one(client, project, diagram_type, items, actors, processes, model):
+async def generate_one(ai, project, diagram_type, items, actors, processes, model):
     """Generates, renders and stores one diagram; returns the stored row."""
     if diagram_type == "use_case":
         interactions = [
@@ -415,36 +442,31 @@ async def generate_one(client, project, diagram_type, items, actors, processes, 
             for i in items
             if i["category"] == "interaction" and i["source_item_id"] and i["target_item_id"]
         ]
-        response = await client.post(
-            f"{AI_URL}/usecase/generate",
-            json={
-                "project_name": project["name"],
-                "system_name": project["name"],
-                "actors": actors,
-                "processes": processes,
-                "interactions": interactions,
-            },
-        )
-        response.raise_for_status()
-        return store_diagram(project["id"], f"{project['name']} · Use Case", response.json(), actors, processes)
+        result = await ai.post("/usecase/generate", {
+            "project_name": project["name"],
+            "system_name": project["name"],
+            "actors": actors,
+            "processes": processes,
+            "interactions": interactions,
+        })
+        return store_diagram(project["id"], f"{project['name']} · Use Case", result, actors, processes,
+                             model_used=ai.model_used)
 
     pipeline = DIAGRAM_PIPELINES[diagram_type]
-    response = await client.post(
-        f"{AI_URL}/{pipeline.endpoint}/generate", json=pipeline.payload(project, model)
-    )
-    response.raise_for_status()
+    result = await ai.post(f"/{pipeline.endpoint}/generate", pipeline.payload(project, model))
     return store_generated_diagram(
-        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", response.json(), model
+        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", result, model, model_used=ai.model_used
     )
 
 
 async def generation_worker(job_id, project_id, diagram_types):
-    """Background worker: generates each requested diagram type in turn.
+    """Background worker: extracts the building blocks the chosen diagrams need, then draws each type in turn.
 
-    Types are generated sequentially (kinder to LLM rate limits). If some fail,
-    the others are still saved and the job fails with a message naming both.
+    Types are generated sequentially (kinder to LLM rate limits) and each finished diagram id is published on the
+    job straight away, so the UI can open it early. If some fail, the others are still saved.
     """
     total = len(diagram_types) + 2
+    labels = ", ".join(TYPE_LABELS.get(t, t) for t in diagram_types)
     try:
         db.update_job(
             job_id,
@@ -453,24 +475,31 @@ async def generation_worker(job_id, project_id, diagram_types):
             started_at=db.now(),
             progress_step=1,
             progress_total=total,
-            progress_label="Building approved diagram model",
+            progress_label=f"Extracting building blocks for {labels}",
         )
         project = db.get_project(project_id)
+        client = httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS)
+        ai = AIJob(client, project_id, job_id)  # one provider for the whole job
+        await ai.start()
+        await extract_building_blocks(ai, project, diagram_types)
         items, actors, processes = approved_model(project_id)
         model = build_ai_model(items, db.get_statements(project_id))
-    except Exception:
-        logger.exception("generation job %s failed while loading the model", job_id)
-        fail_job(job_id, "Generation failed: the approved model could not be loaded")
+    except Exception as e:
+        logger.exception("generation job %s failed while extracting building blocks", job_id)
+        fail_job(job_id, f"Extracting building blocks failed: {ai_error_detail(e)}")
+        if "client" in locals():
+            await client.aclose()
         return
 
     saved, failures = [], []
-    async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
+    async with client:
         for step, diagram_type in enumerate(diagram_types, start=2):
             label = TYPE_LABELS.get(diagram_type, diagram_type)
             db.update_job(job_id, progress_step=step, progress_label=f"Generating and rendering {label} diagram")
             try:
-                diagram = await generate_one(client, project, diagram_type, items, actors, processes, model)
+                diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
                 saved.append((label, diagram["id"]))
+                db.update_job(job_id, diagram_ids=[d for _, d in saved])
             except Exception as e:
                 logger.exception("generation job %s: %s diagram failed", job_id, diagram_type)
                 failures.append(f"{label} ({ai_error_detail(e)})")
@@ -642,7 +671,8 @@ def edit_item(
     item = db.update_item(project_id, item_id, name, payload.description)
     if not item:
         raise HTTPException(404, NOT_FOUND)
-    db.touch_project(project_id, clear_confirmation=True)
+    # Requirements-first: confirmation is about the requirements, so an item fix only makes diagrams stale.
+    db.touch_project(project_id)
     return item
 
 
@@ -652,13 +682,13 @@ def edit_item(
 
 @router.post("/projects/{project_id}/confirmation", status_code=201)
 def confirm_project(project_id: str, user: User = Depends(get_current_user)):
-    """Marks extracted items as confirmed by the user, gating diagram generation."""
+    """Confirms the reviewed requirements, gating diagram generation. Open flags never block this."""
     require_project(project_id, user)
-    if not db.get_items(project_id):
-        raise HTTPException(409, "There is nothing to confirm yet.")
+    if not db.get_statements(project_id):
+        raise HTTPException(409, "Add some requirements first.")
     latest = db.get_latest_extraction_job(project_id)
-    if not latest or latest["status"] != "succeeded":
-        raise HTTPException(409, "Wait for extraction to finish before confirming the model.")
+    if latest and latest["status"] in ("queued", "running"):
+        raise HTTPException(409, "Wait for the requirements to finish before confirming.")
     return project_view(db.set_confirmed(project_id), user)
 
 
@@ -672,7 +702,7 @@ def generate_diagram(
     """Queues a background job to generate diagram(s) from the confirmed model."""
     project = require_project(project_id, user)
     if not project["confirmed_at"]:
-        raise HTTPException(409, "Confirm the extracted items before generating.")
+        raise HTTPException(409, "Confirm the requirements before generating.")
     diagram_types = list(dict.fromkeys(payload.diagram_types))  # de-duplicate, keep order
     unsupported = [t for t in diagram_types if t not in SUPPORTED_DIAGRAM_TYPES]
     if unsupported:
@@ -734,7 +764,7 @@ async def revise_diagram(
     project = db.get_project(project_id)
     _, actors, processes = approved_model(project_id)
     if diagram_type == "use_case":
-        url = f"{AI_URL}/usecase/revise"
+        url = "/usecase/revise"
         body = {
             "spec": diagram["spec"],
             "instruction": instruction,
@@ -742,13 +772,15 @@ async def revise_diagram(
             "actor_names": {a["id"]: a["name"] for a in actors},
         }
     else:
-        url = f"{AI_URL}/{DIAGRAM_PIPELINES[diagram_type].endpoint}/revise"
+        url = f"/{DIAGRAM_PIPELINES[diagram_type].endpoint}/revise"
         body = {"spec": diagram["spec"], "instruction": instruction, "system_name": project["name"]}
     try:
         async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
-            response = await client.post(url, json=body)
-            response.raise_for_status()
-            result = response.json()
+            ai = AIJob(client, project_id, deadline=REVISION_BUSY_WAIT)
+            await ai.start()
+            result = await ai.post(url, body)
+    except AIBusyTimeout as exc:
+        raise HTTPException(503, "The AI service is busy right now. Try again in a minute.") from exc
     except httpx.HTTPStatusError as exc:
         try:
             detail = exc.response.json().get("detail", "The AI could not apply that change.")
@@ -769,6 +801,7 @@ async def revise_diagram(
             parent_id=diagram["id"],
             instruction=instruction,
             layout=diagram.get("layout"),  # keep the user's positions
+            model_used=ai.model_used,
         )
     else:
         created = store_generated_diagram(
@@ -780,6 +813,7 @@ async def revise_diagram(
             parent_id=diagram["id"],
             instruction=instruction,
             layout=diagram.get("layout"),  # keep the user's positions
+            model_used=ai.model_used,
         )
     return diagram_view(created)
 
