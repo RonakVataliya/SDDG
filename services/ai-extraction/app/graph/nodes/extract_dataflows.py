@@ -6,32 +6,20 @@ reference their ids as endpoints.
 from app.graph.context_utils import (
     format_actors,
     format_processes,
-    format_requirements,
 )
 from app.graph.prompts import DATAFLOWS_SYSTEM_PROMPT
 from app.graph.state import ExtractionState
 from app.schemas.elements import DataFlowExtraction
-from app.services.ai_service import get_ai_service
+from app.graph.node_runner import run_node
 
 
 def extract_dataflows(state: ExtractionState) -> dict:
-    ai = get_ai_service()
-    user_content = (
-        "REQUIREMENTS:\n"
-        f"{format_requirements(state.get('requirements', []))}\n\n"
-        "KNOWN ACTORS:\n"
-        f"{format_actors(state.get('actors', []))}\n\n"
-        "KNOWN PROCESSES:\n"
-        f"{format_processes(state.get('processes', []))}"
+    context = "\n\n".join([
+        "KNOWN ACTORS:\n" + format_actors(state.get("actors", [])),
+        "KNOWN PROCESSES:\n" + format_processes(state.get("processes", [])),
+    ])
+    ends = {e.id for k in ("actors", "processes") for e in state.get(k, [])}
+    return run_node(
+        state, node_name="extract_dataflows", system_prompt=DATAFLOWS_SYSTEM_PROMPT, schema=DataFlowExtraction, fields=["data_flows", "data_stores"],
+        context=context, valid_ends=ends,
     )
-    result, meta = ai.structured_extract(
-        node_name="extract_dataflows",
-        system_prompt=DATAFLOWS_SYSTEM_PROMPT,
-        user_content=user_content,
-        schema=DataFlowExtraction,
-    )
-    return {
-        "data_flows": result.data_flows,
-        "data_stores": result.data_stores,
-        "node_timings": [meta],
-    }

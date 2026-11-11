@@ -19,7 +19,7 @@ export const keys = {
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
 
-const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running'
+const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running' || job?.status === 'waiting'
 
 /* ---------- projects ---------- */
 

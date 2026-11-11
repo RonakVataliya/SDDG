@@ -1,4 +1,4 @@
-"""Supabase Postgres access. Schema: apps/api/schema.sql (apply it to the database yourself; see README)."""
+"""Supabase Postgres access. Schema: apps/api/migrations/ (python -m core.migrate, or AUTO_MIGRATE=true; see README)."""
 import json
 import os
 from datetime import datetime, timezone
@@ -223,7 +223,7 @@ def _item_key(i):
     return key + (i["source_item_id"], i["target_item_id"]) if i.get("source_item_id") or i.get("target_item_id") else key
 
 
-def add_system_items(pid, items):
+def add_system_items(pid, items, model_used=None):
     """Adds one submission's extracted items to the project; items from earlier submissions stay.
 
     An item the project already has (see _item_key) is not added again: it gains the new statement refs, and
@@ -252,13 +252,13 @@ def add_system_items(pid, items):
         with c.cursor() as cur:
             cur.executemany(
                 "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
-                "statement_ids, source_item_id, target_item_id, relation_type) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "statement_ids, source_item_id, target_item_id, relation_type, model_used) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 [
                     (
                         i["id"], pid, i["category"], encrypt(i["name"]), encrypt(i.get("description")), "system-extracted",
                         json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
-                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"),
+                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"), model_used,
                     )
                     for i in new
                 ],
@@ -311,7 +311,7 @@ def fail_interrupted_jobs():
     old process may still finish such a job; its final update then overwrites this.)"""
     run(
         "UPDATE jobs SET status='failed', queue_position=NULL, error=%s, progress_label='Interrupted', finished_at=%s "
-        "WHERE status IN ('queued', 'running')",
+        "WHERE status IN ('queued', 'running', 'waiting')",
         "Interrupted by a server restart. Try again.", now(),
     )
 
@@ -321,6 +321,10 @@ def member_job(jid, user_id):
         "SELECT j.* FROM jobs j JOIN project_members m ON m.project_id=j.project_id WHERE j.id=%s AND m.user_id=%s",
         jid, user_id,
     ))
+
+
+def get_job(jid):
+    return _job(one("SELECT * FROM jobs WHERE id=%s", jid))
 
 
 def get_latest_extraction_job(pid):
@@ -340,14 +344,15 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None, layout=None):
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
     return one(
         "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-        "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        "plantuml_source, parent_id, instruction, spec, layout, model_used) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
         uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
         json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
         encrypt(json.dumps(spec)) if spec is not None else None,
-        json.dumps(layout) if layout else None,
+        json.dumps(layout) if layout else None, model_used,
     )
 
 
@@ -460,3 +465,22 @@ def reset_model(pid):
 
 def set_extracted_nodes(pid, nodes):
     run("UPDATE projects SET extracted_nodes=%s WHERE id=%s", json.dumps(sorted(set(nodes))), pid)
+
+
+def project_model(pid):
+    """The model that produced most of the project's system items (sticky provider choice), else None."""
+    r = one("SELECT model_used FROM items WHERE project_id=%s AND model_used IS NOT NULL "
+            "GROUP BY model_used ORDER BY count(*) DESC LIMIT 1", pid)
+    return r["model_used"] if r else None
+
+
+def add_llm_calls(job_id, pid, calls, mixed):
+    """Metadata only (the AI service's X-LLM-Usage): never prompt or output text."""
+    cols = ("node", "provider", "model", "input_tokens", "output_tokens", "wait_ms", "duration_ms", "attempts",
+            "rate_limited", "status")
+    with pool.connection() as c, c.cursor() as cur:
+        cur.executemany(
+            f"INSERT INTO llm_calls(job_id, project_id, {', '.join(cols)}, mixed_models) "
+            f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
+            [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
+        )

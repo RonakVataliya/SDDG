@@ -8,7 +8,7 @@ export type Stage = 'input' | 'extracting' | 'review' | 'generate' | 'done' | 'f
  */
 export function projectStage(p: Project): Stage {
   const x = p.extraction
-  if (x?.status === 'queued' || x?.status === 'running') return 'extracting'
+  if (x?.status === 'queued' || x?.status === 'running' || x?.status === 'waiting') return 'extracting'
   if (p.statement_count === 0) return x?.status === 'failed' ? 'failed' : 'input'
   if (!p.confirmed) return 'review'
   return p.diagram_count > 0 ? 'done' : 'generate'

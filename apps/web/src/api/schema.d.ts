@@ -1065,8 +1065,11 @@ export interface components {
         GenerationCreate: {
             diagram_types: components["schemas"]["DiagramType"][];
         };
-        /** @enum {string} */
-        JobStatus: "queued" | "running" | "succeeded" | "failed";
+        /**
+         * @description waiting = the AI provider is at its rate limit; the job resumes by itself
+         * @enum {string}
+         */
+        JobStatus: "queued" | "running" | "waiting" | "succeeded" | "failed";
         Job: {
             id: string;
             /** @enum {string} */

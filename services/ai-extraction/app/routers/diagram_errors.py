@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.logging_config import error_location, get_logger
 from app.rendering.engines import DiagramEngineError, EmptyDiagramError
+from app.llm.limiter import AIBusy
 from app.services.ai_service import AIServiceError
 from app.services.kroki_service import KrokiServiceError
 
@@ -33,6 +34,8 @@ async def run_diagram_call(
     except EmptyDiagramError as exc:
         logger.warning("%s_empty_diagram", label)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AIBusy:
+        raise  # the app answers 429 ai_busy with Retry-After (app/main.py)
     except AIServiceError as exc:
         logger.error("%s_ai_error error=%s", label, str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc

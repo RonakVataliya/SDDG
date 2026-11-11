@@ -26,7 +26,7 @@ export function InputPage() {
   const submit = useSubmitInput(project.id)
 
   const extraction = project.extraction
-  const running = extraction?.status === 'queued' || extraction?.status === 'running'
+  const running = extraction?.status === 'queued' || extraction?.status === 'running' || extraction?.status === 'waiting'
   // Remember the job once seen running: the project summary may report it finished before our own job poll
   // does, and we still want to see that finish to move on to review.
   const [watchedJobId, setWatchedJobId] = useState<string | null>(() => (running ? extraction.id : null))

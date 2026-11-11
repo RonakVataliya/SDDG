@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 
 from core import db
 from core.auth import User, get_current_user
+from core.ai_client import AIBusyTimeout, AIJob
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
 from core.quality import detect
 from core.reporting import diagram_versions, slugify
@@ -47,8 +48,9 @@ logger = logging.getLogger("sddg.api")
 AI_URL = os.getenv("AI_SERVICE_URL", "http://127.0.0.1:8001/api/v1")
 # Shared secret the AI service requires on every call (its INTERNAL_API_KEY); send it with every AI request.
 AI_HEADERS = {"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")}
-# The AI service retries rate limits for up to ~4 minutes (20 s + 40 s waits on top of each attempt).
+# One AI call may wait up to LLM_MAX_WAIT_SECONDS (120 s) for provider capacity, plus its retries.
 AI_TIMEOUT = 300
+REVISION_BUSY_WAIT = 60  # a revision runs inside the request: wait at most this long for AI capacity
 KROKI_URL = os.getenv("KROKI_URL", "http://127.0.0.1:8080")
 POLICY_VERSION = os.getenv("AI_POLICY_VERSION", "2026-09-01")
 NOT_FOUND = "Not found, or you do not have access to it."
@@ -355,12 +357,9 @@ async def extraction_worker(job_id, project_id, text, project_name):
             progress_label="Splitting the text into requirements",
         )
         async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
-            response = await client.post(
-                f"{AI_URL}/extraction/split",
-                json={"text": text, "project_name": project_name},
-            )
-            response.raise_for_status()
-            result = response.json()
+            ai = AIJob(client, project_id, job_id)
+            await ai.start(est_tokens=len(text) // 3 + 3000)
+            result = await ai.post("/extraction/split", {"text": text, "project_name": project_name})
 
         db.update_job(job_id, progress_step=2, progress_label="Checking requirement quality")
         db.insert_statements(project_id, result.get("requirements", []))
@@ -380,7 +379,7 @@ async def extraction_worker(job_id, project_id, text, project_name):
         fail_job(job_id, f"Finding requirements failed: {ai_error_detail(e)}")
 
 
-async def extract_building_blocks(client, project, diagram_types):
+async def extract_building_blocks(ai, project, diagram_types):
     """Runs the extraction nodes the chosen diagrams need over the confirmed requirements (skipping nodes already
     run) and stores the new items. Returns the nodes that ran."""
     statements = db.get_statements(project["id"])
@@ -400,10 +399,9 @@ async def extract_building_blocks(client, project, diagram_types):
         "done_nodes": project.get("extracted_nodes") or [],
         "known": {k: as_refs(model[k]) for k in ("actors", "entities", "processes", "data_stores")},
     }
-    response = await client.post(f"{AI_URL}/extraction/extract", json=payload)
-    response.raise_for_status()
-    result = response.json()
-    db.add_system_items(project["id"], convert_extraction_to_items(result, by_ref, known_ids={i["id"] for i in items}))
+    result = await ai.post("/extraction/extract", payload)
+    db.add_system_items(project["id"], convert_extraction_to_items(result, by_ref, known_ids={i["id"] for i in items}),
+                        model_used=ai.model_used)
     ran = result.get("metadata", {}).get("nodes_run", [])
     db.set_extracted_nodes(project["id"], list(payload["done_nodes"]) + list(ran))
     return ran
@@ -419,6 +417,8 @@ def ai_error_detail(exc):
         except Exception:
             pass
         return f"the AI service returned HTTP {exc.response.status_code}"
+    if isinstance(exc, AIBusyTimeout):
+        return "the AI service is busy (provider rate limits). Try again in a few minutes"
     if isinstance(exc, httpx.TimeoutException):
         return "the AI service timed out"
     if isinstance(exc, httpx.TransportError):
@@ -426,7 +426,7 @@ def ai_error_detail(exc):
     return "an unexpected server error"  # the details are in the server log, never shown to users
 
 
-async def generate_one(client, project, diagram_type, items, actors, processes, model):
+async def generate_one(ai, project, diagram_type, items, actors, processes, model):
     """Generates, renders and stores one diagram; returns the stored row."""
     if diagram_type == "use_case":
         interactions = [
@@ -442,26 +442,20 @@ async def generate_one(client, project, diagram_type, items, actors, processes, 
             for i in items
             if i["category"] == "interaction" and i["source_item_id"] and i["target_item_id"]
         ]
-        response = await client.post(
-            f"{AI_URL}/usecase/generate",
-            json={
-                "project_name": project["name"],
-                "system_name": project["name"],
-                "actors": actors,
-                "processes": processes,
-                "interactions": interactions,
-            },
-        )
-        response.raise_for_status()
-        return store_diagram(project["id"], f"{project['name']} · Use Case", response.json(), actors, processes)
+        result = await ai.post("/usecase/generate", {
+            "project_name": project["name"],
+            "system_name": project["name"],
+            "actors": actors,
+            "processes": processes,
+            "interactions": interactions,
+        })
+        return store_diagram(project["id"], f"{project['name']} · Use Case", result, actors, processes,
+                             model_used=ai.model_used)
 
     pipeline = DIAGRAM_PIPELINES[diagram_type]
-    response = await client.post(
-        f"{AI_URL}/{pipeline.endpoint}/generate", json=pipeline.payload(project, model)
-    )
-    response.raise_for_status()
+    result = await ai.post(f"/{pipeline.endpoint}/generate", pipeline.payload(project, model))
     return store_generated_diagram(
-        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", response.json(), model
+        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", result, model, model_used=ai.model_used
     )
 
 
@@ -484,22 +478,26 @@ async def generation_worker(job_id, project_id, diagram_types):
             progress_label=f"Extracting building blocks for {labels}",
         )
         project = db.get_project(project_id)
-        async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
-            await extract_building_blocks(client, project, diagram_types)
+        client = httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS)
+        ai = AIJob(client, project_id, job_id)  # one provider for the whole job
+        await ai.start()
+        await extract_building_blocks(ai, project, diagram_types)
         items, actors, processes = approved_model(project_id)
         model = build_ai_model(items, db.get_statements(project_id))
     except Exception as e:
         logger.exception("generation job %s failed while extracting building blocks", job_id)
         fail_job(job_id, f"Extracting building blocks failed: {ai_error_detail(e)}")
+        if "client" in locals():
+            await client.aclose()
         return
 
     saved, failures = [], []
-    async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
+    async with client:
         for step, diagram_type in enumerate(diagram_types, start=2):
             label = TYPE_LABELS.get(diagram_type, diagram_type)
             db.update_job(job_id, progress_step=step, progress_label=f"Generating and rendering {label} diagram")
             try:
-                diagram = await generate_one(client, project, diagram_type, items, actors, processes, model)
+                diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
                 saved.append((label, diagram["id"]))
                 db.update_job(job_id, diagram_ids=[d for _, d in saved])
             except Exception as e:
@@ -766,7 +764,7 @@ async def revise_diagram(
     project = db.get_project(project_id)
     _, actors, processes = approved_model(project_id)
     if diagram_type == "use_case":
-        url = f"{AI_URL}/usecase/revise"
+        url = "/usecase/revise"
         body = {
             "spec": diagram["spec"],
             "instruction": instruction,
@@ -774,13 +772,15 @@ async def revise_diagram(
             "actor_names": {a["id"]: a["name"] for a in actors},
         }
     else:
-        url = f"{AI_URL}/{DIAGRAM_PIPELINES[diagram_type].endpoint}/revise"
+        url = f"/{DIAGRAM_PIPELINES[diagram_type].endpoint}/revise"
         body = {"spec": diagram["spec"], "instruction": instruction, "system_name": project["name"]}
     try:
         async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
-            response = await client.post(url, json=body)
-            response.raise_for_status()
-            result = response.json()
+            ai = AIJob(client, project_id, deadline=REVISION_BUSY_WAIT)
+            await ai.start()
+            result = await ai.post(url, body)
+    except AIBusyTimeout as exc:
+        raise HTTPException(503, "The AI service is busy right now. Try again in a minute.") from exc
     except httpx.HTTPStatusError as exc:
         try:
             detail = exc.response.json().get("detail", "The AI could not apply that change.")
@@ -801,6 +801,7 @@ async def revise_diagram(
             parent_id=diagram["id"],
             instruction=instruction,
             layout=diagram.get("layout"),  # keep the user's positions
+            model_used=ai.model_used,
         )
     else:
         created = store_generated_diagram(
@@ -812,6 +813,7 @@ async def revise_diagram(
             parent_id=diagram["id"],
             instruction=instruction,
             layout=diagram.get("layout"),  # keep the user's positions
+            model_used=ai.model_used,
         )
     return diagram_view(created)
 

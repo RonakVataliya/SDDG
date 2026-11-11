@@ -1,0 +1,254 @@
+[
+ {
+  "id": "F01",
+  "text": "The system shall respond quickly to user requests.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F02",
+  "text": "The dashboard should be user-friendly.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F03",
+  "text": "Reports shall be generated efficiently.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F04",
+  "text": "The app shall provide an intuitive interface for booking.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F05",
+  "text": "The system shall store appropriate customer details.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F06",
+  "text": "Search results shall load fast.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F07",
+  "text": "The system shall support cards, wallets, etc.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F08",
+  "text": "The admin can configure settings as needed.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F09",
+  "text": "The service shall be robust under heavy load.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F10",
+  "text": "The system should handle a reasonable number of users.",
+  "expected": [
+   "ambiguous"
+  ]
+ },
+ {
+  "id": "F11",
+  "text": "Must allow users to reset their password.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F12",
+  "text": "Someone shall approve refunds above the limit.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F13",
+  "text": "The session shall expire after a period of time.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F14",
+  "text": "The system shall be updated.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F15",
+  "text": "Passwords shall have a minimum length.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F16",
+  "text": "The system shall keep logs for a retention period.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F17",
+  "text": "An email shall be sent to the customer if.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F18",
+  "text": "Orders shall be cancelled under certain conditions.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F19",
+  "text": "Shall notify the manager when stock is low.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F20",
+  "text": "The account shall be locked after several failed attempts.",
+  "expected": [
+   "incomplete"
+  ]
+ },
+ {
+  "id": "F21",
+  "text": "Sessions shall expire after 15 minutes of inactivity.",
+  "expected": [
+   "conflict"
+  ]
+ },
+ {
+  "id": "F22",
+  "text": "Sessions shall expire after 30 minutes of inactivity.",
+  "expected": [
+   "conflict"
+  ]
+ },
+ {
+  "id": "F23",
+  "text": "The system shall allow guest users to place orders.",
+  "expected": [
+   "conflict"
+  ]
+ },
+ {
+  "id": "F24",
+  "text": "The system shall not allow guest users to place orders.",
+  "expected": [
+   "conflict"
+  ]
+ },
+ {
+  "id": "F25",
+  "text": "Passwords shall be at least 8 characters long.",
+  "expected": [
+   "conflict"
+  ]
+ },
+ {
+  "id": "F26",
+  "text": "Passwords shall be at least 12 characters long.",
+  "expected": [
+   "conflict"
+  ]
+ },
+ {
+  "id": "F27",
+  "text": "A member shall be able to borrow up to 5 books at a time.",
+  "expected": []
+ },
+ {
+  "id": "F28",
+  "text": "The librarian shall register new members.",
+  "expected": []
+ },
+ {
+  "id": "F29",
+  "text": "The system shall send the patient an SMS confirmation when an appointment is booked.",
+  "expected": []
+ },
+ {
+  "id": "F30",
+  "text": "A customer shall transfer money to a registered beneficiary.",
+  "expected": []
+ },
+ {
+  "id": "F31",
+  "text": "Every transfer shall complete within 5 seconds for 95% of requests.",
+  "expected": []
+ },
+ {
+  "id": "F32",
+  "text": "The booking page shall load within 2 seconds on a 4G connection.",
+  "expected": []
+ },
+ {
+  "id": "F33",
+  "text": "A courier shall scan a parcel's barcode at pickup.",
+  "expected": []
+ },
+ {
+  "id": "F34",
+  "text": "The system shall close a resolved ticket automatically after 7 days.",
+  "expected": []
+ },
+ {
+  "id": "F35",
+  "text": "A student shall drop a course before the published deadline.",
+  "expected": []
+ },
+ {
+  "id": "F36",
+  "text": "The front desk shall assign a room number at check-in.",
+  "expected": []
+ },
+ {
+  "id": "F37",
+  "text": "The system shall email a member 2 days before a loan is due.",
+  "expected": []
+ },
+ {
+  "id": "F38",
+  "text": "A seller shall update the stock level of their products.",
+  "expected": []
+ },
+ {
+  "id": "F39",
+  "text": "All data shall be encrypted in transit with TLS 1.2 or later.",
+  "expected": []
+ },
+ {
+  "id": "F40",
+  "text": "The administrator shall add and deactivate courier accounts.",
+  "expected": []
+ }
+]
