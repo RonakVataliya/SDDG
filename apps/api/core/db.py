@@ -319,18 +319,21 @@ def update_job(jid, **fields):
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
                    parent_id=None, instruction=None, spec=None, layout=None):
-    d = one(
-        "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-        "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
-        json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
-        encrypt(json.dumps(spec)) if spec is not None else None,
-        json.dumps(layout) if layout else None,
-    )
-    if parent_id:  # accepted warnings stay accepted on versions made from this one
-        run("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
-            "FROM accepted_warnings WHERE diagram_id=%s", d["id"], parent_id)
-    return d
+    # One transaction: a new version never exists without the accepted warnings it carries over.
+    with pool.connection() as c:
+        d = c.execute(
+            "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
+            "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "RETURNING *",
+            (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
+             json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
+             encrypt(json.dumps(spec)) if spec is not None else None,
+             json.dumps(layout) if layout else None),
+        ).fetchone()
+        if parent_id:  # accepted warnings stay accepted on versions made from this one
+            c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
+                      "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
+    return _decode(d)
 
 
 def accepted_warnings(did):

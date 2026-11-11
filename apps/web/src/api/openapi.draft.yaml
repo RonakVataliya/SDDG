@@ -177,7 +177,7 @@ paths:
   /diagrams/{diagram_id}/validation:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
-      summary: 'Problems found in a generated diagram (#39): confirmed items it leaves out, lines with a missing end, use cases no actor reaches, no initial state, unreachable states and more. Accepted warnings stay in the list with who accepted them.'
+      summary: 'Problems found in a generated diagram (#39): confirmed items it leaves out (only once the project is confirmed), lines with a missing end, use cases no actor reaches, no initial state, unreachable states and more. Accepted warnings stay in the list with who accepted them.'
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramValidation' } } } }
   /diagrams/{diagram_id}/validation/accept:
@@ -199,7 +199,8 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/WarningRef' } } }
       responses:
         '201': { description: New version, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
-        '409': { description: The warning no longer applies, or it has no suggested fix, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'The warning no longer applies, it has no suggested fix, or the diagram has no spec (made before editing existed)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: The suggested fix is too long to apply automatically, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -407,7 +408,7 @@ components:
       properties:
         diagram_id: { type: string }
         warnings: { type: array, items: { $ref: '#/components/schemas/ValidationWarning' } }
-        message: { type: [string, 'null'], description: '"No validation issues" when there are no warnings, else null' }
+        message: { type: [string, 'null'], description: 'A note to show with the list: "No validation issues" when nothing is wrong, "Generate it again to validate it" for a diagram made before editing existed, or that missing items are only checked once the extracted items are confirmed; null otherwise' }
     WarningRef:
       type: object
       required: [warning_id]

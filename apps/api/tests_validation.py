@@ -74,6 +74,28 @@ def check_every_rule():
         got = {w["id"] for w in check(t, spec, items)}
         assert expected <= got, (t, expected - got)
         assert all(w["message"] for w in check(t, spec, items)), t
+        assert all("'" not in (w["fix"] or "") for w in check(t, spec, items)), t  # one quote style: “…”
+
+    # use case: extends are checked, an association to a deleted actor is caught, and both ends missing say so
+    uc = {"usecases": [{"id": "UC1", "name": "Place Order", "source_process_ids": ["p1", "p2"]}],
+          "associations": [{"actor_id": "a1", "usecase_id": "UC1"}, {"actor_id": "a2", "usecase_id": "UC1"},
+                           {"actor_id": "a7", "usecase_id": "UC1"}, {"actor_id": "a8", "usecase_id": "UC8"}],
+          "includes": [], "extends": [{"base_usecase_id": "UC1", "extending_usecase_id": "UC5"}]}
+    got = {w["id"]: w["message"] for w in check("use_case", uc, items)}
+    assert got["dangling:a7-UC1"] == "The association a7-UC1 has no source.", got
+    assert got["dangling:a8-UC8"] == "The association a8-UC8 points at elements that don’t exist.", got
+    assert got["dangling:UC1_extend_UC5"] == "The extend UC1_extend_UC5 has no source.", got
+    assert "dangling:a1-UC1" not in got and "dangling:a2-UC1" not in got
+
+    # while the project is not confirmed nothing counts as missing, but the other checks still run
+    unconfirmed = {w["id"] for w in check("use_case", broken["use_case"][0], items, confirmed=False)}
+    assert not any(i.startswith("missing:") for i in unconfirmed) and "dangling:a1-UC9" in unconfirmed, unconfirmed
+
+    # activity: once there are swimlanes, an action in none of them is reported
+    act = {"lanes": [{"id": "L1", "name": "Student"}],
+           "steps": [{"action": {"id": "A1", "label": "Order", "lane_id": "L1"}}, {"action": {"id": "A2", "label": "Pay"}}]}
+    msgs = {w["id"]: w["message"] for w in check("activity", act, items)}
+    assert msgs.get("lane:A2") == "The action “Pay” is not in any swimlane." and "lane:A1" not in msgs, msgs
     ok = {"classes": [{"id": "C1", "name": "Order", "source_entity_ids": ["e1"]},
                       {"id": "C2", "name": "Menu Item", "source_entity_ids": ["e2"]}],
           "relations": [{"id": "R1", "source_id": "C1", "target_id": "C2", "type": "association"}]}
@@ -141,6 +163,43 @@ def main():
 
             # a warning that no longer applies is refused
             assert c.post(f"/api/v1/diagrams/{fresh}/validation/fix", headers=H, json={"warning_id": "nope"}).status_code == 409
+
+            # a diagram made before editing existed has no spec: no warnings, no fix buttons, just how to get them
+            db.run("UPDATE diagrams SET spec=NULL WHERE id=%s", ids["dfd"])
+            v = validation(ids["dfd"])
+            assert v["warnings"] == [] and v["message"].endswith("Generate it again to validate it."), v
+            r = c.post(f"/api/v1/diagrams/{ids['dfd']}/validation/fix", headers=H, json={"warning_id": "missing:p1"})
+            assert r.status_code == 409 and "Generate it again" in r.json()["detail"], r.text
+
+            # a fix too long for a revision instruction is refused with 422, not a server error
+            row = db.member_diagram(fresh, f"dev:{EMAIL}")
+            spec = row["spec"]
+            spec["associations"] = []  # now every actor is missing from the diagram
+            db.run("UPDATE diagrams SET spec=%s WHERE id=%s", db.encrypt(json.dumps(spec)), fresh)
+            actor = c.get(f"/api/v1/projects/{pid}/items?category=actor", headers=H).json()["items"][0]
+            c.patch(f"/api/v1/projects/{pid}/items/{actor['id']}", headers=H, json={"name": "Student " * 80})
+            c.post(f"/api/v1/projects/{pid}/confirmation", headers=H)
+            r = c.post(f"/api/v1/diagrams/{fresh}/validation/fix", headers=H, json={"warning_id": f"missing:{actor['id']}"})
+            assert r.status_code == 422 and "too long" in r.json()["detail"], r.text
+
+            # new input clears the confirmation: items not reviewed yet must not count as missing
+            assert any(w["id"].startswith("missing:") for w in validation(fresh)["warnings"])
+            c.post(f"/api/v1/projects/{pid}/inputs", headers=H, json={"text": "A manager approves refunds."})
+            v = validation(fresh)
+            assert not any(w["id"].startswith("missing:") for w in v["warnings"]), v
+            assert v["message"].startswith("Confirm the extracted items"), v
+
+            # a new version and its carried-over acceptances are one write: if copying fails, no version is left
+            before = db.one("SELECT count(*) AS n FROM diagrams WHERE project_id=%s", pid)["n"]
+            db.run("ALTER TABLE accepted_warnings RENAME TO accepted_warnings_off")
+            try:
+                db.create_diagram(pid, "use_case", "x", "<svg/>", [], [], parent_id=fresh, spec={})
+                raise AssertionError("the copy should have failed")
+            except psycopg.errors.UndefinedTable:
+                pass
+            finally:
+                db.run("ALTER TABLE accepted_warnings_off RENAME TO accepted_warnings")
+            assert db.one("SELECT count(*) AS n FROM diagrams WHERE project_id=%s", pid)["n"] == before
         print(f"issue #39 test passed ({len(types)} diagram types)")
     finally:
         with psycopg.connect(os.environ["DATABASE_URL"]) as conn:

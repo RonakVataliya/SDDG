@@ -871,7 +871,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Problems found in a generated diagram (#39): confirmed items it leaves out, lines with a missing end, use cases no actor reaches, no initial state, unreachable states and more. Accepted warnings stay in the list with who accepted them. */
+        /** Problems found in a generated diagram (#39): confirmed items it leaves out (only once the project is confirmed), lines with a missing end, use cases no actor reaches, no initial state, unreachable states and more. Accepted warnings stay in the list with who accepted them. */
         get: {
             parameters: {
                 query?: never;
@@ -991,8 +991,17 @@ export interface paths {
                         "application/json": components["schemas"]["Diagram"];
                     };
                 };
-                /** @description The warning no longer applies */
+                /** @description The warning no longer applies, it has no suggested fix, or the diagram has no spec (made before editing existed) */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The suggested fix is too long to apply automatically */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1207,7 +1216,7 @@ export interface components {
         DiagramValidation: {
             diagram_id: string;
             warnings: components["schemas"]["ValidationWarning"][];
-            /** @description "No validation issues" when there are no warnings, else null */
+            /** @description A note to show with the list: "No validation issues" when nothing is wrong, "Generate it again to validate it" for a diagram made before editing existed, or that missing items are only checked once the extracted items are confirmed; null otherwise */
             message: string | null;
         };
         WarningRef: {
