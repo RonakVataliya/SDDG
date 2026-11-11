@@ -74,3 +74,6 @@ CREATE TABLE IF NOT EXISTS flags (
   created_at timestamptz NOT NULL,
   seq bigint GENERATED ALWAYS AS IDENTITY);
 ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
+
+-- Diagram look chosen by the user (#38): JSON, see core/styling.py. NULL = inherit from parent_id, else default.
+ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS style text;

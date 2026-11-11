@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, unwrap, type Diagram, type DiagramType, type ItemCategory, type Job, type Point } from './client'
+import { api, unwrap, type Diagram, type DiagramType, type ItemCategory, type Job, type Point, type Schemas } from './client'
 import type { paths } from './schema'
 
 export const keys = {
@@ -12,6 +12,8 @@ export const keys = {
   diagrams: (id: string) => ['projects', id, 'diagrams'] as const,
   diagram: (id: string) => ['diagrams', id] as const,
   diagramImage: (id: string) => ['diagrams', id, 'png'] as const,
+  diagramStyle: (id: string) => ['diagrams', id, 'style'] as const,
+  stylePreview: (id: string, style: Schemas['DiagramStyle'] | null) => ['diagrams', id, 'preview', style] as const,
   diagramLayout: (id: string) => ['diagrams', id, 'layout'] as const,
   job: (id: string) => ['jobs', id] as const,
   consent: ['me', 'consent'] as const,
@@ -203,6 +205,51 @@ export function fetchProjectDiagramsZip(projectId: string, versions: 'all' | 'la
 
 export function useDiagramImage(diagramId: string) {
   return useQuery({ queryKey: keys.diagramImage(diagramId), queryFn: () => fetchDiagramExport(diagramId, 'png'), staleTime: Infinity })
+}
+
+/* ---------- visual customisation (#38) ---------- */
+
+/** The diagram's saved look. A version with no style of its own uses the nearest earlier version's, else the default. */
+export function useDiagramStyle(diagramId: string) {
+  return useQuery({
+    queryKey: keys.diagramStyle(diagramId),
+    queryFn: () => unwrap(api.GET('/diagrams/{diagram_id}/style', { params: { path: { diagram_id: diagramId } } })),
+  })
+}
+
+/** Saves the look. The picture changes, and so may later versions that inherit it, so their cached images are dropped. */
+export function useSaveDiagramStyle(diagramId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (style: Schemas['DiagramStyle']) =>
+      unwrap(api.PUT('/diagrams/{diagram_id}/style', { params: { path: { diagram_id: diagramId } }, body: style })),
+    onSuccess: (style) => {
+      qc.setQueryData(keys.diagramStyle(diagramId), style)
+      void qc.invalidateQueries({
+        // Later versions may inherit this style; this version's style was just set above.
+        predicate: ({ queryKey: [scope, id, kind] }) =>
+          scope === 'diagrams' && (kind === 'png' || (kind === 'style' && id !== diagramId)),
+      })
+    },
+  })
+}
+
+/** The diagram drawn with a style that is not saved yet. Pass null to skip; the last picture stays while the next loads. */
+export function useStylePreview(diagramId: string, style: Schemas['DiagramStyle'] | null) {
+  return useQuery({
+    queryKey: keys.stylePreview(diagramId, style),
+    queryFn: () =>
+      unwrap(
+        api.POST('/diagrams/{diagram_id}/preview', {
+          params: { path: { diagram_id: diagramId } },
+          body: style!,
+          parseAs: 'blob',
+        }),
+      ) as Promise<Blob>,
+    enabled: style !== null,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+  })
 }
 
 /** Plain-language edit ("rename X to Y"). The server returns a new version; the one it came from is kept. */

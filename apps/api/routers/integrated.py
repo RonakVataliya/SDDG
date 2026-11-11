@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.auth import User, get_current_user
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
+from core.styling import apply_style, export_style
 from core.quality import detect
 from schemas.api import (
     ConsentCreate,
@@ -812,15 +813,22 @@ async def export_diagram(
     format: str = "png",
     user: User = Depends(get_current_user),
 ):
-    """Exports one diagram version as PNG, SVG or PDF (rendered by Kroki) or as its source code.
-
-    The Kroki engine is read from the stored source itself (PlantUML, DOT or
-    Mermaid), so it stays correct even if ENGINE_FOR_DIAGRAM changes later."""
+    """Exports one diagram version as PNG, SVG or PDF (rendered by Kroki, with its saved style, #38) or as its
+    source code. The Kroki engine is read from the stored source itself (PlantUML, DOT or Mermaid), so it stays
+    correct even if ENGINE_FOR_DIAGRAM changes later."""
     diagram = require_diagram(diagram_id, user)
     fmt = format.lower()
     if fmt not in EXPORT_FORMATS:
         supported = ", ".join(f.upper() for f in EXPORT_FORMATS)
         raise HTTPException(422, f"Unsupported export format. Choose one of: {supported}.")
+    if fmt == "source" and diagram["plantuml_source"]:
+        source = diagram["plantuml_source"]
+        return Response(source, media_type=SOURCE_TYPES[kroki_engine_for_source(source)][0])
+    return await render_styled(diagram, export_style(diagram), fmt)
+
+
+async def render_styled(diagram, style, fmt="png"):
+    """Draws a diagram with Kroki as png/svg/pdf, applying the style only to this drawing (never stored)."""
     label = fmt.upper()
     source = diagram["plantuml_source"]
     if not source:
@@ -829,13 +837,11 @@ async def export_diagram(
             f"This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting {label}.",
         )
     engine = kroki_engine_for_source(source)
-    if fmt == "source":
-        return Response(source, media_type=SOURCE_TYPES[engine][0])
     if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
         raise HTTPException(422, f"{label} export is not available for this diagram's renderer ({engine}). Use PNG or SVG.")
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            content = await render_with_kroki(client, source, fmt)
+            content = await render_with_kroki(client, apply_style(source, engine, style, diagram["type"]), fmt)
         return Response(content, media_type=EXPORT_MEDIA_TYPES[fmt])
     except Exception as e:
         logger.exception("%s export of diagram %s failed", label, diagram["id"])
@@ -931,12 +937,13 @@ async def export_project_diagrams(
             return [], f"{name}: no stored source (made by an older build); regenerate it to export."
         engine = kroki_engine_for_source(source)
         out, missing = [(zip_path(name, SOURCE_TYPES[engine][1]), source.encode("utf-8"))], []
+        drawn = apply_style(source, engine, export_style(d), d["type"])  # saved look (#38); moved versions the standard one
         for fmt in ("png", "svg", "pdf"):
             if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
                 continue  # e.g. Mermaid has no PDF output; README lists the formats
             try:
                 async with semaphore:
-                    out.append((zip_path(name, fmt), await render_with_kroki(client, source, fmt)))
+                    out.append((zip_path(name, fmt), await render_with_kroki(client, drawn, fmt)))
             except Exception:
                 logger.exception("ZIP: %s render of diagram %s failed", fmt, d["id"])
                 missing.append(fmt.upper())
