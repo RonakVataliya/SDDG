@@ -1,11 +1,15 @@
 /** MOCK ONLY. MSW handlers for the FE draft contract (src/api/openapi.draft.yaml). Delete once H3 is live. */
 import { delay, http, HttpResponse, type HttpResponseResolver } from 'msw'
 import { AI_SECTION_VERSION } from '@/features/privacy/policy'
+import { slugify } from '@/features/viewer/export-formats'
+import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, projectView, publicJob, save, touch, uid, type DiagramRow } from './db'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
+import { useCaseSource } from './source'
+import { makeZip } from './zip'
 
 const base = env.apiUrl.replace(/\/$/, '')
 const u = (path: string) => `${base}${path}`
@@ -293,16 +297,74 @@ export const handlers = [
   ),
   http.get(
     u('/diagrams/:diagram_id/export'),
-    authed(async ({ email, params }) => {
+    authed(async ({ email, params, request }) => {
       const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
       if (!d || !ownedProject(email, d.project_id)) return notFound()
-      return new HttpResponse(await svgToPng(d.svg), { headers: { 'Content-Type': 'image/png' } })
+      const format = new URL(request.url).searchParams.get('format')?.toLowerCase()
+      if (format === 'svg') return new HttpResponse(d.svg, { headers: { 'Content-Type': 'image/svg+xml' } })
+      if (format === 'pdf') return new HttpResponse(await svgToPdf(d.svg), { headers: { 'Content-Type': 'application/pdf' } })
+      if (format === 'png') return new HttpResponse(await svgToPng(d.svg), { headers: { 'Content-Type': 'image/png' } })
+      if (format === 'source') {
+        if (!d.model) return fail(409, 'This diagram has no stored diagram source. Regenerate the diagram before exporting SOURCE.')
+        return new HttpResponse(useCaseSource(d.model), { headers: { 'Content-Type': 'text/x-plantuml; charset=utf-8' } })
+      }
+      return fail(422, 'Unsupported export format. Choose one of: PNG, SVG, PDF, SOURCE.')
+    }),
+  ),
+  http.get(
+    u('/projects/:project_id/diagrams/export'),
+    authed(({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const rows = getDb().diagrams.filter((d) => d.project_id === p.id)
+      if (!rows.length) return fail(404, 'This project has no diagrams yet. Generate one first.')
+      const versions = new URL(request.url).searchParams.get('versions') ?? 'all'
+      if (versions !== 'all' && versions !== 'latest') return fail(422, "versions must be 'all' or 'latest'.")
+      const names = versions === 'latest' ? latestOnly(zipLayout(rows)) : zipLayout(rows)
+      const files: { name: string; data: string }[] = []
+      const index = [`${p.name} - diagrams exported from SDDG (mock mode: SVG and source only; the real API adds PNG and PDF)`, '']
+      for (const d of rows.filter((r) => r.id in names).sort((a, b) => names[a.id].localeCompare(names[b.id]))) {
+        index.push(`${names[d.id]}  ${d.title}${d.instruction ? `  (edit: ${d.instruction})` : ''}`)
+        files.push({ name: zipPath(names[d.id], 'svg'), data: d.svg })
+        if (d.model) files.push({ name: zipPath(names[d.id], 'puml'), data: useCaseSource(d.model) })
+      }
+      const readme = versions === 'all' ? [{ name: 'README.txt', data: index.join('\n') + '\n' }] : []
+      return new HttpResponse(makeZip([...readme, ...files]), {
+        headers: { 'Content-Type': 'application/zip' },
+      })
     }),
   ),
 ]
 
-/** Stand-in for the backend's PNG export (FR18a): 2x scale, longest side capped at 8,000 px. */
-async function svgToPng(svg: string): Promise<Blob> {
+/** Same naming as the API's zip_layout: '<title>/v<n>'. Every diagram with the same title (regenerations and edits)
+ *  is a version of one diagram, numbered by creation time. */
+function zipLayout(rows: DiagramRow[]) {
+  const groups = new Map<string, DiagramRow[]>()
+  for (const r of rows) groups.set(slugify(r.title), [...(groups.get(slugify(r.title)) ?? []), r])
+  const names: Record<string, string> = {}
+  for (const [folder, versions] of groups) {
+    versions.sort((a, b) => a.created_at.localeCompare(b.created_at)).forEach((r, i) => (names[r.id] = `${folder}/v${i + 1}`))
+  }
+  return names
+}
+
+/** Same as the API's zip_path: 'title/v2' -> 'title/v2/title-v2.svg'; 'title' (latest only) -> 'title.svg'. */
+function zipPath(name: string, extension: string) {
+  return name.includes('/') ? `${name}/${name.replace('/', '-')}.${extension}` : `${name}.${extension}`
+}
+
+/** Same as the API's latest_only: the newest version of each diagram, without the version folder. */
+function latestOnly(names: Record<string, string>) {
+  const newest = new Map<string, [string, number]>()
+  for (const [id, name] of Object.entries(names)) {
+    const [folder, version] = name.split('/v')
+    if (!newest.has(folder) || Number(version) > newest.get(folder)![1]) newest.set(folder, [id, Number(version)])
+  }
+  return Object.fromEntries([...newest].map(([folder, [id]]) => [id, folder]))
+}
+
+/** Draws the SVG on a canvas at `scale` (capped so the longest side stays within 8,000 px, as in FR18a). */
+async function rasterise(svg: string, scale: number) {
   const img = new Image()
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
   await new Promise((res, rej) => {
@@ -310,12 +372,30 @@ async function svgToPng(svg: string): Promise<Blob> {
     img.onerror = rej
     img.src = url
   })
-  const scale = Math.min(2, 8000 / Math.max(img.width, img.height))
+  const s = Math.min(scale, 8000 / Math.max(img.width, img.height))
   const canvas = Object.assign(document.createElement('canvas'), {
-    width: Math.round(img.width * scale),
-    height: Math.round(img.height * scale),
+    width: Math.round(img.width * s),
+    height: Math.round(img.height * s),
   })
-  canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#ffffff' // JPEG has no transparency
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
   URL.revokeObjectURL(url)
+  return { canvas, width: img.width, height: img.height }
+}
+
+/** Stand-in for the backend's PNG export (FR18a): 2x scale, longest side capped at 8,000 px. */
+async function svgToPng(svg: string): Promise<Blob> {
+  const { canvas } = await rasterise(svg, 2)
   return new Promise((res) => canvas.toBlob((b) => res(b!), 'image/png'))
+}
+
+/** Stand-in for Kroki's PDF output: a one-page PDF the size of the diagram, holding a 2x JPEG of it. */
+async function svgToPdf(svg: string): Promise<Blob> {
+  const { canvas, width, height } = await rasterise(svg, 2)
+  const jpeg = await new Promise<Blob>((res) => canvas.toBlob((b) => res(b!), 'image/jpeg', 0.95))
+  const bytes = new Uint8Array(await jpeg.arrayBuffer())
+  // The image is drawn at the diagram's own size; its pixel size is the 2x canvas.
+  return jpegToPdf(bytes, canvas.width, canvas.height, width, height)
 }

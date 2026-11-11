@@ -1,10 +1,10 @@
-import { ArrowUpIcon, DownloadIcon, MaximizeIcon, MoveIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
+import { ArrowUpIcon, MaximizeIcon, MoveIcon, SparklesIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
 import type { Diagram } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
-import { saveBlob, useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useReviseDiagram } from '@/api/queries'
+import { useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useReviseDiagram } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
@@ -14,6 +14,7 @@ import { LayoutEditor } from '@/features/viewer/layout-editor'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
+import { ExportMenu } from './export-menu'
 
 const MAX_INSTRUCTION = 500
 
@@ -50,6 +51,7 @@ export function ViewerPage() {
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
   const threadRef = useRef<HTMLOListElement>(null)
+  const viewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!image.data) return setSrc(null)
@@ -91,12 +93,6 @@ export function ViewerPage() {
     navigate(`../diagrams/${next.id}`)
   }
 
-  function exportPng() {
-    if (!image.data) return
-    const slug = diagram!.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    saveBlob(image.data, `${slug || 'diagram'}${index > 0 ? `-v${index + 1}` : ''}.png`)
-  }
-
   return (
     <div className="-m-5 flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
@@ -114,9 +110,17 @@ export function ViewerPage() {
           <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!layout.data || arranging || revise.isPending}>
             <MoveIcon /> Move elements
           </Button>
-          <Button variant="secondary" onClick={exportPng} disabled={!image.data}>
-            <DownloadIcon /> Export PNG
-          </Button>
+          {/* Kroki draws from the source and knows nothing of moved positions, so a moved version is exported as drawn. */}
+          <ExportMenu
+            diagramId={diagram.id}
+            title={diagram.title}
+            versionIndex={index}
+            png={image.data}
+            projectId={project.id}
+            projectName={project.name}
+            drawn={moved ? () => viewRef.current?.querySelector<SVGSVGElement>('svg[data-layout-canvas]') ?? null : undefined}
+            disabled={moved ? arranging : false}
+          />
         </div>
       </div>
 
@@ -132,16 +136,20 @@ export function ViewerPage() {
       {arranging ? (
         <LayoutEditor key={diagram.id} projectId={project.id} layout={layout.data!} title={diagram.title} onClose={() => setArrangeFor(null)} />
       ) : (
-        <div className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
+        <div ref={viewRef} className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border border-rule bg-white xl:h-auto xl:min-h-72 xl:flex-1">
           {moved ? (
-            <LayoutCanvas
-              key={diagram.id}
-              elements={moved.elements}
-              lines={moved.lines}
-              positions={{}}
-              label={`${diagram.title}, version ${index + 1}`}
-              className="p-2"
-            />
+            <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
+              <ZoomControls />
+              <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
+                <LayoutCanvas
+                  elements={moved.elements}
+                  lines={moved.lines}
+                  positions={{}}
+                  label={`${diagram.title}, version ${index + 1}`}
+                  className="p-2"
+                />
+              </TransformComponent>
+            </TransformWrapper>
           ) : src ? (
             <TransformWrapper key={diagram.id} minScale={0.3} maxScale={6} centerOnInit limitToBounds={false} doubleClick={{ disabled: true }}>
               <ZoomControls />
@@ -167,7 +175,7 @@ export function ViewerPage() {
               </p>
             </div>
           )}
-          {src && !moved && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
+          {(moved || src) && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
         </div>
       )}
 

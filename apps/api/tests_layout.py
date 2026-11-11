@@ -12,13 +12,48 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import routers.integrated as integrated  # noqa: E402
 from main import app  # noqa: E402
+from routers.layout import activity_lines  # noqa: E402
 from tests_diagrams_integration import FakeClient  # noqa: E402
 
 EMAIL = f"layout-{uuid.uuid4().hex[:8]}@example.com"
 H = {"Authorization": f"Bearer mock-token:{EMAIL}"}
 
 
+def act(i, label):
+    return {"id": i, "label": label}
+
+
+def check_activity_lines():
+    """A decision's branches are alternatives: each one starts from the step before and rejoins the step after."""
+    spec = {"steps": [
+        {"kind": "action", "action": act("A1", "Take payment")},
+        {"kind": "decision", "question": "Payment approved?", "branches": [
+            {"condition": "yes", "actions": [act("A2", "Ship order")]},
+            {"condition": "no", "actions": [act("A3", "Notify customer")], "ends_flow": True}]},
+        {"kind": "parallel", "branches": [{"actions": [act("A4", "Send invoice")]}, {"actions": [act("A5", "Update stock")]}]},
+        {"kind": "action", "action": act("A6", "Close order")},
+        {"kind": "loop", "question": "More items?", "branches": [{"condition": "yes", "actions": [act("A7", "Pack item"), act("A8", "Label item")]}]},
+    ]}
+    got = {(s, t): label for _, _, s, t, label in activity_lines(spec)}
+    assert got == {
+        ("A1", "A2"): "Payment approved? yes", ("A1", "A3"): "Payment approved? no",
+        ("A2", "A4"): None, ("A2", "A5"): None,          # the "no" branch ends the flow, so only "yes" continues
+        ("A4", "A6"): None, ("A5", "A6"): None,          # both parallel branches join the next step
+        ("A6", "A7"): "More items?", ("A7", "A8"): None, ("A8", "A7"): "yes",
+    }, got
+    assert ("A2", "A3") not in got  # alternatives are never joined to each other
+
+    # an empty branch skips straight on, and the first step needs no line in
+    skip = {"steps": [
+        {"kind": "decision", "question": "Gift?", "branches": [
+            {"condition": "yes", "actions": [act("B1", "Wrap")]}, {"condition": "no", "actions": []}]},
+        {"kind": "action", "action": act("B2", "Ship")},
+    ]}
+    assert {(s, t) for _, _, s, t, _ in activity_lines(skip)} == {("B1", "B2")}
+
+
 def main():
+    check_activity_lines()
     integrated.httpx.AsyncClient = FakeClient
     try:
         with TestClient(app) as c:
@@ -46,6 +81,8 @@ def main():
                 assert {e["id"]: {"x": e["x"], "y": e["y"]} for e in after["elements"]} == moved, t
                 assert after["saved"] is True, t
                 assert after["lines"] == before["lines"], t  # lines still connect the same elements
+                if t in ("dfd", "sequence", "class", "component", "state"):  # named lines keep their text
+                    assert before["lines"] and all(line["label"] for line in before["lines"]), (t, before["lines"])
 
                 # a failed save gives an error and creates no version
                 count = len(c.get(f"/api/v1/projects/{pid}/diagrams", headers=H).json())

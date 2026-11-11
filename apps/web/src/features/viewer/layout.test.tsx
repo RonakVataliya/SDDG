@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { env } from '@/lib/env'
@@ -6,6 +6,8 @@ import { getDb } from '@/mocks/db'
 import { server } from '@/mocks/node'
 import { renderApp } from '@/test/render'
 import { seedDiagram } from '@/test/seed'
+import { svgMarkup } from './export-svg'
+import { LayoutCanvas } from './layout-canvas'
 import { boxFor, route } from './layout-geometry'
 
 // Default grid from the server: the actor (it_1) at 120,100 and the use case (it_2) at 340,100.
@@ -97,5 +99,84 @@ describe('#37 move and reposition elements', () => {
     expect((await post({ nope: { x: 1, y: 1 } })).status).toBe(422)
     expect((await post({ it_1: { x: 'left', y: 1 } })).status).toBe(422)
     expect(getDb().diagrams).toHaveLength(1)
+  })
+
+  it('asks before in-app navigation throws unsaved moves away, and can stay or leave', async () => {
+    seedDiagram()
+    const { user, router } = await openEditor()
+    await user.click(screen.getByRole('button', { name: 'Librarian (actor)' }))
+    await user.keyboard('{ArrowRight}')
+
+    await act(() => router.navigate('/projects/pr_1/generate'))
+    expect(await screen.findByText('Leave without saving your moves?')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/projects/pr_1/diagrams/dg_1')
+    await user.click(screen.getByRole('button', { name: 'Stay and keep moving' }))
+    expect(position('it_1')).toBe('translate(130 100)') // the move is still there
+
+    await act(() => router.navigate('/projects/pr_1/generate'))
+    await user.click(await screen.findByRole('button', { name: 'Leave without saving' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects/pr_1/generate'))
+    expect(getDb().diagrams).toHaveLength(1)
+  })
+
+  it('does not ask after a successful save opens the new version', async () => {
+    seedDiagram()
+    const { user, router } = await openEditor()
+    await user.click(screen.getByRole('button', { name: 'Librarian (actor)' }))
+    await user.keyboard('{ArrowDown}')
+    await user.click(screen.getByRole('button', { name: 'Save positions' }))
+    await waitFor(() => expect(router.state.location.pathname).not.toBe('/projects/pr_1/diagrams/dg_1'))
+    expect(screen.queryByText('Leave without saving your moves?')).not.toBeInTheDocument()
+  })
+})
+
+describe('#37 layout canvas', () => {
+  const elements = [
+    { id: 'P1', kind: 'process', label: 'Check order', x: 100, y: 100 },
+    { id: 'D1', kind: 'data_store', label: 'Orders', x: 400, y: 100 },
+    { id: 'P2', kind: 'process', label: 'Ship order', x: 100, y: 300 },
+  ]
+  const lines = [
+    { id: 'F1', kind: 'data_flow', source: 'P1', target: 'D1', label: 'order details' },
+    { id: 'F2', kind: 'data_flow', source: 'P1', target: 'P2', label: null },
+  ]
+
+  it('writes each line its name, and nothing on a line without one', () => {
+    render(<LayoutCanvas elements={elements} lines={lines} positions={{}} label="DFD" />)
+    expect(document.querySelector('[data-line="F1"] text')).toHaveTextContent('order details')
+    expect(document.querySelector('[data-line="F2"] text')).toBeNull()
+  })
+
+  it('shortens a very long line name but keeps the full text as a tooltip', () => {
+    const long = 'sends the full order with every line item, price and delivery note'
+    render(<LayoutCanvas elements={elements} lines={[{ ...lines[0], label: long }]} positions={{}} label="DFD" />)
+    const text = document.querySelector('[data-line="F1"] text')!
+    expect(text.querySelector('title')).toHaveTextContent(long)
+    const shown = text.lastChild!.textContent!
+    expect(shown.endsWith('…')).toBe(true)
+    expect(shown.length).toBeLessThanOrEqual(40)
+  })
+
+  it('arrow keys move the focused element, not one picked earlier', async () => {
+    const user = userEvent.setup()
+    const onMove = vi.fn()
+    render(<LayoutCanvas elements={elements} lines={lines} positions={{}} onMove={onMove} label="DFD" />)
+    await user.click(screen.getByRole('button', { name: 'Check order (process)' }))
+    screen.getByRole('button', { name: 'Orders (data store)' }).focus()
+    await user.keyboard('{ArrowRight}')
+    expect(onMove).toHaveBeenLastCalledWith(['D1'], 10, 0)
+
+    screen.getByRole('button', { name: 'Check order (process)' }).focus()
+    await user.keyboard('{ArrowDown}')
+    expect(onMove).toHaveBeenLastCalledWith(['P1'], 0, 10) // still picked, so it moves as its own group
+  })
+
+  it('exports the drawing as a standalone SVG on a white sheet', () => {
+    render(<LayoutCanvas elements={elements} lines={lines} positions={{}} label="DFD" />)
+    const { markup, width, height } = svgMarkup(document.querySelector<SVGSVGElement>('svg[data-layout-canvas]')!)
+    expect(markup).toContain('fill="#ffffff"')
+    expect(markup).toContain('order details')
+    expect(width).toBeGreaterThan(0)
+    expect(height).toBeGreaterThan(0)
   })
 })

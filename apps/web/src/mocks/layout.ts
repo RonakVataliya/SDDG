@@ -15,6 +15,6 @@ export function layoutView(d: DiagramRow): DiagramLayout {
   const ids = new Set(nodes.map((n) => n.id))
   const lines = (m?.links ?? [])
     .filter((l) => ids.has(l.actor) && ids.has(l.case))
-    .map((l) => ({ id: `${l.actor}-${l.case}`, kind: 'association', source: l.actor, target: l.case }))
+    .map((l) => ({ id: `${l.actor}-${l.case}`, kind: 'association', source: l.actor, target: l.case, label: null }))
   return { diagram_id: d.id, type: d.type, saved: Object.keys(saved).length > 0, elements, lines }
 }

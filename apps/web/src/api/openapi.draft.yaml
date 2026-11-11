@@ -113,6 +113,16 @@ paths:
         '200':
           description: OK
           content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DiagramSummary' } } } }
+  /projects/{project_id}/diagrams/export:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: The project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt; no PDF for Mermaid)
+      parameters:
+        - { name: versions, in: query, required: false, description: 'all (default) = every version; latest = newest version of each diagram', schema: { type: string, enum: [all, latest], default: all } }
+      responses:
+        '200': { description: ZIP file, content: { application/zip: { schema: { type: string, format: binary } } } }
+        '404': { description: The project has no diagrams yet, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: 'versions is not all/latest, or the all-versions ZIP is over the version cap (ZIP_MAX_VERSIONS, default 30)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /jobs/{job_id}:
     parameters: [{ name: job_id, in: path, required: true, schema: { type: string } }]
     get:
@@ -138,11 +148,18 @@ paths:
   /diagrams/{diagram_id}/export:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
-      summary: The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px)
+      summary: The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, downloaded by Export
       parameters:
-        - { name: format, in: query, required: true, schema: { type: string, enum: [png] } }
+        - { name: format, in: query, required: true, schema: { type: string, enum: [png, svg, pdf, source] } }
       responses:
-        '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+        '200':
+          description: File
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/svg+xml: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+            text/plain: { description: 'format=source: the diagram code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid)', schema: { type: string } }
+        '422': { description: Unsupported format, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /diagrams/{diagram_id}/layout:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
@@ -333,6 +350,7 @@ components:
         kind: { type: string, description: 'e.g. association, include, extend, message, data_flow, flow, or a class relation type' }
         source: { type: string, description: Element id the line starts at }
         target: { type: string, description: Element id the line ends at }
+        label: { type: [string, 'null'], description: 'Text drawn on the line: a flow name, message, relation name, dependency label, transition event or decision guard; null when the line has none' }
     DiagramLayout:
       type: object
       required: [diagram_id, type, saved, elements, lines]

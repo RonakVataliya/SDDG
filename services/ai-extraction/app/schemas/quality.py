@@ -2,7 +2,7 @@
 Pydantic schemas for the Requirement Quality Checker.
 """
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +28,12 @@ class QualityFlag(BaseModel):
     type: QualityIssueType
     message: str
     related_requirement_ids: List[str] = Field(default_factory=list)
+    trigger_text: Optional[str] = Field(default=None, description="The exact words in the requirement that caused the flag.")
+    suggested_fix: Optional[str] = Field(
+        default=None,
+        description="A full rewritten requirement that removes the issue, only when one can be made safely; "
+                    "accepting it replaces the requirement text.",
+    )
 
 
 class RequirementInput(BaseModel):

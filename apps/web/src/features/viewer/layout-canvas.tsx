@@ -6,6 +6,14 @@ import { bends, boundsOf, boxFor, LINE_H, lineLook, route, selfLoop, union, type
 const KEY_STEP = 10
 const KEY_STEP_BIG = 50
 const ARROWS: Record<string, Point> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }
+const LABEL_MAX = 40
+
+/** The text on a line: «include»/«extend» for use cases, else the flow name, message, event or guard. Long ones are cut. */
+function lineText(line: LayoutLine): { short: string; full: string } | null {
+  const full = lineLook(line.kind).label ?? line.label?.trim()
+  if (!full) return null
+  return { short: full.length > LABEL_MAX ? `${full.slice(0, LABEL_MAX - 1)}…` : full, full }
+}
 
 /** Client (screen) coordinates to drawing coordinates. Without a screen matrix (jsdom) they are taken as equal. */
 function toDrawing(svg: SVGSVGElement, clientX: number, clientY: number): Point {
@@ -91,8 +99,8 @@ export function LayoutCanvas({
     if (dir) {
       e.preventDefault()
       const step = e.shiftKey ? KEY_STEP_BIG : KEY_STEP
-      // Arrow keys move the picked elements, or the focused one when none are picked.
-      onMove!(selected.size ? [...selected] : [id], dir.x * step, dir.y * step)
+      // Arrow keys move the focused element, together with the picked group when it is part of it.
+      onMove!(selected.has(id) ? [...selected] : [id], dir.x * step, dir.y * step)
     } else if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
       pick(id, true)
@@ -104,6 +112,8 @@ export function LayoutCanvas({
       ref={svgRef}
       role="group"
       aria-label={label}
+      data-layout-canvas=""
+      xmlns="http://www.w3.org/2000/svg"
       viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
       className={cn('block h-full w-full touch-none select-none', className)}
       fontFamily="inherit"
@@ -131,6 +141,7 @@ export function LayoutCanvas({
               ? selfLoop(boxes.get(line.source)!, from, offsets.get(line.id))
               : route(boxes.get(line.source)!, from, boxes.get(line.target)!, to, offsets.get(line.id))
           const look = lineLook(line.kind)
+          const text = lineText(line)
           return (
             <g key={line.id} data-line={line.id} data-source={line.source} data-target={line.target}>
               <path
@@ -141,9 +152,18 @@ export function LayoutCanvas({
                 strokeDasharray={look.dashed ? '6 4' : undefined}
                 markerEnd={look.head === 'none' ? undefined : `url(#layout-${look.head})`}
               />
-              {look.label && (
-                <text x={r.mid.x} y={r.mid.y - 4} textAnchor="middle" className="fill-slate text-[11px]">
-                  {look.label}
+              {text && (
+                <text
+                  x={r.mid.x}
+                  y={r.mid.y - 4}
+                  textAnchor="middle"
+                  className="fill-slate stroke-surface text-[11px]"
+                  strokeWidth="3"
+                  paintOrder="stroke"
+                  strokeLinejoin="round"
+                >
+                  {text.short !== text.full && <title>{text.full}</title>}
+                  {text.short}
                 </text>
               )}
             </g>

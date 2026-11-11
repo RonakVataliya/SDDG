@@ -5,8 +5,10 @@ persistence/mapping/gating/diagram-export code without an LLM key or a Kroki con
 It uses a throwaway user and deletes everything it created. Run: python tests_integration.py
 """
 import asyncio
+import io
 import os
 import uuid
+import zipfile
 
 import psycopg
 from dotenv import load_dotenv
@@ -89,6 +91,10 @@ class FakeAIClient:
             return FakeResponse(EXTRACTION)
         if url.endswith('/plantuml/png'):
             return FakeResponse(content=b'\x89PNG\r\n\x1a\n' + b'0' * 200)
+        if url.endswith('/plantuml/svg'):
+            return FakeResponse(content=b'<svg xmlns="http://www.w3.org/2000/svg">' + b' ' * 200 + b'</svg>')
+        if url.endswith('/plantuml/pdf'):
+            return FakeResponse(content=b'%PDF-1.4\n' + b'0' * 200 + b'\n%%EOF')
         if url.endswith('/usecase/generate'):
             payload = kwargs['json']
             actor_id = payload['actors'][0]['id']
@@ -107,7 +113,27 @@ class FakeAIClient:
         raise AssertionError(f'unexpected AI URL: {url}')
 
 
+def check_job_slots():
+    """NFR9a: a 6th job waits until one of the 5 running jobs finishes."""
+    running, peak = 0, 0
+
+    async def worker(_):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+
+    async def run_six():
+        integrated.JOB_SLOTS = asyncio.Semaphore(5)  # bound to this test's event loop
+        await asyncio.gather(*(integrated.queued(worker, n) for n in range(6)))
+
+    asyncio.run(run_six())
+    assert peak == 5, peak
+
+
 def main():
+    check_job_slots()
     original = integrated.httpx.AsyncClient
     integrated.httpx.AsyncClient = FakeAIClient
     try:
@@ -116,11 +142,16 @@ def main():
 
             assert client.get('/health').status_code == 200
 
-            assert client.post('/api/v1/me/consent', headers=headers,
-                               json={'policy_version': '2026-09-01'}).status_code == 201
             project = client.post('/api/v1/projects', headers=headers,
                                   json={'name': 'Integration'}).json()
             pid = project['id']
+            no_consent = client.post(f'/api/v1/projects/{pid}/inputs', headers=headers, json={'text': 'A user logs in.'})
+            assert no_consent.status_code == 403 and no_consent.json()['code'] == 'consent_required', no_consent.text
+            assert client.post('/api/v1/me/consent', headers=headers,
+                               json={'policy_version': '2026-09-01'}).status_code == 201
+            for bad_text in ('   \n ', 'x' * 300_001):  # blank, and over the 100-page limit
+                bad = client.post(f'/api/v1/projects/{pid}/inputs', headers=headers, json={'text': bad_text})
+                assert bad.status_code == 422, bad.text
             assert client.post(f'/api/v1/projects/{pid}/generations', headers=headers,
                                json={'diagram_types': ['use_case']}).status_code == 409  # not confirmed yet
 
@@ -138,12 +169,32 @@ def main():
             items = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
             categories = {item['category'] for item in items}
             assert {'actor', 'process', 'interaction'} <= categories
+            # A second submission adds to the model: nothing from the first is lost or duplicated, refs go on.
+            assert client.post(f'/api/v1/projects/{pid}/inputs', headers=headers,
+                               json={'text': 'Customer logs in.\nCustomer checks orders.'}).status_code == 202
+            again = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
+            assert sorted(i['id'] for i in again) == sorted(i['id'] for i in items), again
+            refs = [s['ref'] for s in client.get(f'/api/v1/projects/{pid}/statements', headers=headers).json()]
+            assert refs == ['R-001', 'R-002', 'R-003', 'R-004'], refs
+            customer = next(i for i in again if i['category'] == 'actor')
+            assert len(customer['statement_ids']) == 4, customer
+            blank_name = client.patch(f"/api/v1/projects/{pid}/items/{items[0]['id']}", headers=headers,
+                                      json={'name': '   ', 'description': None})
+            assert blank_name.status_code == 422, blank_name.text
+
+            # Waiting jobs report their place in line; jobs left over from a restart are failed.
+            first = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
+            second = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
+            positions = [client.get(f"/api/v1/jobs/{j['id']}", headers=headers).json()['queue_position'] for j in (first, second)]
+            assert positions[1] == positions[0] + 1, positions
+            db.fail_interrupted_jobs()
+            assert db.member_job(second['id'], USER_ID)['status'] == 'failed'
 
             assert client.post(f'/api/v1/projects/{pid}/confirmation', headers=headers).status_code == 201
             # Generation is asynchronous at the API boundary; exercise the real worker directly.
             job = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
             asyncio.run(integrated.generation_worker(job['id'], pid, ['use_case']))
-            finished = db.owned_job(job['id'], USER_ID)
+            finished = db.member_job(job['id'], USER_ID)
             assert finished['status'] == 'succeeded', finished
             diagram_id = finished['diagram_ids'][0]
 
@@ -168,6 +219,54 @@ def main():
             assert png.status_code == 200
             assert png.headers['content-type'].startswith('image/png')
             assert len(png.content) > 100
+
+            svg = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=svg', headers=headers)
+            assert svg.status_code == 200, svg.text
+            assert svg.headers['content-type'].startswith('image/svg+xml')
+            assert svg.content.lstrip().startswith(b'<svg')
+
+            pdf = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=pdf', headers=headers)
+            assert pdf.status_code == 200, pdf.text
+            assert pdf.headers['content-type'].startswith('application/pdf')
+            assert pdf.content.startswith(b'%PDF')
+
+            # Format is case-insensitive; unknown formats are rejected with a readable message.
+            assert client.get(f'/api/v1/diagrams/{diagram_id}/export?format=SVG', headers=headers).status_code == 200
+            bad = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=gif', headers=headers)
+            assert bad.status_code == 422
+            assert 'PNG, SVG, PDF, SOURCE' in bad.json()['detail']
+
+            # Source export returns the stored diagram code without calling Kroki.
+            source = client.get(f'/api/v1/diagrams/{diagram_id}/export?format=source', headers=headers)
+            assert source.status_code == 200, source.text
+            assert source.headers['content-type'].startswith('text/x-plantuml')
+            assert source.text == diagram['plantuml_source']
+
+            # Project ZIP: every version (generated + edited) as PNG, SVG, PDF and source, plus a README index.
+            zipped = client.get(f'/api/v1/projects/{pid}/diagrams/export', headers=headers)
+            assert zipped.status_code == 200, zipped.text
+            assert zipped.headers['content-type'] == 'application/zip'
+            assert 'integration-diagrams.zip' in zipped.headers['content-disposition']
+            with zipfile.ZipFile(io.BytesIO(zipped.content)) as z:
+                names = set(z.namelist())
+                folder = 'integration-use-case'
+                for v in ('v1', 'v2'):
+                    files = {f'{folder}/{v}/{folder}-{v}.{ext}' for ext in ('png', 'svg', 'pdf', 'puml')}
+                    assert files <= names, names  # one folder per version
+                assert z.read(f'{folder}/v1/{folder}-v1.puml').decode() == diagram['plantuml_source']
+                assert z.read(f'{folder}/v1/{folder}-v1.png').startswith(b'\x89PNG')
+                readme = z.read('README.txt').decode()
+                assert 'rename Check Orders to View Orders' in readme and 'Not included' not in readme
+
+            # versions=latest: only the newest version of each diagram, no version folders and no README.
+            latest = client.get(f'/api/v1/projects/{pid}/diagrams/export?versions=latest', headers=headers)
+            assert latest.status_code == 200, latest.text
+            assert 'integration-diagrams-latest.zip' in latest.headers['content-disposition']
+            with zipfile.ZipFile(io.BytesIO(latest.content)) as z:
+                assert set(z.namelist()) == {'integration-use-case.png', 'integration-use-case.svg',
+                                             'integration-use-case.pdf', 'integration-use-case.puml'}, z.namelist()
+            assert client.get(f'/api/v1/projects/{pid}/diagrams/export?versions=some',
+                              headers=headers).status_code == 422
 
         print('backend integration test passed')
     finally:

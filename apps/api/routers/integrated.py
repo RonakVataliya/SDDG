@@ -7,19 +7,25 @@ This module coordinates the complete lifecycle of diagram generation:
 4. Extracted model items and human-in-the-loop review/confirmation
 5. Automated diagram generation via the AI service: Use Case (original path)
    plus every type registered in core/diagram_models.py (DFD, ...)
-6. Diagram revision requests and PNG export via Kroki
+6. Diagram revision requests and export: PNG / SVG / PDF via Kroki, diagram source, project ZIP
 """
 
+import asyncio
 import html
+import io
+import logging
 import os
 import re
+import zipfile
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi.responses import JSONResponse
 
 from core import db
 from core.auth import User, get_current_user
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
+from core.quality import detect
 from schemas.api import (
     ConsentCreate,
     GenerationCreate,
@@ -35,8 +41,13 @@ from schemas.api import (
 # ============================================================================
 
 router = APIRouter()
+logger = logging.getLogger("sddg.api")
 
 AI_URL = os.getenv("AI_SERVICE_URL", "http://127.0.0.1:8001/api/v1")
+# Shared secret the AI service requires on every call (its INTERNAL_API_KEY); send it with every AI request.
+AI_HEADERS = {"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")}
+# The AI service retries rate limits for up to ~4 minutes (20 s + 40 s waits on top of each attempt).
+AI_TIMEOUT = 300
 KROKI_URL = os.getenv("KROKI_URL", "http://127.0.0.1:8080")
 POLICY_VERSION = os.getenv("AI_POLICY_VERSION", "2026-09-01")
 NOT_FOUND = "Not found, or you do not have access to it."
@@ -62,16 +73,16 @@ CATEGORY_FIELDS = [
 # ============================================================================
 
 def require_project(project_id, user):
-    """Ensures the project exists and belongs to the authenticated user."""
-    project = db.owned_project(project_id, user.id)
+    """Ensures the project exists and the authenticated user is a member of it."""
+    project = db.member_project(project_id, user.id)
     if not project:
         raise HTTPException(404, NOT_FOUND)
     return project
 
 
 def require_diagram(diagram_id, user):
-    """Ensures the diagram exists and belongs to the authenticated user."""
-    diagram = db.owned_diagram(diagram_id, user.id)
+    """Ensures the diagram exists and the authenticated user is a member of its project."""
+    diagram = db.member_diagram(diagram_id, user.id)
     if not diagram:
         raise HTTPException(404, NOT_FOUND)
     return diagram
@@ -295,6 +306,17 @@ def store_diagram(project_id, title, result, actors, processes, **extra):
 # Asynchronous Background Workers
 # ============================================================================
 
+# NFR9a: at most 5 jobs call the AI service at once (free-tier LLM rate limits); the 6th waits as "queued"
+# and GET /jobs/{id} reports its place in line.
+JOB_SLOTS = asyncio.Semaphore(5)
+
+
+async def queued(worker, *args):
+    """Runs a background worker once one of the JOB_SLOTS is free; the worker marks the job running."""
+    async with JOB_SLOTS:
+        await worker(*args)
+
+
 def fail_job(job_id, message):
     """Updates a job record with failure status and error details."""
     db.update_job(
@@ -321,7 +343,7 @@ async def extraction_worker(job_id, project_id, text, project_name):
             progress_total=3,
             progress_label="Sending requirements to AI extraction service",
         )
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
             response = await client.post(
                 f"{AI_URL}/extraction/extract",
                 json={"text": text, "project_name": project_name},
@@ -337,8 +359,9 @@ async def extraction_worker(job_id, project_id, text, project_name):
         raw = result.get("requirements", [])
         saved_ids = db.insert_statements(project_id, raw)
         statement_map = {r["id"]: sid for r, sid in zip(raw, saved_ids) if "id" in r}
-        db.replace_system_items(project_id, convert_extraction_to_items(result, statement_map))
+        db.add_system_items(project_id, convert_extraction_to_items(result, statement_map))
         db.touch_project(project_id, clear_confirmation=True)
+        await asyncio.to_thread(detect, project_id)  # quality flags, off the event loop; never fails the job
         db.update_job(
             job_id,
             status="succeeded",
@@ -349,7 +372,8 @@ async def extraction_worker(job_id, project_id, text, project_name):
             finished_at=db.now(),
         )
     except Exception as e:
-        fail_job(job_id, f"Extraction failed: {e}")
+        logger.exception("extraction job %s failed", job_id)
+        fail_job(job_id, f"Extraction failed: {ai_error_detail(e)}")
 
 
 def ai_error_detail(exc):
@@ -366,7 +390,7 @@ def ai_error_detail(exc):
         return "the AI service timed out"
     if isinstance(exc, httpx.TransportError):
         return "the AI service is unreachable"
-    return str(exc) or type(exc).__name__
+    return "an unexpected server error"  # the details are in the server log, never shown to users
 
 
 async def generate_one(client, project, diagram_type, items, actors, processes, model):
@@ -428,12 +452,13 @@ async def generation_worker(job_id, project_id, diagram_types):
         project = db.get_project(project_id)
         items, actors, processes = approved_model(project_id)
         model = build_ai_model(items, db.get_statements(project_id))
-    except Exception as e:
-        fail_job(job_id, f"Generation failed: {e}")
+    except Exception:
+        logger.exception("generation job %s failed while loading the model", job_id)
+        fail_job(job_id, "Generation failed: the approved model could not be loaded")
         return
 
     saved, failures = [], []
-    async with httpx.AsyncClient(timeout=180) as client:
+    async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
         for step, diagram_type in enumerate(diagram_types, start=2):
             label = TYPE_LABELS.get(diagram_type, diagram_type)
             db.update_job(job_id, progress_step=step, progress_label=f"Generating and rendering {label} diagram")
@@ -441,6 +466,7 @@ async def generation_worker(job_id, project_id, diagram_types):
                 diagram = await generate_one(client, project, diagram_type, items, actors, processes, model)
                 saved.append((label, diagram["id"]))
             except Exception as e:
+                logger.exception("generation job %s: %s diagram failed", job_id, diagram_type)
                 failures.append(f"{label} ({ai_error_detail(e)})")
 
     diagram_ids = [diagram_id for _, diagram_id in saved]
@@ -508,7 +534,7 @@ def give_consent(payload: ConsentCreate, user: User = Depends(get_current_user))
 
 @router.get("/projects")
 def list_projects(user: User = Depends(get_current_user)):
-    """Lists all projects owned by the authenticated user."""
+    """Lists the projects the authenticated user is a member of."""
     return [project_view(p) for p in db.project_rows(user.id)]
 
 
@@ -542,12 +568,18 @@ def submit_input(
 ):
     """Submits raw requirements text to trigger background AI extraction."""
     project = require_project(project_id, user)
+    if not payload.text.strip():
+        raise HTTPException(422, "Enter some requirements text.")
     consent = db.consent(user.id)
     if not consent or consent["policy_version"] != POLICY_VERSION:
-        raise HTTPException(403, "Agree to AI processing before submitting requirements.")
+        # The web app opens the consent dialog when it sees this code.
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Agree to AI processing before submitting requirements.", "code": "consent_required"},
+        )
     job = db.create_job(project_id, "extraction", 3, "Queued")
     db.touch_project(project_id, clear_confirmation=True)
-    bg.add_task(extraction_worker, job["id"], project_id, payload.text, project["name"])
+    bg.add_task(queued, extraction_worker, job["id"], project_id, payload.text, project["name"])
     return job
 
 
@@ -593,6 +625,8 @@ def edit_item(
     """Updates the name or description of an extracted model item during human-in-the-loop review."""
     require_project(project_id, user)
     name = payload.name.strip() if payload.name is not None else None
+    if name == "":
+        raise HTTPException(422, "Name cannot be empty.")
     item = db.update_item(project_id, item_id, name, payload.description)
     if not item:
         raise HTTPException(404, NOT_FOUND)
@@ -633,14 +667,14 @@ def generate_diagram(
         names = ", ".join(TYPE_LABELS.get(t, t) for t in unsupported)
         raise HTTPException(422, f"Not available in this version: {names}.")
     job = db.create_job(project_id, "generation", len(diagram_types) + 2, "Queued", diagram_types=diagram_types)
-    bg.add_task(generation_worker, job["id"], project_id, diagram_types)
+    bg.add_task(queued, generation_worker, job["id"], project_id, diagram_types)
     return job
 
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, user: User = Depends(get_current_user)):
     """Polls the status and progress of an extraction or generation background job."""
-    job = db.owned_job(job_id, user.id)
+    job = db.member_job(job_id, user.id)
     if not job:
         raise HTTPException(404, NOT_FOUND)
     return job
@@ -699,7 +733,7 @@ async def revise_diagram(
         url = f"{AI_URL}/{DIAGRAM_PIPELINES[diagram_type].endpoint}/revise"
         body = {"spec": diagram["spec"], "instruction": instruction, "system_name": project["name"]}
     try:
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
             response = await client.post(url, json=body)
             response.raise_for_status()
             result = response.json()
@@ -710,6 +744,7 @@ async def revise_diagram(
             detail = "The AI could not apply that change."
         raise HTTPException(422, detail) from exc
     except Exception as exc:
+        logger.exception("revision of diagram %s failed", diagram_id)
         raise HTTPException(503, "AI revision service is not available.") from exc
 
     if diagram_type == "use_case":
@@ -737,33 +772,202 @@ async def revise_diagram(
     return diagram_view(created)
 
 
+# Image export formats: format -> media type. Kroki renders these from the stored source.
+EXPORT_MEDIA_TYPES = {
+    "png": "image/png",
+    "svg": "image/svg+xml",
+    "pdf": "application/pdf",
+}
+# What each Kroki engine can output. Mermaid has no PDF output in Kroki.
+ENGINE_EXPORT_FORMATS = {
+    "plantuml": {"png", "svg", "pdf"},
+    "graphviz": {"png", "svg", "pdf"},
+    "mermaid": {"png", "svg"},
+}
+# format=source returns the stored diagram code itself (no Kroki call). Engine -> (media type, file extension);
+# the web app picks the file extension from the media type.
+SOURCE_TYPES = {
+    "plantuml": ("text/x-plantuml", "puml"),
+    "graphviz": ("text/vnd.graphviz", "dot"),
+    "mermaid": ("text/x-mermaid", "mmd"),
+}
+EXPORT_FORMATS = (*EXPORT_MEDIA_TYPES, "source")
+
+
+async def render_with_kroki(client, source: str, fmt: str) -> bytes:
+    """Renders a stored diagram source to png/svg/pdf with the engine that matches it."""
+    engine = kroki_engine_for_source(source)
+    response = await client.post(
+        f"{KROKI_URL}/{engine}/{fmt}",
+        content=source.encode("utf-8"),
+        headers={"Content-Type": "text/plain"},
+    )
+    response.raise_for_status()
+    return response.content
+
+
 @router.get("/diagrams/{diagram_id}/export")
-async def export_diagram_png(
+async def export_diagram(
     diagram_id: str,
     format: str = "png",
     user: User = Depends(get_current_user),
 ):
-    """Renders and exports the diagram as a PNG image using Kroki.
+    """Exports one diagram version as PNG, SVG or PDF (rendered by Kroki) or as its source code.
 
     The Kroki engine is read from the stored source itself (PlantUML, DOT or
     Mermaid), so it stays correct even if ENGINE_FOR_DIAGRAM changes later."""
     diagram = require_diagram(diagram_id, user)
-    if format != "png":
-        raise HTTPException(422, "Only PNG export is supported.")
-    if not diagram["plantuml_source"]:
+    fmt = format.lower()
+    if fmt not in EXPORT_FORMATS:
+        supported = ", ".join(f.upper() for f in EXPORT_FORMATS)
+        raise HTTPException(422, f"Unsupported export format. Choose one of: {supported}.")
+    label = fmt.upper()
+    source = diagram["plantuml_source"]
+    if not source:
         raise HTTPException(
             409,
-            "This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting PNG.",
+            f"This diagram was created by an older build and has no stored diagram source. Regenerate the diagram before exporting {label}.",
         )
-    engine = kroki_engine_for_source(diagram["plantuml_source"])
+    engine = kroki_engine_for_source(source)
+    if fmt == "source":
+        return Response(source, media_type=SOURCE_TYPES[engine][0])
+    if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
+        raise HTTPException(422, f"{label} export is not available for this diagram's renderer ({engine}). Use PNG or SVG.")
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                f"{KROKI_URL}/{engine}/png",
-                content=diagram["plantuml_source"].encode("utf-8"),
-                headers={"Content-Type": "text/plain"},
-            )
-            response.raise_for_status()
-        return Response(response.content, media_type="image/png")
+            content = await render_with_kroki(client, source, fmt)
+        return Response(content, media_type=EXPORT_MEDIA_TYPES[fmt])
     except Exception as e:
-        raise HTTPException(502, f"PNG export failed because the Kroki renderer is unavailable: {e}")
+        logger.exception("%s export of diagram %s failed", label, diagram["id"])
+        # 424, not 502: the browser treats 502 as "the API is still waking up"
+        raise HTTPException(424, f"{label} export failed because the diagram renderer is unavailable. Try again in a minute.") from e
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-") or "diagram"
+
+
+def zip_layout(rows):
+    """Names every diagram version in a project ZIP: '<title>/v<n>' (a folder per version, see zip_path). All diagrams with the same title (a type's first
+    generation, every "Generate again" and every edit) are versions of one diagram, numbered by creation time."""
+    groups = {}
+    for r in rows:
+        groups.setdefault(slugify(r["title"]), []).append(r)
+    names = {}
+    for folder, versions in groups.items():
+        for n, r in enumerate(sorted(versions, key=lambda r: r["created_at"]), start=1):
+            names[r["id"]] = f"{folder}/v{n}"
+    return names
+
+
+def zip_path(name: str, extension: str) -> str:
+    """Where a file goes in the ZIP. A version gets its own folder and a self-describing file name:
+    'library-use-case/v2' -> 'library-use-case/v2/library-use-case-v2.png'. Latest-only names have no folder:
+    'library-use-case' -> 'library-use-case.png'."""
+    if "/" not in name:
+        return f"{name}.{extension}"
+    return f"{name}/{name.replace('/', '-')}.{extension}"
+
+
+def latest_only(names):
+    """Keeps only the newest version of each diagram and drops the version folder: 'library-use-case/v3' ->
+    'library-use-case'."""
+    newest = {}
+    for diagram_id, name in names.items():
+        folder, version = name.rsplit("/v", 1)
+        if folder not in newest or int(version) > newest[folder][1]:
+            newest[folder] = (diagram_id, int(version))
+    return {diagram_id: folder for folder, (diagram_id, _) in newest.items()}
+
+
+ZIP_MAX_VERSIONS = int(os.getenv("ZIP_MAX_VERSIONS", "30"))
+
+
+def check_zip_size(count, versions):
+    """The ZIP is built in one request (up to 3 Kroki renders per version), so a long version history could run into
+    the host's gateway timeout. The all-versions ZIP is capped; "latest" has one version per diagram and is not."""
+    if versions == "all" and count > ZIP_MAX_VERSIONS:
+        raise HTTPException(422, f"This project has {count} diagram versions; the all-versions ZIP holds up to "
+                                 f"{ZIP_MAX_VERSIONS}. Download 'Latest diagrams (ZIP)' instead, or export versions one by one.")
+
+
+def moved_note(names, diagrams):
+    """README lines for versions whose elements the user moved (layout editing). Kroki draws from the source, which has
+    no positions, so the ZIP pictures of those versions show the default arrangement."""
+    moved = [names[d["id"]] for d in diagrams if d.get("layout")]
+    if not moved:
+        return []
+    return ["", "Moved by hand (the pictures here show the default arrangement; to get the moved one, open the",
+            "version in SDDG and use Export there):", *moved]
+
+
+@router.get("/projects/{project_id}/diagrams/export")
+async def export_project_diagrams(
+    project_id: str,
+    versions: str = "all",
+    user: User = Depends(get_current_user),
+):
+    """Downloads a project's diagrams as one ZIP: PNG, SVG, PDF and source code for each. The all-versions ZIP also
+    has a README.txt index of the versions and their edits.
+    versions=all (default) includes every version ('<title>/v<n>/<title>-v<n>.png'); versions=latest only the newest version of
+    each diagram ('<title>.png'). A version Kroki cannot render still gets its source; the README says what is missing."""
+    if versions not in ("all", "latest"):
+        raise HTTPException(422, "versions must be 'all' or 'latest'.")
+    project = require_project(project_id, user)
+    rows = db.list_diagrams(project_id)
+    if not rows:
+        raise HTTPException(404, "This project has no diagrams yet. Generate one first.")
+    check_zip_size(len(rows), versions)
+    names = zip_layout(rows)
+    if versions == "latest":
+        names = latest_only(names)
+        rows = [r for r in rows if r["id"] in names]
+    diagrams = [db.member_diagram(r["id"], user.id) for r in sorted(rows, key=lambda r: names[r["id"]])]
+    semaphore = asyncio.Semaphore(4)  # be gentle with Kroki
+
+    async def files_for(client, d):
+        name, source = names[d["id"]], d["plantuml_source"]
+        if not source:
+            return [], f"{name}: no stored source (made by an older build); regenerate it to export."
+        engine = kroki_engine_for_source(source)
+        out, missing = [(zip_path(name, SOURCE_TYPES[engine][1]), source.encode("utf-8"))], []
+        for fmt in ("png", "svg", "pdf"):
+            if fmt not in ENGINE_EXPORT_FORMATS.get(engine, {"png", "svg"}):
+                continue  # e.g. Mermaid has no PDF output; README lists the formats
+            try:
+                async with semaphore:
+                    out.append((zip_path(name, fmt), await render_with_kroki(client, source, fmt)))
+            except Exception:
+                logger.exception("ZIP: %s render of diagram %s failed", fmt, d["id"])
+                missing.append(fmt.upper())
+        return out, f"{name}: {', '.join(missing)} could not be rendered (renderer unavailable)." if missing else None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        results = await asyncio.gather(*(files_for(client, d) for d in diagrams))
+
+    lines = [f"{project['name']} - diagrams exported from SDDG", "",
+             ("Each file is the latest version of one diagram." if versions == "latest" else
+              "Each folder is one diagram, with a v1, v2... folder per version: v1 is the first version and every\n"
+              "regeneration or edit is the next one."),
+             "Files: .png, .svg and .pdf pictures (no PDF for Mermaid diagrams), plus the diagram's source code",
+             "(.puml PlantUML, .dot Graphviz, .mmd Mermaid).", ""]
+    for d in diagrams:
+        lines.append(f"{names[d['id']]}  {d['title']}" + (f"  (edit: {d['instruction']})" if d["instruction"] else ""))
+    problems = [note for _, note in results if note]
+    if problems:
+        lines += ["", "Not included:", *problems]
+    moved = moved_note(names, diagrams)
+    lines += moved
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        # The README is the version index (which edit made which version). A latest-only ZIP has no versions,
+        # so it gets one only when something needs explaining (a missing file or a moved version).
+        if versions == "all" or problems or moved:
+            z.writestr("README.txt", "\n".join(lines) + "\n")
+        for files, _ in results:
+            for path, data in files:
+                z.writestr(path, data)
+    filename = f"{slugify(project['name'])}-diagrams{'-latest' if versions == 'latest' else ''}.zip"
+    return Response(buffer.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})

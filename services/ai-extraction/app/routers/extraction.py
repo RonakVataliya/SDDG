@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
-from app.logging_config import get_logger
+from app.logging_config import error_location, get_logger
 from app.schemas.results import ExtractionRequest, ExtractionResult, SplitRequest, SplitResult
 from app.services.ai_service import AIServiceError
 from app.services.extraction_service import run_extraction_pipeline, run_split
@@ -25,7 +25,7 @@ async def split(request: SplitRequest) -> SplitResult:
         logger.error("split_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error("split_failed error_type=%s error=%s", type(exc).__name__, str(exc), exc_info=True)
+        logger.error("split_failed error_type=%s at=%s", type(exc).__name__, error_location(exc))
         raise HTTPException(status_code=500, detail="Splitting failed. Please try again.") from exc
 
 
@@ -54,7 +54,7 @@ async def extract(request: ExtractionRequest) -> ExtractionResult:
         logger.error("extraction_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
     except Exception as exc:  # noqa: BLE001
-        logger.error("extraction_failed error_type=%s error=%s", type(exc).__name__, str(exc), exc_info=True)
+        logger.error("extraction_failed error_type=%s at=%s", type(exc).__name__, error_location(exc))
         raise HTTPException(
             status_code=500, detail="Extraction failed. Please try again."
         ) from exc

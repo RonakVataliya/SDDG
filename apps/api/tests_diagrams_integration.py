@@ -4,8 +4,10 @@ in DATABASE_URL. AI and Kroki HTTP calls are replaced with deterministic
 responses, like tests_integration.py; it creates a throwaway user and deletes
 everything it created. Run: python tests_diagrams_integration.py
 """
+import io
 import os
 import uuid
+import zipfile
 
 import httpx
 import psycopg
@@ -216,6 +218,12 @@ class FakeClient:
         if url.endswith("/png"):
             return httpx.Response(200, content=b"\x89PNG\r\n\x1a\n" + b"0" * 200,
                                   headers={"content-type": "image/png"}, request=request)
+        if url.endswith("/pdf"):
+            return httpx.Response(200, content=b"%PDF-1.4\n%%EOF", headers={"content-type": "application/pdf"},
+                                  request=request)
+        if url.endswith("/svg"):
+            return httpx.Response(200, content=b'<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+                                  headers={"content-type": "image/svg+xml"}, request=request)
         if url.endswith("/usecase/generate"):
             return ok(USECASE)
         for diagram_type, pipeline in DIAGRAM_PIPELINES.items():
@@ -297,6 +305,26 @@ def main():
                 assert FakeClient.calls[-1][0].endswith(f"/{pipeline.endpoint}/revise")
                 stored_spec = next(body for url, body in reversed(FakeClient.calls) if url.endswith("/revise"))["spec"]
                 assert stored_spec["system"] == "Diagrams", "revision must send the stored spec"
+
+            # Source export and the project ZIP name each file after the engine that drew it.
+            for diagram_id in job["diagram_ids"]:
+                d = client.get(f"/api/v1/diagrams/{diagram_id}", headers=h).json()
+                engine = kroki_engine_for_source(d["plantuml_source"])
+                media, ext = integrated.SOURCE_TYPES[engine]
+                src = client.get(f"/api/v1/diagrams/{diagram_id}/export?format=source", headers=h)
+                assert src.status_code == 200 and src.headers["content-type"].startswith(media), (d["type"], src.headers)
+                assert src.text == d["plantuml_source"]
+            zipped = client.get(f"/api/v1/projects/{pid}/diagrams/export", headers=h)
+            assert zipped.status_code == 200, zipped.text
+            with zipfile.ZipFile(io.BytesIO(zipped.content)) as z:
+                names = z.namelist()
+            sources = [n for n in names if n.endswith((".puml", ".dot", ".mmd"))]
+            all_versions = client.get(f"/api/v1/projects/{pid}/diagrams", headers=h).json()
+            assert len(sources) == len(all_versions), names  # every version of every type
+            assert len([n for n in names if n.endswith(".png")]) == len(sources)
+            assert len([n for n in names if n.endswith(".svg")]) == len(sources)
+            pdf_capable = [n for n in sources if not n.endswith(".mmd")]  # Kroki has no Mermaid PDF
+            assert len([n for n in names if n.endswith(".pdf")]) == len(pdf_capable)
 
             # 2. Partial failure: the failing type is reported, the others are kept.
             failing = next(iter(DIAGRAM_PIPELINES))
