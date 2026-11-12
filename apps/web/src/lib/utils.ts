@@ -8,6 +8,15 @@ export function cn(...inputs: ClassValue[]) {
 /** Pasted text counts as 1 page per 3,000 characters, rounded up (FR3 page definition, A21). */
 export const CHARS_PER_PAGE = 3000
 export const MAX_PROJECT_PAGES = 100
+export const MAX_DOCUMENTS_PER_PROJECT = 15
+export const MAX_FILE_BYTES = 10 * 1024 * 1024
+
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
 
 export function pastedPageCount(text: string) {
   return text.length === 0 ? 0 : Math.ceil(text.length / CHARS_PER_PAGE)

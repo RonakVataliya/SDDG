@@ -29,7 +29,7 @@ export function ReviewPage() {
     [statements.data],
   )
 
-  if (project.item_count === 0 && !items.data?.total) {
+  if (project.item_count === 0 && !items.data?.total && (statements.data?.length ?? 0) === 0) {
     return (
       <div className="space-y-4">
         <StepHeading title="Review extracted items" />
@@ -197,13 +197,27 @@ function StatementList({ statements, highlight }: { statements: RequirementState
             <li
               key={s.id}
               ref={s.ref === highlight ? (el) => el?.scrollIntoView?.({ block: 'center' }) : undefined}
-              className={cn('flex gap-3 px-4 py-2.5 text-sm', s.ref === highlight && 'bg-teal-wash')}
+              className={cn('flex items-start gap-3 px-4 py-2.5 text-sm', s.ref === highlight && 'bg-teal-wash')}
             >
               <RefTag className="h-fit shrink-0">{s.ref}</RefTag>
-              <p className="min-w-0 flex-1">
-                {s.label && <span className="mr-1.5 text-slate">{s.label}</span>}
-                {s.text}
-              </p>
+              {s.source_label && (
+                <Badge tone="neutral" className="h-fit shrink-0 font-mono text-[11px]">
+                  {s.source_label}
+                </Badge>
+              )}
+              <div className="min-w-0 flex-1">
+                <p>
+                  {s.label && <span className="mr-1.5 text-slate">{s.label}</span>}
+                  {s.text}
+                </p>
+                {Boolean(s.metadata?.structured && s.metadata.role) && (
+                  <p className="mt-0.5 text-xs text-slate">
+                    Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
+                    <span className="text-ink">{String(s.metadata?.goal)}</span>
+                    {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
+                  </p>
+                )}
+              </div>
             </li>
           ))}
         </ol>
