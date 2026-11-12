@@ -1,5 +1,5 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
-import type { Diagram, ExtractedItem, Job, RequirementStatement } from '@/api/client'
+import type { Diagram, ExtractedItem, Job, ProjectDocument, RequirementStatement } from '@/api/client'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
 import { buildUseCaseModel, renderUseCase, type UseCaseModel } from './render'
@@ -30,10 +30,20 @@ export type MockDb = {
   jobs: JobRow[]
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
+  documents: Record<string, ProjectDocument[]>
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {} })
+const empty = (): MockDb => ({
+  consent: {},
+  projects: [],
+  statements: {},
+  items: {},
+  jobs: [],
+  diagrams: [],
+  nextStatement: {},
+  documents: {},
+})
 
 let db: MockDb = load()
 
@@ -67,10 +77,10 @@ const STEP_MS = 1600
 const EXTRACTION_STEPS = ['Splitting into requirement statements', 'Extracting modelling items', 'Merging and checking items']
 const GENERATION_STEPS = ['Building the diagram model', 'Rendering the diagram', 'Checking notation']
 
-export function advance(job: JobRow): JobRow {
+export function advance(job: JobRow, opts: { fast?: boolean } = {}): JobRow {
   if (job.status === 'succeeded' || job.status === 'failed') return job
   const steps = job.kind === 'extraction' ? EXTRACTION_STEPS : GENERATION_STEPS
-  const elapsed = Date.now() - new Date(job.created_at!).getTime()
+  const elapsed = opts.fast ? 10000 : Date.now() - new Date(job.created_at!).getTime()
   if (elapsed < QUEUE_MS) {
     job.status = 'queued'
     job.queue_position = 1
@@ -84,6 +94,22 @@ export function advance(job: JobRow): JobRow {
     job.status = 'running'
     const prefix = job.kind === 'generation' ? 'Generating diagram 1 of 1: ' : ''
     job.progress = { step: step + 1, total: steps.length, label: prefix + steps[step] }
+    return job
+  }
+  if (job.kind === 'extraction' && splitStatements(job.payload ?? '').length === 0) {
+    job.status = 'failed'
+    job.error = 'No requirements could be extracted from this document.'
+    job.finished_at = now()
+    job.progress = { step: steps.length, total: steps.length, label: 'Failed' }
+    if (db.documents?.[job.project_id]) {
+      for (const doc of db.documents[job.project_id]) {
+        if (doc.job_id === job.id || doc.status === 'processing' || doc.status === 'uploaded') {
+          doc.status = 'failed'
+          doc.warning = 'No requirements could be extracted from this document.'
+        }
+      }
+    }
+    save()
     return job
   }
   job.status = 'succeeded'
@@ -125,6 +151,13 @@ function applyExtraction(job: JobRow) {
         target_item_id: d.target_item_id ? (idFor.get(d.target_item_id) ?? null) : null,
       })),
   ]
+  if (db.documents?.[pid]) {
+    for (const doc of db.documents[pid]) {
+      if (doc.job_id === job.id || doc.status === 'processing' || doc.status === 'uploaded') {
+        doc.status = 'processed'
+      }
+    }
+  }
   touch(pid, { clearConfirmation: true })
 }
 
@@ -206,5 +239,7 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     confirmed: p.confirmed_at !== null,
     confirmed_at: p.confirmed_at,
     diagram_count: db.diagrams.filter((d) => d.project_id === p.id).length,
+    document_count: db.documents?.[p.id]?.length ?? 0,
+    document_page_count: (db.documents?.[p.id] ?? []).reduce((sum, d) => sum + d.page_count, 0),
   }
 }
