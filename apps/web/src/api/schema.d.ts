@@ -641,10 +641,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The project's diagrams as one ZIP: PNG, SVG, PDF and source code for each, plus README.txt. versions=all (default) or latest */
+        /** The project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt; no PDF for Mermaid) */
         get: {
             parameters: {
                 query?: {
+                    /** @description all (default) = every version; latest = newest version of each diagram */
                     versions?: "all" | "latest";
                 };
                 header?: never;
@@ -834,7 +835,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, or its source code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid), downloaded by Export */
+        /** The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, downloaded by Export */
         get: {
             parameters: {
                 query: {
@@ -857,6 +858,7 @@ export interface paths {
                         "image/png": string;
                         "image/svg+xml": string;
                         "application/pdf": string;
+                        /** @description format=source: the diagram code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid) */
                         "text/plain": string;
                     };
                 };
@@ -954,6 +956,726 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/flags/{flag_id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answer a flag's question (#34). For an untestable flag the answer also fills in the suggested requirement. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    flag_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FlagAnswer"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Flag"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Every requirement with its test-design summary, plus the project's running test job if there is one */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestRequirementList"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/requirements/{statement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                statement_id: components["parameters"]["StatementId"];
+            };
+            cookie?: never;
+        };
+        /** One requirement's test design - criteria, conditions with classes and boundaries, flows, drafts, open question */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    statement_id: components["parameters"]["StatementId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestDesign"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/criteria-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** AI request 1 - acceptance criteria, conditions, flows and questions for the chosen requirements (5 per AI call). Replaces an earlier design. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CriteriaJobCreate"];
+                };
+            };
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Job"];
+                    };
+                };
+                /** @description No AI consent recorded (X8) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unknown requirement */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/conditions/{condition_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                condition_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit a condition. Classes, boundaries and draft cases are recomputed in code - no AI call. */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    condition_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConditionUpdate"];
+                };
+            };
+            responses: {
+                /** @description The requirement's updated design */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestDesign"];
+                    };
+                };
+                /** @description Invalid limits or values */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/criteria/{criterion_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                criterion_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit an acceptance criterion */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    criterion_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CriterionUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Criterion"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/step-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** AI request 2 - preconditions, steps and expected results for kept draft cases only (6 per AI call) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StepJobCreate"];
+                };
+            };
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Job"];
+                    };
+                };
+                /** @description No AI consent recorded (X8) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No kept draft cases to write */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Every test case with its freshness and last result */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestCase"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Add a test case by hand */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TestCaseCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestCase"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                case_id: components["parameters"]["CaseId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Keep or discard a draft, or edit a case's text */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    case_id: components["parameters"]["CaseId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TestCaseUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestCase"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Runs, newest first, with their result counts */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestRunSummary"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Start a manual run */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TestRunCreate"];
+                };
+            };
+            responses: {
+                /** @description Started */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestRun"];
+                    };
+                };
+                /** @description The selection is empty */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/runs/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Which ready cases each run mode would pick, and why */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunSelection"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    run_id: components["parameters"]["RunId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestRun"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/runs/{run_id}/results/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                run_id: components["parameters"]["RunId"];
+                case_id: components["parameters"]["CaseId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark one case in an open run. Who marked it and when are recorded. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    run_id: components["parameters"]["RunId"];
+                    case_id: components["parameters"]["CaseId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TestResultUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestResult"];
+                    };
+                };
+                /** @description The run is finished */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/tests/runs/{run_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish a run. It is kept so later runs can be compared with it. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    run_id: components["parameters"]["RunId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TestRun"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1020,12 +1742,12 @@ export interface components {
             label?: string | null;
             source: components["schemas"]["SourceLocation"];
         };
-        /** @enum {string} */
         StatementWrite: {
             text?: string;
             /** @enum {string|null} */
             label?: "functional" | "non_functional" | "user_story" | "constraint" | "unknown" | null;
         };
+        /** @enum {string} */
         ItemCategory: "actor" | "entity" | "process" | "data_flow" | "data_store" | "interaction" | "relationship";
         /** @enum {string} */
         ItemOrigin: "system-extracted" | "user-added" | "user-edited";
@@ -1073,7 +1795,7 @@ export interface components {
         Job: {
             id: string;
             /** @enum {string} */
-            kind: "extraction" | "generation";
+            kind: "extraction" | "generation" | "test_criteria" | "test_steps";
             status: components["schemas"]["JobStatus"];
             queue_position?: number | null;
             progress: {
@@ -1146,11 +1868,276 @@ export interface components {
                 [key: string]: components["schemas"]["Point"];
             };
         };
+        /** @enum {string} */
+        FlagType: "ambiguous" | "incomplete" | "conflict" | "untestable";
+        Flag: {
+            id: string;
+            statement_id: string;
+            statement_ref: string;
+            type: components["schemas"]["FlagType"];
+            reason: string;
+            trigger_text?: string | null;
+            question?: string | null;
+            answer?: string | null;
+            has_suggestion: boolean;
+            /** @description The suggested requirement text, or "No suggestion available." */
+            suggestion: string;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            resolved_by?: string | null;
+        };
+        FlagAnswer: {
+            answer: string;
+        };
+        TestRequirementSummary: {
+            statement_id: string;
+            ref: string;
+            text: string;
+            label?: string | null;
+            /** @description AI request 1 has run for this requirement */
+            designed: boolean;
+            /** @description The requirement text changed after its design was made */
+            stale: boolean;
+            criteria_count: number;
+            /** @description Generated cases still waiting for steps */
+            draft_count: number;
+            /** @description Drafts that will get steps */
+            kept_count: number;
+            /** @description Cases with steps written */
+            ready_count: number;
+            /** @description Boundary values across this requirement's conditions */
+            boundary_count: number;
+            /** @description An open untestable flag is waiting for an answer */
+            open_question: boolean;
+            /** @description Types of the requirement's open flags */
+            open_flags: components["schemas"]["FlagType"][];
+        };
+        TestRequirementList: {
+            requirements: components["schemas"]["TestRequirementSummary"][];
+            /** @description A queued or running test job */
+            active_job: components["schemas"]["Job"] | null;
+        };
+        Criterion: {
+            id: string;
+            given: string;
+            when: string;
+            then: string;
+        };
+        /** @enum {string} */
+        ConditionKind: "range" | "count" | "set";
+        EquivalenceClass: {
+            /** @description e.g. "1–30", "< 1", "Surgery" */
+            label: string;
+            valid: boolean;
+        };
+        BoundaryValue: {
+            value: number;
+            /** @description False when the system should reject this value */
+            valid: boolean;
+        };
+        Condition: {
+            id: string;
+            /** @description The input, e.g. days_ahead */
+            name: string;
+            kind: components["schemas"]["ConditionKind"];
+            description: string;
+            min?: number | null;
+            max?: number | null;
+            unit?: string | null;
+            /** @description Valid values of a set */
+            values: string[];
+            /** @description Values a set must reject */
+            invalid_values: string[];
+            classes: components["schemas"]["EquivalenceClass"][];
+            boundaries: components["schemas"]["BoundaryValue"][];
+        };
+        Flow: {
+            id: string;
+            /** @enum {string} */
+            kind: "basic" | "alternate";
+            text: string;
+        };
+        PerformanceTarget: {
+            measure: string;
+            limit: number;
+            unit: string;
+            load?: string | null;
+        };
+        TestDesign: {
+            statement_id: string;
+            ref: string;
+            text: string;
+            label?: string | null;
+            designed: boolean;
+            stale: boolean;
+            /** Format: date-time */
+            generated_at?: string | null;
+            criteria: components["schemas"]["Criterion"][];
+            conditions: components["schemas"]["Condition"][];
+            flows: components["schemas"]["Flow"][];
+            performance_targets: components["schemas"]["PerformanceTarget"][];
+            /** @description This requirement's generated cases */
+            drafts: components["schemas"]["TestCase"][];
+            /** @description The latest untestable flag */
+            question: components["schemas"]["Flag"] | null;
+            open_flags: components["schemas"]["FlagType"][];
+        };
+        CriteriaJobCreate: {
+            statement_ids: string[];
+        };
+        ConditionUpdate: {
+            min?: number | null;
+            max?: number | null;
+            values?: string[];
+            invalid_values?: string[];
+        };
+        CriterionUpdate: {
+            given: string;
+            when: string;
+            then: string;
+        };
+        StepJobCreate: {
+            /** @description Defaults to every kept draft case */
+            case_ids?: string[];
+        };
+        /** @enum {string} */
+        CaseTechnique: "EC" | "BVA" | "BVA+EC" | "Flow" | "NFR" | "AC" | "Manual";
+        /** @enum {string} */
+        CaseKind: "positive" | "negative" | "edge";
+        /** @enum {string} */
+        CasePriority: "high" | "medium" | "low";
+        /** @enum {string} */
+        ResultStatus: "pass" | "fail" | "blocked" | "skipped";
+        TestCase: {
+            id: string;
+            /** @description Project-unique, never reused, e.g. TC-009 */
+            number: string;
+            statement_id: string;
+            statement_ref: string;
+            title: string;
+            technique: components["schemas"]["CaseTechnique"];
+            kind: components["schemas"]["CaseKind"];
+            priority: components["schemas"]["CasePriority"];
+            /**
+             * @description ready once steps are written
+             * @enum {string}
+             */
+            status: "draft" | "ready";
+            /** @description False for a draft the user unticked */
+            kept: boolean;
+            /** @enum {string} */
+            origin: "generated" | "manual";
+            /**
+             * @description What the system should do with the test data
+             * @enum {string|null}
+             */
+            outcome?: "accepted" | "rejected" | null;
+            test_data: {
+                [key: string]: string | number;
+            };
+            /** @description e.g. EC:days_ahead:high, BVA:days_ahead:31 */
+            covers: string[];
+            preconditions: string[];
+            steps: string[];
+            expected?: string | null;
+            /**
+             * @description out_of_date once the requirement text changes
+             * @enum {string}
+             */
+            freshness: "current" | "out_of_date";
+            /** @description Result in the newest run that marked this case */
+            last_result?: components["schemas"]["ResultStatus"] | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        TestCaseCreate: {
+            statement_id: string;
+            title: string;
+            kind: components["schemas"]["CaseKind"];
+            priority: components["schemas"]["CasePriority"];
+            preconditions?: string[];
+            steps: string[];
+            expected: string;
+        };
+        TestCaseUpdate: {
+            kept?: boolean;
+            title?: string;
+            priority?: components["schemas"]["CasePriority"];
+            preconditions?: string[];
+            steps?: string[];
+            expected?: string;
+        };
+        /** @enum {string} */
+        RunMode: "all" | "failed" | "regression" | "minimal" | "pick";
+        TestRunCreate: {
+            name: string;
+            mode: components["schemas"]["RunMode"];
+            /** @description Required for mode pick */
+            case_ids?: string[];
+        };
+        RunTally: {
+            pass: number;
+            fail: number;
+            blocked: number;
+            skipped: number;
+            unmarked: number;
+        };
+        TestRunSummary: {
+            id: string;
+            name: string;
+            mode: components["schemas"]["RunMode"];
+            case_count: number;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+            tally: components["schemas"]["RunTally"];
+        };
+        TestResult: {
+            case_id: string;
+            status: components["schemas"]["ResultStatus"];
+            note?: string | null;
+            marked_by: string;
+            /** Format: date-time */
+            marked_at: string;
+        };
+        TestRunItem: {
+            case: components["schemas"]["TestCase"];
+            result: components["schemas"]["TestResult"] | null;
+        };
+        TestRun: components["schemas"]["TestRunSummary"] & {
+            items: components["schemas"]["TestRunItem"][];
+        };
+        TestResultUpdate: {
+            status: components["schemas"]["ResultStatus"];
+            note?: string | null;
+        };
+        RunSelectionMode: {
+            /** @description In the order the run will show them */
+            case_ids: string[];
+            /** @description Why each case was picked */
+            reasons: {
+                [key: string]: string;
+            };
+            warning: string | null;
+        };
+        RunSelection: {
+            /** @description Requirements whose text changed since their cases were made */
+            changed_refs: string[];
+            all: components["schemas"]["RunSelectionMode"];
+            failed: components["schemas"]["RunSelectionMode"];
+            regression: components["schemas"]["RunSelectionMode"];
+            minimal: components["schemas"]["RunSelectionMode"];
+        };
     };
     responses: never;
     parameters: {
         ProjectId: string;
         DiagramId: string;
+        StatementId: string;
+        CaseId: string;
+        RunId: string;
     };
     requestBodies: never;
     headers: never;
