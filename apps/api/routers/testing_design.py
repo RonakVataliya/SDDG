@@ -4,6 +4,9 @@
   GET  /projects/{id}/tests/requirements/{statement_id} one requirement's design: criteria, conditions with classes
                                                         and boundaries, flows, drafts, open question
   POST /projects/{id}/tests/criteria-jobs               AI request 1 for the chosen requirements
+  PATCH /projects/{id}/tests/conditions/{condition_id}  edit limits or values; classes, boundaries and drafts are
+                                                        recomputed in code, with no AI call
+  PATCH /projects/{id}/tests/criteria/{criterion_id}    edit an acceptance criterion
 
 AI request 1 goes through the same job queue (JOB_SLOTS) and AI service as extraction and generation, 5 requirements
 per call, so it stays inside the free-tier token limits. Everything after it (classes, boundaries, drafts) is plain
@@ -33,6 +36,19 @@ AI_BATCH = 5  # AI request 1 takes at most 5 requirements per call (the AI servi
 
 class CriteriaJobCreate(BaseModel):
     statement_ids: list[str] = Field(min_length=1, max_length=30)
+
+
+class ConditionUpdate(BaseModel):
+    min: float | None = None
+    max: float | None = None
+    values: list[str] | None = Field(default=None, max_length=50)
+    invalid_values: list[str] | None = Field(default=None, max_length=20)
+
+
+class CriterionUpdate(BaseModel):
+    given: str = Field(min_length=1, max_length=500)
+    when: str = Field(min_length=1, max_length=500)
+    then: str = Field(min_length=1, max_length=500)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -253,3 +269,60 @@ def start_criteria(project_id: str, body: CriteriaJobCreate, bg: BackgroundTasks
     job = db.create_job(project_id, "test_criteria", batches + 1, "Queued")
     bg.add_task(queued, criteria_worker, job["id"], project_id, ids)
     return job
+
+
+def _clean_list(values):
+    return list(dict.fromkeys(v.strip() for v in values if v and v.strip()))
+
+
+@router.patch("/projects/{project_id}/tests/conditions/{condition_id}")
+async def update_condition(project_id: str, condition_id: str, body: ConditionUpdate,
+                           user: User = Depends(get_current_user)):
+    """Edit a condition ("the limit becomes 60 days") and get the requirement's design back with its classes,
+    boundaries and drafts recomputed by the AI service's plain-code engine. No LLM call."""
+    require_project(project_id, user)
+    c = tdb.get_condition(project_id, condition_id)
+    if not c:
+        raise HTTPException(404, NOT_FOUND)
+    sent = body.model_fields_set
+    lo = body.min if "min" in sent else c["min"]
+    hi = body.max if "max" in sent else c["max"]
+    values = _clean_list(body.values) if "values" in sent and body.values is not None else c["values"]
+    invalid = _clean_list(body.invalid_values) if "invalid_values" in sent and body.invalid_values is not None \
+        else c["invalid_values"]
+    if c["kind"] == "set":
+        if not values:
+            raise HTTPException(422, "A set needs at least one valid value.")
+        invalid = [v for v in invalid if v not in values]
+        lo = hi = None
+    else:
+        if lo is None and hi is None:
+            raise HTTPException(422, "Give at least one limit.")
+        if c["kind"] == "count" and lo is not None and lo < 0:
+            raise HTTPException(422, "A count cannot go below zero.")
+        if lo is not None and hi is not None and lo > hi:
+            raise HTTPException(422, "The lower limit must not be above the upper limit.")
+        values, invalid = [], []
+    tdb.update_condition(project_id, condition_id, min_value=lo, max_value=hi, values=values, invalid_values=invalid)
+    statement = tdb.get_statement(project_id, c["statement_id"])
+    try:
+        await rebuild_drafts(project_id, c["statement_id"], statement["text"])
+    except Exception as e:
+        # Put the old limits back, so the stored classes, boundaries and drafts always match the condition.
+        tdb.update_condition(project_id, condition_id, min_value=c["min"], max_value=c["max"], values=c["values"],
+                             invalid_values=c["invalid_values"])
+        logger.exception("recomputing the test design of a condition failed")
+        raise HTTPException(503, f"Couldn't recompute the test cases: {ai_error_detail(e)}") from e
+    return design_view(project_id, c["statement_id"])
+
+
+@router.patch("/projects/{project_id}/tests/criteria/{criterion_id}")
+def update_criterion(project_id: str, criterion_id: str, body: CriterionUpdate, user: User = Depends(get_current_user)):
+    require_project(project_id, user)
+    if not tdb.get_criterion(project_id, criterion_id):
+        raise HTTPException(404, NOT_FOUND)
+    given, when, then = (x.strip() for x in (body.given, body.when, body.then))
+    if not (given and when and then):
+        raise HTTPException(422, "Fill in Given, When and Then.")
+    c = tdb.update_criterion(project_id, criterion_id, given, when, then)
+    return {k: c[k] for k in ("id", "given", "when", "then")}
