@@ -18,6 +18,7 @@ from routers.flags import router as flags_router  # noqa: E402
 from routers.reporting import router as reporting_router  # noqa: E402
 from routers.clients import router as clients_router  # noqa: E402
 from routers.statements import router as statements_router  # noqa: E402
+from routers.testing_design import router as testing_design_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ app.include_router(flags_router, prefix="/api/v1")
 app.include_router(reporting_router, prefix="/api/v1")
 app.include_router(clients_router, prefix="/api/v1")
 app.include_router(statements_router, prefix="/api/v1")
+app.include_router(testing_design_router, prefix="/api/v1")
 
 
 @app.get("/health")
