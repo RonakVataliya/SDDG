@@ -15,7 +15,13 @@ pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes")
+JSON_COLS = (
+    "qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes",
+    # Tests feature (stream 6)
+    "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
+    "preconditions", "steps",
+    "case_ids",
+)
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
     "projects": ("name", "client_name"),
@@ -24,6 +30,14 @@ SECRET = {
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
     "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
     "jobs": ("error",),  # a failure message can repeat part of the requirements
+    # Tests feature (stream 6): everything derived from requirement text.
+    "test_designs": ("performance_targets",),
+    "test_criteria": ("given_text", "when_text", "then_text"),
+    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes"),
+    "test_flows": ("flow_text",),
+    "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
+    "test_runs": ("name",),
+    "test_results": ("note",),
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
