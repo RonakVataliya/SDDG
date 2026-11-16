@@ -7,6 +7,7 @@
   PATCH /projects/{id}/tests/conditions/{condition_id}  edit limits or values; classes, boundaries and drafts are
                                                         recomputed in code, with no AI call
   PATCH /projects/{id}/tests/criteria/{criterion_id}    edit an acceptance criterion
+  POST /projects/{id}/tests/step-jobs                   AI request 2: steps for kept draft cases only
 
 AI request 1 goes through the same job queue (JOB_SLOTS) and AI service as extraction and generation, 5 requirements
 per call, so it stays inside the free-tier token limits. Everything after it (classes, boundaries, drafts) is plain
@@ -32,6 +33,7 @@ router = APIRouter()
 logger = logging.getLogger("sddg.tests")
 
 AI_BATCH = 5  # AI request 1 takes at most 5 requirements per call (the AI service rejects more)
+STEPS_BATCH = 6  # AI request 2 takes at most 6 cases per call
 
 
 class CriteriaJobCreate(BaseModel):
@@ -43,6 +45,10 @@ class ConditionUpdate(BaseModel):
     max: float | None = None
     values: list[str] | None = Field(default=None, max_length=50)
     invalid_values: list[str] | None = Field(default=None, max_length=20)
+
+
+class StepJobCreate(BaseModel):
+    case_ids: list[str] | None = Field(default=None, max_length=500)
 
 
 class CriterionUpdate(BaseModel):
@@ -326,3 +332,64 @@ def update_criterion(project_id: str, criterion_id: str, body: CriterionUpdate, 
         raise HTTPException(422, "Fill in Given, When and Then.")
     c = tdb.update_criterion(project_id, criterion_id, given, when, then)
     return {k: c[k] for k in ("id", "given", "when", "then")}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# AI request 2
+# ---------------------------------------------------------------------------------------------------------------------
+
+def _steps_input(case, statement):
+    return {
+        "case_id": case["id"], "requirement_id": statement["ref"], "requirement_text": statement["text"],
+        "title": case["title"], "technique": case["technique"], "kind": case["kind"],
+        "test_data": case["test_data"], "expected_outcome": case["outcome"],
+    }
+
+
+async def steps_worker(job_id, pid, case_ids):
+    try:
+        statements = {s["id"]: s for s in db.get_statements(pid)}
+        wanted = set(case_ids)
+        cases = [c for c in tdb.list_cases(pid) if c["id"] in wanted and c["status"] == "draft" and c["kept"]]
+        batches = [cases[i:i + STEPS_BATCH] for i in range(0, len(cases), STEPS_BATCH)]
+        total = len(batches) + 1
+        db.update_job(job_id, status="running", queue_position=None, started_at=db.now(), progress_step=0,
+                      progress_total=total, progress_label="Starting AI request 2")
+        written = 0
+        async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
+            ai = AIJob(client, pid, job_id)  # provider choice, waiting when busy, usage recording (core/ai_client.py)
+            await ai.start(est_tokens=one_call_tokens(min(len(cases), STEPS_BATCH) * 500))
+            for n, batch in enumerate(batches, 1):
+                db.update_job(job_id, progress_step=n - 1,
+                              progress_label=f"AI request 2: writing steps for {batch[0]['number']}-{batch[-1]['number']}")
+                result = await ai.post("/tests/steps", {
+                    "cases": [_steps_input(c, statements[c["statement_id"]]) for c in batch]})
+                ours = {c["id"] for c in batch}
+                for s in result.get("cases", []):
+                    if s.get("case_id") in ours and s.get("steps"):
+                        tdb.save_steps(pid, s["case_id"], s.get("preconditions") or [], s["steps"], s["expected_result"])
+                        written += 1
+        db.update_job(job_id, status="succeeded", queue_position=None, progress_step=total, progress_total=total,
+                      progress_label=f"Steps written for {written} of {len(cases)} cases", finished_at=db.now())
+    except Exception as e:
+        logger.exception("test steps job %s failed", job_id)
+        fail_job(job_id, f"Writing steps failed: {ai_error_detail(e)}")
+
+
+@router.post("/projects/{project_id}/tests/step-jobs", status_code=202)
+def start_steps(project_id: str, body: StepJobCreate, bg: BackgroundTasks, user: User = Depends(get_current_user)):
+    """Runs AI request 2 for the kept drafts (all of them, or the given ones). Unticked drafts are never sent, so
+    nothing is spent on discarded cases."""
+    require_project(project_id, user)
+    refused = consent_required(user)
+    if refused:
+        return refused
+    asked = set(body.case_ids) if body.case_ids is not None else None
+    kept = [c["id"] for c in tdb.list_cases(project_id)
+            if c["status"] == "draft" and c["kept"] and (asked is None or c["id"] in asked)]
+    if not kept:
+        raise HTTPException(409, "There are no kept draft cases to write steps for.")
+    batches = -(-len(kept) // STEPS_BATCH)
+    job = db.create_job(project_id, "test_steps", batches + 1, "Queued")
+    bg.add_task(queued, steps_worker, job["id"], project_id, kept)
+    return job

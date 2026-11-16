@@ -1,6 +1,9 @@
 """
-Test generation, AI request 1: acceptance criteria, conditions, flows, performance targets and testability
-questions for up to 5 requirements in ONE LLM call.
+Test generation: two small AI requests.
+  AI request 1 (run_criteria): acceptance criteria, conditions, flows, performance targets and testability
+  questions for up to 5 requirements.
+  AI request 2 (run_steps): preconditions, steps and expected results for up to 6 kept cases.
+Each is one LLM call, split into more only when the provider's per-call limit needs it (call_in_groups).
 
 The LLM output is validated and repaired here so the backend can rely on it: unknown ids are dropped, names are
 snake_case and unique, limits are ordered, counts start at zero or above, sets have at least one value, and an
@@ -11,15 +14,19 @@ import re
 from app.config import get_settings
 from app.logging_config import get_logger
 from app.schemas.testgen import (
+    CaseSteps,
     ConditionKind,
     CriteriaLLMOutput,
     CriteriaRequest,
     CriteriaResult,
     RequirementDesign,
     GenerationMetadata,
+    StepsLLMOutput,
+    StepsRequest,
+    StepsResult,
 )
 from app.services.ai_service import get_ai_service
-from app.testgen.prompts import CRITERIA_SYSTEM_PROMPT, format_requirements
+from app.testgen.prompts import CRITERIA_SYSTEM_PROMPT, STEPS_SYSTEM_PROMPT, format_cases, format_requirements
 
 logger = get_logger("testgen_service")
 
@@ -129,6 +136,51 @@ def run_criteria(request: CriteriaRequest) -> CriteriaResult:
         logger.warning("test_criteria_validation count=%d", len(errors))
     return CriteriaResult(
         requirements=[by_id[r] for r in wanted if r in by_id],
+        errors=errors,
+        metadata=GenerationMetadata(
+            model_used=meta.get("model") or get_settings().active_model,
+            llm_duration_seconds=meta.get("duration_seconds", 0.0),
+            attempts=meta.get("attempts", 1),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# AI request 2: steps for up to 6 kept cases in one LLM call.
+# ---------------------------------------------------------------------------------------------------------------------
+
+MAX_PRECONDITIONS = 5
+MAX_STEPS = 12
+
+
+def run_steps(request: StepsRequest) -> StepsResult:
+    ai = get_ai_service()
+    outputs, meta = call_in_groups(ai, node_name="test_steps", system_prompt=STEPS_SYSTEM_PROMPT,
+                                   schema=StepsLLMOutput, items=request.cases, render=format_cases)
+    wanted = [c.case_id for c in request.cases]
+    errors: list[str] = []
+    by_id: dict[str, CaseSteps] = {}
+    for c in (c for output in outputs for c in output.cases):
+        if c.case_id not in wanted:
+            errors.append(f"dropped steps for unknown case {c.case_id}")
+            continue
+        steps = [s.strip() for s in c.steps if s.strip()][:MAX_STEPS]
+        if not steps or not c.expected_result.strip():
+            errors.append(f"{c.case_id}: no steps or expected result returned")
+            continue
+        by_id.setdefault(c.case_id, CaseSteps(
+            case_id=c.case_id,
+            preconditions=[p.strip() for p in c.preconditions if p.strip()][:MAX_PRECONDITIONS],
+            steps=steps,
+            expected_result=c.expected_result.strip(),
+        ))
+    for cid in wanted:
+        if cid not in by_id:
+            errors.append(f"{cid}: no steps returned")
+    if errors:
+        logger.warning("test_steps_validation count=%d", len(errors))
+    return StepsResult(
+        cases=[by_id[c] for c in wanted if c in by_id],
         errors=errors,
         metadata=GenerationMetadata(
             model_used=meta.get("model") or get_settings().active_model,

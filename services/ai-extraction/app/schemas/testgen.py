@@ -91,3 +91,42 @@ class CriteriaResult(BaseModel):
     requirements: List[RequirementDesign]
     errors: List[str] = Field(default_factory=list, description="Problems found and fixed or dropped by validation")
     metadata: GenerationMetadata
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# AI request 2 (POST /tests/steps): preconditions, steps and expected results for kept draft cases only.
+# ---------------------------------------------------------------------------------------------------------------------
+
+MAX_CASES_PER_REQUEST = 6
+
+
+class StepCaseInput(BaseModel):
+    case_id: str = Field(min_length=1, max_length=80)
+    requirement_id: str = Field(min_length=1, max_length=20)
+    requirement_text: str = Field(min_length=1, max_length=2000)
+    title: str = Field(min_length=1, max_length=300)
+    technique: str = Field(max_length=20)
+    kind: str = Field(max_length=20)
+    test_data: dict[str, str | int | float] = Field(default_factory=dict)
+    expected_outcome: Optional[str] = Field(default=None, description="accepted, rejected, or none for flows/targets")
+
+
+class StepsRequest(BaseModel):
+    cases: List[StepCaseInput] = Field(min_length=1, max_length=MAX_CASES_PER_REQUEST)
+
+
+class CaseSteps(BaseModel):
+    case_id: str = Field(description="The case_id given in the input")
+    preconditions: List[str] = Field(description="1-3 things that must be true before the test starts")
+    steps: List[str] = Field(description="3-7 concrete actions a tester performs, in order")
+    expected_result: str = Field(description="What the tester must observe")
+
+
+class StepsLLMOutput(BaseModel):
+    cases: List[CaseSteps]
+
+
+class StepsResult(BaseModel):
+    cases: List[CaseSteps]
+    errors: List[str] = Field(default_factory=list)
+    metadata: GenerationMetadata

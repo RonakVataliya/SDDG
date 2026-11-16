@@ -3,6 +3,7 @@ Test generation for the Tests feature (Sprint 3, stream 6). Two small AI request
 else (classes, boundaries, draft cases, runs, coverage) in plain code.
 
   POST /tests/criteria  AI request 1: criteria, conditions, flows, questions (<= 5 requirements per call)
+  POST /tests/steps     AI request 2: preconditions, steps, expected results for kept cases (<= 6 per call)
 
 Errors follow the diagram routers: 429 ai_busy (the backend waits Retry-After and retries), 503 AI unavailable,
 422 validation, 500 anything else.
@@ -12,9 +13,9 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.llm.limiter import AIBusy
 from app.logging_config import error_location, get_logger
-from app.schemas.testgen import CriteriaRequest, CriteriaResult
+from app.schemas.testgen import CriteriaRequest, CriteriaResult, StepsRequest, StepsResult
 from app.services.ai_service import AIServiceError
-from app.services.testgen_service import run_criteria
+from app.services.testgen_service import run_criteria, run_steps
 
 logger = get_logger("testgen_router")
 
@@ -38,3 +39,9 @@ async def _call(fn, request, label):
 async def criteria(request: CriteriaRequest) -> CriteriaResult:
     """AI request 1 for up to 5 requirements (more is a 422: the backend splits larger selections)."""
     return await _call(run_criteria, request, "test_criteria")
+
+
+@router.post("/steps", response_model=StepsResult)
+async def steps(request: StepsRequest) -> StepsResult:
+    """AI request 2 for up to 6 cases the user kept (more is a 422: the backend splits larger sets)."""
+    return await _call(run_steps, request, "test_steps")

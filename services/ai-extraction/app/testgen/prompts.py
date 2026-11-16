@@ -36,3 +36,29 @@ Return every requirement you were given, once, and nothing else."""
 
 def format_requirements(requirements) -> str:
     return "\n".join(f"{r.id}: {r.text}" for r in requirements)
+
+
+STEPS_SYSTEM_PROMPT = """You write manual test cases that a tester follows by hand.
+Each input case has an id, the requirement it tests, a title, the black-box technique that produced it, the test
+data to use and the expected outcome (accepted, rejected, or none for flows and performance targets).
+
+For EACH case return its case_id and:
+- preconditions: 1 to 3 short statements of what must be true first (accounts, existing data, settings).
+- steps: 3 to 7 concrete actions in the imperative ("Open Book appointment", "Pick the date 31 days from today").
+  Use every test data value exactly as given. Do not add features the requirement does not mention.
+- expected_result: one or two sentences the tester can check. For "rejected": the system refuses, says why, and
+  saves nothing. For "accepted": what is confirmed and where it shows. For a performance target: the measured value
+  and its limit.
+
+Return every case you were given, once, and nothing else."""
+
+
+def format_cases(cases) -> str:
+    blocks = []
+    for c in cases:
+        data = ", ".join(f"{k} = {v}" for k, v in c.test_data.items()) or "none"
+        blocks.append(
+            f"case_id: {c.case_id}\nrequirement {c.requirement_id}: {c.requirement_text}\ntitle: {c.title}\n"
+            f"technique: {c.technique} ({c.kind})\ntest data: {data}\nexpected outcome: {c.expected_outcome or 'none'}"
+        )
+    return "\n\n".join(blocks)
