@@ -1,4 +1,4 @@
-import { CpuIcon, PencilIcon, SparklesIcon } from 'lucide-react'
+import { CpuIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { Condition, Criterion, TestDesign, TestRequirementSummary } from '@/api/client'
 import { errorMessage } from '@/api/errors'
@@ -9,6 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { AiBadge } from './ai-badge'
+import { DraftCases } from './draft-cases'
+import { QuestionCard } from './question-card'
 
 /** Right-hand panel of the Design tab: one requirement's criteria, conditions (with their classes and boundaries)
  *  and flows. Conditions can be edited; the server recomputes classes, boundaries and drafts with no AI call. */
@@ -16,10 +19,13 @@ export function RequirementDesign({
   projectId,
   requirement,
   canEdit,
+  onRegenerate,
 }: {
   projectId: string
   requirement: TestRequirementSummary
   canEdit: boolean
+  /** Reruns AI request 1 for this one requirement (its text changed since its design was made). */
+  onRegenerate?: (statementId: string) => void
 }) {
   const design = useTestDesign(projectId, requirement.statement_id)
 
@@ -30,6 +36,11 @@ export function RequirementDesign({
         <p className="min-w-0 flex-1 font-medium">{requirement.text}</p>
         {requirement.label && <Badge>{requirement.label}</Badge>}
         {requirement.stale && <Badge tone="amber">Requirement changed</Badge>}
+        {requirement.stale && canEdit && onRegenerate && (
+          <Button size="sm" variant="secondary" onClick={() => onRegenerate(requirement.statement_id)}>
+            <RefreshCwIcon /> Regenerate {requirement.ref}
+          </Button>
+        )}
       </div>
 
       {design.isPending ? (
@@ -50,16 +61,11 @@ export function RequirementDesign({
 }
 
 function DesignBody({ projectId, design, canEdit }: { projectId: string; design: TestDesign; canEdit: boolean }) {
-  if (design.question?.status === 'open' && !design.criteria.length) {
-    return (
-      <Notice tone="warning" title="Not testable yet">
-        {design.question.question}
-      </Notice>
-    )
-  }
-  const fromFlows = design.drafts.filter((d) => d.technique === 'Flow').length
+  const question = design.question && <QuestionCard key={design.question.id} projectId={projectId} design={design} canEdit={canEdit} />
+  if (!design.criteria.length) return question ?? null
   return (
     <>
+      {design.question?.status === 'open' && question}
       <Section title="Acceptance criteria" note={`${design.criteria.length} · editable`} badges={<AiBadge n={1} />}>
         <ol className="divide-y divide-rule">
           {design.criteria.map((c, i) => (
@@ -117,9 +123,7 @@ function DesignBody({ projectId, design, canEdit }: { projectId: string; design:
         </Section>
       )}
 
-      <p className="text-sm text-slate" data-testid="draft-summary">
-        Draft test cases: {design.drafts.length - fromFlows} from conditions + {fromFlows} from flows
-      </p>
+      <DraftCases projectId={projectId} design={design} canEdit={canEdit} />
     </>
   )
 }
@@ -134,14 +138,6 @@ function Section({ title, note, badges, children }: { title: string; note?: stri
       </header>
       {children}
     </section>
-  )
-}
-
-export function AiBadge({ n }: { n: 1 | 2 }) {
-  return (
-    <Badge tone="violet">
-      <SparklesIcon className="size-3" /> AI request {n}
-    </Badge>
   )
 }
 

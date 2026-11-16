@@ -1,9 +1,9 @@
-import { FlaskConicalIcon, SparklesIcon } from 'lucide-react'
+import { FlaskConicalIcon, PenLineIcon, SparklesIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import type { TestRequirementSummary } from '@/api/client'
 import { errorMessage } from '@/api/errors'
-import { useStartCriteria, useTestJob, useTestRequirements } from '@/api/queries'
+import { useStartCriteria, useStartSteps, useTestJob, useTestRequirements } from '@/api/queries'
 import { JobProgress } from '@/components/job-progress'
 import { Badge, RefTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,7 @@ export function DesignTab({ projectId }: { projectId: string }) {
   const canEdit = project.role !== 'viewer'
   const requirements = useTestRequirements(projectId)
   const start = useStartCriteria(projectId)
+  const writeSteps = useStartSteps(projectId)
   const consent = useConsentRetry()
   const [ticked, setTicked] = useState<Set<string>>(new Set())
   const [focusedId, setFocusedId] = useState<string | null>(null)
@@ -60,12 +61,20 @@ export function DesignTab({ projectId }: { projectId: string }) {
       return next
     })
 
-  const generate = () =>
+  const generate = (ids = chosen.map((r) => r.statement_id)) =>
     consent.run(async () => {
-      const ids = chosen.map((r) => r.statement_id)
       const started = await start.mutateAsync(ids)
       setStartedJobId(started.id)
       setFocusedId(ids[0])
+    })
+
+  const keptByRef = list.filter((r) => r.kept_count > 0)
+  const keptTotal = keptByRef.reduce((n, r) => n + r.kept_count, 0)
+  const discarded = list.reduce((n, r) => n + r.draft_count - r.kept_count, 0)
+  const startSteps = () =>
+    consent.run(async () => {
+      const started = await writeSteps.mutateAsync(undefined)
+      setStartedJobId(started.id)
     })
 
   return (
@@ -97,10 +106,14 @@ export function DesignTab({ projectId }: { projectId: string }) {
               {ambiguous.length === 1 ? ' its' : ' their'} tests may be vague. You can still generate.
             </Notice>
           )}
-          {start.isError && !isConsentError(start.error) && (
-            <Notice tone="error" title="Couldn't start">
-              {errorMessage(start.error)}
-            </Notice>
+          {[start, writeSteps].map(
+            (m, i) =>
+              m.isError &&
+              !isConsentError(m.error) && (
+                <Notice key={i} tone="error" title="Couldn't start">
+                  {errorMessage(m.error)}
+                </Notice>
+              ),
           )}
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm text-slate">{chosen.length} selected</span>
@@ -127,8 +140,29 @@ export function DesignTab({ projectId }: { projectId: string }) {
             {job.data.error ?? 'Try again in a moment.'}
           </Notice>
         )}
+        {canEdit && keptTotal > 0 && !busy && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-rule bg-surface px-4 py-3">
+            <div className="min-w-0 flex-1 text-sm">
+              <p>
+                <span className="font-semibold">{keptTotal} cases kept</span>{' '}
+                <span className="text-slate">{keptByRef.map((r) => `${r.ref} ${r.kept_count}`).join(' · ')}</span>
+              </p>
+              <p className="text-xs text-slate">
+                Steps are written only for kept cases{discarded > 0 && `; ${discarded} discarded drafts cost nothing`}.
+              </p>
+            </div>
+            <Button size="sm" disabled={writeSteps.isPending} onClick={() => void startSteps()}>
+              <PenLineIcon /> Write steps for {keptTotal}
+            </Button>
+          </div>
+        )}
         {focused ? (
-          <RequirementDesign projectId={projectId} requirement={focused} canEdit={canEdit && !busy} />
+          <RequirementDesign
+            projectId={projectId}
+            requirement={focused}
+            canEdit={canEdit && !busy}
+            onRegenerate={(id) => void generate([id])}
+          />
         ) : (
           !busy && (
             <div className="grid min-h-60 place-items-center rounded-lg border border-dashed border-rule-strong p-8 text-center">
