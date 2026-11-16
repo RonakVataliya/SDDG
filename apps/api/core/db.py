@@ -416,6 +416,9 @@ def get_flag(pid, fid):
                "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s AND f.id=%s", pid, fid)
 
 
+CHECKER_FLAG_TYPES = ("ambiguous", "incomplete", "conflict")
+
+
 def save_flags(pid, flags, statement_ids):
     """Stores the checker's flags for these statements, matched to earlier flags by (statement, type, reason).
 
@@ -425,9 +428,12 @@ def save_flags(pid, flags, statement_ids):
     - An open flag that is no longer found is resolved by re-analysis.
     """
     with pool.connection() as c:
+        # Only the checker's own types: flags raised elsewhere (the Tests feature's 'untestable' questions) must not be
+        # resolved as "no longer found" just because the checker never reports that type.
         old = [_decode(r) for r in c.execute(
             "SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
-            "WHERE project_id=%s AND statement_id = ANY(%s)", (pid, list(statement_ids))).fetchall()]
+            "WHERE project_id=%s AND statement_id = ANY(%s) AND type = ANY(%s)",
+            (pid, list(statement_ids), list(CHECKER_FLAG_TYPES))).fetchall()]
         known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
         found = set()
         for f in flags:
