@@ -1,5 +1,5 @@
 import { CheckIcon, LockIcon } from 'lucide-react'
-import { Link, Navigate, NavLink, Outlet, useOutletContext, useParams } from 'react-router'
+import { Link, Navigate, NavLink, Outlet, useMatch, useOutletContext, useParams } from 'react-router'
 import type { Project } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
 import { useDiagrams, useProject } from '@/api/queries'
@@ -47,6 +47,14 @@ function buildSteps(project: Project, latestDiagramId?: string): Step[] {
       label: 'Diagram',
       detail: project.diagram_count ? 'View and export' : 'Not generated yet',
       state: latestDiagramId ? 'done' : 'locked',
+    },
+    {
+      // Tests (Sprint 3, stream 6) work straight from the requirements, so they do not wait for diagrams.
+      n: 5,
+      to: 'tests',
+      label: 'Tests',
+      detail: project.statement_count ? 'Test cases and runs' : 'Locked until requirements exist',
+      state: project.statement_count && stage !== 'extracting' ? 'open' : 'locked',
     },
   ]
 }
@@ -139,6 +147,8 @@ export function WorkspaceLayout() {
   const { projectId = '' } = useParams()
   const { data: project, isPending, error } = useProject(projectId)
   const { data: diagrams } = useDiagrams(projectId)
+  // The Tests page needs the full width for its two-column layout, so the Generate panel steps aside there.
+  const onTests = useMatch('/projects/:projectId/tests') !== null
 
   if (isPending) return <PageLoading label="Loading project" />
   if (error instanceof ApiError && error.status === 404) return <NotFoundPage />
@@ -164,7 +174,12 @@ export function WorkspaceLayout() {
         </Link>
       </div>
       {/* Three panels: steps | current step | generate. Below xl the generate panel drops under the current step. */}
-      <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:h-[calc(100dvh-7.5rem)] xl:min-h-[34rem] xl:grid-cols-[15rem_minmax(0,1fr)_19rem]">
+      <div
+        className={cn(
+          'mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:h-[calc(100dvh-7.5rem)] xl:min-h-[34rem]',
+          !onTests && 'xl:grid-cols-[15rem_minmax(0,1fr)_19rem]',
+        )}
+      >
         <aside className={cn(panel, 'p-3 lg:row-span-2 xl:row-span-1')} aria-label="Steps">
           <h2 className="hidden px-2 pb-3 text-sm font-medium text-slate lg:block">Steps</h2>
           <PipelineRail steps={buildSteps(project, diagrams?.[0]?.id)} />
@@ -172,9 +187,11 @@ export function WorkspaceLayout() {
         <section className={cn(panel, 'flex flex-col p-5')}>
           <Outlet context={{ project } satisfies WorkspaceContext} />
         </section>
-        <aside className={cn(panel, 'p-4 lg:col-start-2 xl:col-start-3')} aria-label="Generate">
-          <GeneratePanel project={project} />
-        </aside>
+        {!onTests && (
+          <aside className={cn(panel, 'p-4 lg:col-start-2 xl:col-start-3')} aria-label="Generate">
+            <GeneratePanel project={project} />
+          </aside>
+        )}
       </div>
     </div>
   )
