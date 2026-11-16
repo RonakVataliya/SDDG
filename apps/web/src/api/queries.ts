@@ -21,7 +21,7 @@ export const keys = {
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
 
-const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running'
+const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running' || job?.status === 'waiting'
 
 /* ---------- projects ---------- */
 
@@ -92,6 +92,39 @@ export function useStatements(projectId: string) {
   })
 }
 
+/** Requirements-first: any requirement change clears the confirmation and the extracted building blocks. */
+function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.items(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+    },
+  })
+}
+
+type StatementLabel = Schemas['StatementWrite']['label']
+
+export function useAddStatement(projectId: string) {
+  return useStatementChange(projectId, (body: { text: string; label?: StatementLabel }) =>
+    unwrap(api.POST('/projects/{project_id}/statements', { params: { path: { project_id: projectId } }, body })),
+  )
+}
+
+export function useUpdateStatement(projectId: string) {
+  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel }) =>
+    unwrap(api.PATCH('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } }, body })),
+  )
+}
+
+export function useDeleteStatement(projectId: string) {
+  return useStatementChange(projectId, (id: string) =>
+    unwrap(api.DELETE('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } } })),
+  )
+}
+
 export function useItems(projectId: string, category: ItemCategory | undefined, page: number) {
   return useQuery({
     queryKey: keys.itemPage(projectId, category, page),
@@ -117,7 +150,7 @@ export function useUpdateItem(projectId: string) {
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.items(projectId) })
-      // FR5e: any change clears the confirmation, so the project summary is stale.
+      // Requirements-first: an item fix keeps the confirmation; the project's updated_at still changes.
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
     },
   })

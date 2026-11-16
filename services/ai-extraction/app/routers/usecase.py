@@ -11,6 +11,7 @@ from app.schemas.usecase import (
     UseCaseRevisionRequest,
     UseCaseDiagramResult,
 )
+from app.llm.limiter import AIBusy
 from app.services.ai_service import AIServiceError
 from app.services.kroki_service import KrokiServiceError, get_kroki_service
 from app.services.usecase_service import run_usecase_diagram_generation, run_usecase_diagram_revision
@@ -36,6 +37,8 @@ async def generate(request: UseCaseApprovalRequest) -> UseCaseDiagramResult:
     try:
         result = await run_in_threadpool(run_usecase_diagram_generation, request)
         return result
+    except AIBusy:
+        raise  # the app answers 429 ai_busy with Retry-After (app/main.py)
     except AIServiceError as exc:
         logger.error("usecase_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
@@ -71,6 +74,8 @@ async def revise(request: UseCaseRevisionRequest) -> UseCaseDiagramResult:
     """Apply a plain-language edit to an existing approved Use-Case spec."""
     try:
         return await run_in_threadpool(run_usecase_diagram_revision, request)
+    except AIBusy:
+        raise  # the app answers 429 ai_busy with Retry-After (app/main.py)
     except AIServiceError as exc:
         logger.error("usecase_revision_ai_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc

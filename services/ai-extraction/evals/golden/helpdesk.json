@@ -1,0 +1,164 @@
+{
+  "id": "helpdesk",
+  "title": "IT helpdesk",
+  "style": "srs-shall",
+  "reviewed": false,
+  "requirement_count": 12,
+  "text": "The system shall let an employee raise a support ticket with a title, description and priority.\nThe system shall let an employee attach screenshots to a ticket.\nThe system shall let an employee see the status of their tickets.\nThe system shall assign a new ticket to the support agent with the fewest open tickets.\nThe system shall let a support agent comment on a ticket and change its status.\nThe system shall let a support agent escalate a ticket to the team lead.\nThe system shall let the team lead reassign a ticket to another agent.\nThe system shall email the employee when their ticket is resolved.\nThe system shall let an employee reopen a resolved ticket within 7 days.\nThe system shall close a resolved ticket automatically after 7 days.\nThe system shall let the team lead view a weekly report of resolution times.\nThe system shall let an employee search the knowledge base before raising a ticket.\n",
+  "labels": {
+    "actors": [
+      [
+        "Employee",
+        "User"
+      ],
+      [
+        "Support agent",
+        "Agent"
+      ],
+      [
+        "Team lead",
+        "Lead"
+      ]
+    ],
+    "entities": [
+      [
+        "Ticket",
+        "Support ticket"
+      ],
+      [
+        "Attachment",
+        "Screenshot"
+      ],
+      [
+        "Comment"
+      ],
+      [
+        "Support agent",
+        "Agent"
+      ],
+      [
+        "Employee"
+      ],
+      [
+        "Knowledge base article",
+        "Article",
+        "Knowledge base"
+      ],
+      [
+        "Report",
+        "Weekly report"
+      ]
+    ],
+    "processes": [
+      [
+        "Raise ticket",
+        "Create ticket"
+      ],
+      [
+        "Attach screenshot",
+        "Attach file"
+      ],
+      [
+        "View ticket status",
+        "Track ticket"
+      ],
+      [
+        "Assign ticket",
+        "Auto-assign ticket"
+      ],
+      [
+        "Comment on ticket",
+        "Add comment"
+      ],
+      [
+        "Update ticket status",
+        "Change status"
+      ],
+      [
+        "Escalate ticket"
+      ],
+      [
+        "Reassign ticket"
+      ],
+      [
+        "Notify employee",
+        "Send resolution email"
+      ],
+      [
+        "Reopen ticket"
+      ],
+      [
+        "Close ticket",
+        "Auto-close ticket"
+      ],
+      [
+        "View report",
+        "View resolution report"
+      ],
+      [
+        "Search knowledge base"
+      ]
+    ],
+    "interactions": [
+      [
+        "Employee",
+        "Raise ticket"
+      ],
+      [
+        "Employee",
+        "Attach screenshot"
+      ],
+      [
+        "Employee",
+        "View ticket status"
+      ],
+      [
+        "Employee",
+        "Reopen ticket"
+      ],
+      [
+        "Employee",
+        "Search knowledge base"
+      ],
+      [
+        "Support agent",
+        "Comment on ticket"
+      ],
+      [
+        "Support agent",
+        "Update ticket status"
+      ],
+      [
+        "Support agent",
+        "Escalate ticket"
+      ],
+      [
+        "Team lead",
+        "Reassign ticket"
+      ],
+      [
+        "Team lead",
+        "View report"
+      ]
+    ],
+    "relationships": [
+      [
+        "Employee",
+        "Ticket"
+      ],
+      [
+        "Ticket",
+        "Attachment"
+      ],
+      [
+        "Ticket",
+        "Comment"
+      ],
+      [
+        "Support agent",
+        "Ticket"
+      ]
+    ]
+  },
+  "forbidden": []
+}

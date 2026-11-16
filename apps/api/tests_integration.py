@@ -40,8 +40,12 @@ EXTRACTION = {
     'relationships': [],
     'metadata': {'model_used': 'fake', 'requirement_count': 2, 'node_timings': [],
                  'total_duration_seconds': 0.01, 'timing_target_seconds': 60,
-                 'met_timing_target': True, 'project_name': 'Integration'},
+                 'met_timing_target': True, 'project_name': 'Integration',
+                 'nodes_run': ['actors', 'processes', 'interactions']},
 }
+SPLIT = {'requirements': EXTRACTION['requirements'],
+         'metadata': {'model_used': 'fake', 'requirement_count': 2, 'total_duration_seconds': 0.01}}
+EXTRACT_CALLS = []  # payloads sent to /extraction/extract, to check done_nodes / known
 
 USECASE = {
     'spec': {
@@ -87,7 +91,13 @@ class FakeAIClient:
         return None
 
     async def post(self, url, **kwargs):
+        if url.endswith('/extraction/split'):
+            return FakeResponse(SPLIT)
         if url.endswith('/extraction/extract'):
+            EXTRACT_CALLS.append(kwargs['json'])
+            if kwargs['json']['done_nodes']:  # already extracted: nothing new comes back
+                return FakeResponse(dict(EXTRACTION, actors=[], processes=[], interactions=[],
+                                         metadata=dict(EXTRACTION['metadata'], nodes_run=[])))
             return FakeResponse(EXTRACTION)
         if url.endswith('/plantuml/png'):
             return FakeResponse(content=b'\x89PNG\r\n\x1a\n' + b'0' * 200)
@@ -166,21 +176,25 @@ def main():
             assert statements[0]['source']['line_start'] == 1
             assert statements[0]['source']['excerpt'] == 'Customer logs in.'
 
-            items = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
-            categories = {item['category'] for item in items}
-            assert {'actor', 'process', 'interaction'} <= categories
-            # A second submission adds to the model: nothing from the first is lost or duplicated, refs go on.
+            # Requirements-first: the input job only finds requirements; no building blocks yet.
+            assert client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items'] == []
+            # A second submission adds requirements; numbering goes on and is never reused.
             assert client.post(f'/api/v1/projects/{pid}/inputs', headers=headers,
                                json={'text': 'Customer logs in.\nCustomer checks orders.'}).status_code == 202
-            again = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
-            assert sorted(i['id'] for i in again) == sorted(i['id'] for i in items), again
             refs = [s['ref'] for s in client.get(f'/api/v1/projects/{pid}/statements', headers=headers).json()]
             assert refs == ['R-001', 'R-002', 'R-003', 'R-004'], refs
-            customer = next(i for i in again if i['category'] == 'actor')
-            assert len(customer['statement_ids']) == 4, customer
-            blank_name = client.patch(f"/api/v1/projects/{pid}/items/{items[0]['id']}", headers=headers,
-                                      json={'name': '   ', 'description': None})
-            assert blank_name.status_code == 422, blank_name.text
+
+            # Review: add, edit and delete requirements.
+            assert client.post(f'/api/v1/projects/{pid}/statements', headers=headers, json={'text': '  '}).status_code == 422
+            added = client.post(f'/api/v1/projects/{pid}/statements', headers=headers, json={'text': 'Admin resets passwords.'})
+            assert added.status_code == 201 and added.json()['ref'] == 'R-005', added.text
+            sid = added.json()['id']
+            empty = client.patch(f'/api/v1/projects/{pid}/statements/{sid}', headers=headers, json={'text': ''})
+            assert empty.status_code == 422 and empty.json()['detail'] == "Requirement text can't be empty.", empty.text
+            edited = client.patch(f'/api/v1/projects/{pid}/statements/{sid}', headers=headers, json={'text': 'Admin resets user passwords.'})
+            assert edited.json()['text'] == 'Admin resets user passwords.', edited.text
+            assert client.delete(f'/api/v1/projects/{pid}/statements/{sid}', headers=headers).status_code == 204
+            assert client.delete(f'/api/v1/projects/{pid}/statements/{sid}', headers=headers).status_code == 404
 
             # Waiting jobs report their place in line; jobs left over from a restart are failed.
             first = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
@@ -190,13 +204,35 @@ def main():
             db.fail_interrupted_jobs()
             assert db.member_job(second['id'], USER_ID)['status'] == 'failed'
 
-            assert client.post(f'/api/v1/projects/{pid}/confirmation', headers=headers).status_code == 201
-            # Generation is asynchronous at the API boundary; exercise the real worker directly.
+            confirmed = client.post(f'/api/v1/projects/{pid}/confirmation', headers=headers)
+            assert confirmed.status_code == 201 and confirmed.json()['confirmed'], confirmed.text
+            # Generation extracts the building blocks the chosen diagrams need, then draws them.
             job = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
             asyncio.run(integrated.generation_worker(job['id'], pid, ['use_case']))
             finished = db.member_job(job['id'], USER_ID)
             assert finished['status'] == 'succeeded', finished
             diagram_id = finished['diagram_ids'][0]
+            assert EXTRACT_CALLS[-1]['diagram_types'] == ['use_case'] and EXTRACT_CALLS[-1]['done_nodes'] == []
+            assert [r['id'] for r in EXTRACT_CALLS[-1]['requirements']] == ['R-001', 'R-002', 'R-003', 'R-004']
+            items = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
+            assert {'actor', 'process', 'interaction'} <= {i['category'] for i in items}, items
+            project = client.get(f'/api/v1/projects/{pid}', headers=headers).json()
+            assert project['extracted_nodes'] == ['actors', 'interactions', 'processes'], project
+
+            # Item fixes no longer clear the confirmation; a redraw reuses the extracted nodes.
+            actor = next(i for i in items if i['category'] == 'actor')
+            blank_name = client.patch(f"/api/v1/projects/{pid}/items/{actor['id']}", headers=headers,
+                                      json={'name': '   ', 'description': None})
+            assert blank_name.status_code == 422, blank_name.text
+            assert client.patch(f"/api/v1/projects/{pid}/items/{actor['id']}", headers=headers,
+                                json={'name': 'Shopper', 'description': None}).status_code == 200
+            assert client.get(f'/api/v1/projects/{pid}', headers=headers).json()['confirmed']
+            redraw = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
+            asyncio.run(integrated.generation_worker(redraw['id'], pid, ['use_case']))
+            assert db.member_job(redraw['id'], USER_ID)['status'] == 'succeeded'
+            assert EXTRACT_CALLS[-1]['done_nodes'] == ['actors', 'interactions', 'processes']
+            assert any(a['name'] == 'Shopper' for a in EXTRACT_CALLS[-1]['known']['actors'])
+            assert len(client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']) == len(items)
 
             diagram = client.get(f'/api/v1/diagrams/{diagram_id}', headers=headers).json()
             assert 'data-element-id=' in diagram['svg']
@@ -267,6 +303,22 @@ def main():
                                              'integration-use-case.pdf', 'integration-use-case.puml'}, z.namelist()
             assert client.get(f'/api/v1/projects/{pid}/diagrams/export?versions=some',
                               headers=headers).status_code == 422
+
+            # Changing a requirement clears the confirmation and the system-extracted building blocks. The item the
+            # user edited (Shopper) is kept; relations that lost an end (the interactions) go with the system items.
+            first_sid = client.get(f'/api/v1/projects/{pid}/statements', headers=headers).json()[0]['id']
+            client.patch(f'/api/v1/projects/{pid}/statements/{first_sid}', headers=headers, json={'text': 'Customer signs in.'})
+            after = client.get(f'/api/v1/projects/{pid}', headers=headers).json()
+            assert not after['confirmed'] and after['extracted_nodes'] == [], after
+            kept = client.get(f'/api/v1/projects/{pid}/items', headers=headers).json()['items']
+            assert [(i['name'], i['origin']) for i in kept] == [('Shopper', 'user-edited')], kept
+            stored = db.get_statement(pid, first_sid)
+            assert stored['text'] == 'Customer signs in.'
+            with psycopg.connect(os.environ['DATABASE_URL'], prepare_threshold=None) as c:
+                raw = c.execute('SELECT text FROM statements WHERE id=%s', (first_sid,)).fetchone()[0]
+            assert raw.startswith('enc:'), 'edited requirement text must be stored encrypted'
+            assert client.post(f'/api/v1/projects/{pid}/generations', headers=headers,
+                               json={'diagram_types': ['use_case']}).status_code == 409
 
         print('backend integration test passed')
     finally:

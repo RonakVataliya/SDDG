@@ -77,3 +77,18 @@ ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
 
 -- Diagram look chosen by the user (#38): JSON, see core/styling.py. NULL = inherit from parent_id, else default.
 ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS style text;
+
+-- Stream 5: PM reporting and client management (FR3b, FR3e, FR20, FR21, FR32).
+-- The client is stored on the project (no client directory). archived_at marks an archived project: the web app
+-- shows it read-only and Home lists it under Archived; the API does not block writes to it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_name text;     -- encrypted; Home groups projects by it
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contact_email text;   -- lowercased
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_by text;
+
+-- Requirements-first workflow: which extraction nodes (actors, entities, …) have run on the confirmed
+-- requirements, as a JSON list. Reset whenever a requirement changes, so the next generation re-extracts.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS extracted_nodes text NOT NULL DEFAULT '[]';
+
+-- Design packs and reviews were dropped from Stream 5. Removes them where an earlier PM build created them.
+DROP TABLE IF EXISTS reviews, design_packs;

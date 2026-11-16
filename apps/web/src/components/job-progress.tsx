@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 export function JobProgress({ job, title }: { job: Job; title: string }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    if (job.status !== 'queued' && job.status !== 'running') return
+    if (job.status !== 'queued' && job.status !== 'running' && job.status !== 'waiting') return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [job.status])
@@ -20,7 +20,7 @@ export function JobProgress({ job, title }: { job: Job; title: string }) {
   return (
     <div className="rounded-lg border border-rule bg-surface p-5" aria-live="polite">
       <div className="flex items-center gap-3">
-        {(job.status === 'queued' || job.status === 'running') && <Spinner label={title} />}
+        {(job.status === 'queued' || job.status === 'running' || job.status === 'waiting') && <Spinner label={title} />}
         <p className="font-medium">{title}</p>
         <span className="ml-auto text-sm text-slate tabular-nums">{elapsed}s</span>
       </div>
@@ -42,7 +42,9 @@ export function JobProgress({ job, title }: { job: Job; title: string }) {
           ? `Queued${job.queue_position ? `, position ${job.queue_position}` : ''}. It will start shortly.`
           : job.status === 'failed'
             ? (job.error ?? 'The job failed.')
-            : `${label}${job.status === 'running' && total ? ` (step ${step} of ${total})` : ''}`}
+            : job.status === 'waiting' // the AI provider's rate limit; the job resumes by itself
+              ? `${label}. The AI provider's rate limit was reached; this continues by itself.`
+              : `${label}${job.status === 'running' && total ? ` (step ${step} of ${total})` : ''}`}
       </p>
     </div>
   )

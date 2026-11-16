@@ -6,6 +6,7 @@ import { GeneratePage } from '@/features/generate/generate-page'
 import { InputPage } from '@/features/input/input-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
 import { ProjectsPage } from '@/features/projects/projects-page'
+import { ItemsPage } from '@/features/review/items-page'
 import { ReviewPage } from '@/features/review/review-page'
 import { SearchPage } from '@/features/search/search-page'
 import { ViewerPage } from '@/features/viewer/viewer-page'
@@ -34,6 +35,7 @@ export const routes = [
               { index: true, element: <WorkspaceIndex /> },
               { path: 'input', element: <InputPage /> },
               { path: 'review', element: <ReviewPage /> },
+              { path: 'items', element: <ItemsPage /> },
               { path: 'generate', element: <GeneratePage /> },
               { path: 'search', element: <SearchPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },

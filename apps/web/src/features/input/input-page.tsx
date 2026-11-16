@@ -26,7 +26,7 @@ export function InputPage() {
   const submit = useSubmitInput(project.id)
 
   const extraction = project.extraction
-  const running = extraction?.status === 'queued' || extraction?.status === 'running'
+  const running = extraction?.status === 'queued' || extraction?.status === 'running' || extraction?.status === 'waiting'
   // Remember the job once seen running: the project summary may report it finished before our own job poll
   // does, and we still want to see that finish to move on to review.
   const [watchedJobId, setWatchedJobId] = useState<string | null>(() => (running ? extraction.id : null))
@@ -78,9 +78,9 @@ export function InputPage() {
   if ((running || (job && job.status !== 'failed')) && liveJob) {
     return (
       <div className="space-y-4">
-        <StepHeading title="Extracting modelling items" />
-        <JobProgress job={liveJob} title="Reading your requirements" />
-        <p className="text-sm text-slate">You can leave this page; extraction keeps running.</p>
+        <StepHeading title="Finding requirements" />
+        <JobProgress job={liveJob} title="Finding your requirements" />
+        <p className="text-sm text-slate">You can leave this page; it keeps running, and your requirements will be ready to review when you come back.</p>
       </div>
     )
   }
@@ -93,20 +93,19 @@ export function InputPage() {
       />
 
       {extraction?.status === 'failed' && (
-        <Notice tone="error" title="The last extraction failed">
+        <Notice tone="error" title="Finding requirements failed">
           {extraction.error ?? 'Try submitting the text again.'}
         </Notice>
       )}
-      {extraction?.status === 'succeeded' && project.item_count === 0 && (
-        <Notice tone="warning" title="No modelling items were found">
-          Nothing in the text named an actor or an action. Add requirements written like &ldquo;The librarian shall
-          issue a book to a member.&rdquo;
+      {extraction?.status === 'succeeded' && project.statement_count === 0 && (
+        <Notice tone="warning" title="No requirements were found">
+          Write them as sentences, one per line, like &ldquo;The librarian shall issue a book to a member.&rdquo;
         </Notice>
       )}
       {project.statement_count > 0 && (
         <Notice title={`This project has ${plural(project.statement_count, 'requirement statement')}`}>
-          Text you submit now is added as new statements. Your confirmation will be cleared, so you&rsquo;ll review the
-          items again.
+          Text you submit now is added as new requirements; nothing is replaced. You&rsquo;ll review and confirm the
+          list again.
         </Notice>
       )}
 
@@ -143,7 +142,7 @@ export function InputPage() {
       <div className="flex flex-wrap items-center gap-3">
         <Button size="lg" disabled={!text.trim() || overLimit || submit.isPending || consent.isPending} onClick={onExtract}>
           {submit.isPending && <Spinner className="text-white" label="Submitting" />}
-          Extract items
+          Extract requirements
         </Button>
         {consent.data?.consented && (
           <span className="text-xs text-slate">Text is sent to Google Gemini for extraction.</span>

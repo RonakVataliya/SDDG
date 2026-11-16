@@ -1,0 +1,216 @@
+{
+  "id": "food_delivery",
+  "title": "Food delivery",
+  "style": "prose",
+  "reviewed": false,
+  "requirement_count": 9,
+  "text": "Customers open the app, pick a restaurant near them and order dishes from its menu. They pay in the app when\nthey place the order. The restaurant receives each new order and accepts or rejects it; once accepted it marks\nthe order ready when the food is packed. The platform then assigns the nearest available delivery partner, who\npicks the order up and delivers it, updating the status at each step so the customer can follow it live. After\ndelivery the customer can rate the restaurant and the delivery partner. Restaurants keep their menu and prices up\nto date themselves, and the operations team can suspend a restaurant that gets too many complaints.\n",
+  "labels": {
+    "actors": [
+      [
+        "Customer"
+      ],
+      [
+        "Restaurant",
+        "Restaurant owner"
+      ],
+      [
+        "Delivery partner",
+        "Driver",
+        "Rider"
+      ],
+      [
+        "Operations team",
+        "Operations",
+        "Admin"
+      ]
+    ],
+    "entities": [
+      [
+        "Customer"
+      ],
+      [
+        "Restaurant"
+      ],
+      [
+        "Menu"
+      ],
+      [
+        "Dish",
+        "Menu item",
+        "Item"
+      ],
+      [
+        "Order"
+      ],
+      [
+        "Payment"
+      ],
+      [
+        "Delivery partner",
+        "Driver"
+      ],
+      [
+        "Rating",
+        "Review"
+      ],
+      [
+        "Delivery"
+      ]
+    ],
+    "processes": [
+      [
+        "Browse restaurants",
+        "Pick restaurant",
+        "Search restaurants"
+      ],
+      [
+        "Place order",
+        "Order food",
+        "Order dishes"
+      ],
+      [
+        "Pay for order",
+        "Make payment",
+        "Pay"
+      ],
+      [
+        "Accept order",
+        "Accept or reject order",
+        "Review order"
+      ],
+      [
+        "Mark order ready",
+        "Prepare order"
+      ],
+      [
+        "Assign delivery partner",
+        "Assign driver"
+      ],
+      [
+        "Deliver order",
+        "Pick up and deliver order"
+      ],
+      [
+        "Track order",
+        "Follow order"
+      ],
+      [
+        "Rate order",
+        "Rate restaurant",
+        "Give rating"
+      ],
+      [
+        "Update menu",
+        "Manage menu"
+      ],
+      [
+        "Suspend restaurant"
+      ]
+    ],
+    "interactions": [
+      [
+        "Customer",
+        "Place order"
+      ],
+      [
+        "Customer",
+        "Pay for order"
+      ],
+      [
+        "Customer",
+        "Track order"
+      ],
+      [
+        "Customer",
+        "Rate order"
+      ],
+      [
+        "Restaurant",
+        "Accept order"
+      ],
+      [
+        "Restaurant",
+        "Mark order ready"
+      ],
+      [
+        "Restaurant",
+        "Update menu"
+      ],
+      [
+        "Delivery partner",
+        "Deliver order"
+      ],
+      [
+        "Operations team",
+        "Suspend restaurant"
+      ]
+    ],
+    "relationships": [
+      [
+        "Restaurant",
+        "Menu"
+      ],
+      [
+        "Menu",
+        "Dish"
+      ],
+      [
+        "Customer",
+        "Order"
+      ],
+      [
+        "Order",
+        "Dish"
+      ],
+      [
+        "Order",
+        "Payment"
+      ],
+      [
+        "Order",
+        "Delivery partner"
+      ],
+      [
+        "Order",
+        "Rating"
+      ]
+    ],
+    "data_stores": [
+      [
+        "Orders",
+        "Order database"
+      ],
+      [
+        "Menus",
+        "Menu database"
+      ],
+      [
+        "Ratings"
+      ]
+    ],
+    "data_flows": [
+      [
+        "Customer",
+        "Place order"
+      ],
+      [
+        "Place order",
+        "Orders"
+      ],
+      [
+        "Orders",
+        "Accept order"
+      ],
+      [
+        "Update menu",
+        "Menus"
+      ],
+      [
+        "Rate order",
+        "Ratings"
+      ]
+    ]
+  },
+  "forbidden": []
+}

@@ -3,6 +3,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.logging_config import error_location, get_logger
 from app.schemas.results import ExtractionRequest, ExtractionResult, SplitRequest, SplitResult
+from app.llm.limiter import AIBusy
 from app.services.ai_service import AIServiceError
 from app.services.extraction_service import run_extraction_pipeline, run_split
 
@@ -21,6 +22,8 @@ async def split(request: SplitRequest) -> SplitResult:
         return await run_in_threadpool(
             run_split, request.text, request.project_name, request.feedback, request.previous
         )
+    except AIBusy:
+        raise  # the app answers 429 ai_busy with Retry-After (app/main.py)
     except AIServiceError as exc:
         logger.error("split_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc
@@ -50,6 +53,8 @@ async def extract(request: ExtractionRequest) -> ExtractionResult:
             known=request.known,
         )
         return result
+    except AIBusy:
+        raise  # the app answers 429 ai_busy with Retry-After (app/main.py)
     except AIServiceError as exc:
         logger.error("extraction_config_error error=%s", str(exc))
         raise HTTPException(status_code=503, detail="AI service is not available.") from exc

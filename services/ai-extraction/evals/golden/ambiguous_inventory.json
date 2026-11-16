@@ -1,0 +1,83 @@
+{
+  "id": "ambiguous_inventory",
+  "title": "Warehouse inventory (deliberately vague)",
+  "style": "ambiguous",
+  "reviewed": false,
+  "requirement_count": 8,
+  "text": "The system should be fast and user-friendly.\nStock should be updated appropriately when goods arrive.\nSomeone must approve large orders.\nThe warehouse manager shall view stock levels, etc.\nItems shall be reordered when stock is low.\nThe system shall keep records for a period of time.\nA picker shall pick items for an order and mark them picked.\nThe supplier shall be notified if.\n",
+  "labels": {
+    "actors": [
+      [
+        "Warehouse manager",
+        "Manager"
+      ],
+      [
+        "Picker",
+        "Warehouse picker"
+      ],
+      [
+        "Supplier"
+      ]
+    ],
+    "entities": [
+      [
+        "Item",
+        "Stock item",
+        "Product"
+      ],
+      [
+        "Stock",
+        "Stock level",
+        "Inventory"
+      ],
+      [
+        "Order",
+        "Purchase order"
+      ],
+      [
+        "Supplier"
+      ],
+      [
+        "Goods receipt",
+        "Delivery",
+        "Shipment"
+      ]
+    ],
+    "processes": [
+      [
+        "Update stock",
+        "Receive goods"
+      ],
+      [
+        "Approve order",
+        "Approve large order"
+      ],
+      [
+        "View stock levels",
+        "View stock"
+      ],
+      [
+        "Reorder items",
+        "Reorder stock"
+      ],
+      [
+        "Pick items",
+        "Pick order"
+      ],
+      [
+        "Notify supplier"
+      ]
+    ],
+    "interactions": [
+      [
+        "Warehouse manager",
+        "View stock levels"
+      ],
+      [
+        "Picker",
+        "Pick items"
+      ]
+    ]
+  },
+  "forbidden": []
+}

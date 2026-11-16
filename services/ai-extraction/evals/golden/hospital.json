@@ -1,0 +1,200 @@
+{
+  "id": "hospital",
+  "title": "Hospital appointments",
+  "style": "srs-shall",
+  "reviewed": false,
+  "requirement_count": 14,
+  "text": "The system shall allow a patient to register with name, date of birth, phone number and email.\nThe system shall allow a patient to book an appointment with a doctor for an available slot.\nThe system shall allow a patient to cancel an appointment up to 24 hours before it starts.\nThe system shall send the patient an SMS confirmation when an appointment is booked.\nThe system shall allow a doctor to set the weekly slots when they are available.\nThe system shall allow a doctor to view the day's appointments.\nThe system shall allow a doctor to write a prescription for a patient after a consultation.\nThe system shall allow a doctor to view a patient's medical history.\nThe system shall allow the receptionist to check in a patient who arrives for an appointment.\nThe system shall allow the receptionist to book an appointment on behalf of a patient who calls.\nThe system shall allow the pharmacist to view prescriptions and mark them as dispensed.\nThe system shall generate an invoice for each consultation.\nThe system shall allow a patient to pay an invoice online.\nThe system shall allow the administrator to add and remove doctors.\n",
+  "labels": {
+    "actors": [
+      [
+        "Patient"
+      ],
+      [
+        "Doctor",
+        "Physician"
+      ],
+      [
+        "Receptionist"
+      ],
+      [
+        "Pharmacist"
+      ],
+      [
+        "Administrator",
+        "Admin"
+      ]
+    ],
+    "entities": [
+      [
+        "Patient"
+      ],
+      [
+        "Doctor"
+      ],
+      [
+        "Appointment"
+      ],
+      [
+        "Slot",
+        "Time slot",
+        "Availability"
+      ],
+      [
+        "Prescription"
+      ],
+      [
+        "Medical history",
+        "Medical record"
+      ],
+      [
+        "Invoice",
+        "Bill"
+      ],
+      [
+        "Consultation"
+      ]
+    ],
+    "processes": [
+      [
+        "Register patient",
+        "Register"
+      ],
+      [
+        "Book appointment"
+      ],
+      [
+        "Cancel appointment"
+      ],
+      [
+        "Send confirmation",
+        "Send SMS confirmation"
+      ],
+      [
+        "Set availability",
+        "Set available slots",
+        "Manage slots"
+      ],
+      [
+        "View appointments",
+        "View daily appointments"
+      ],
+      [
+        "Write prescription",
+        "Prescribe"
+      ],
+      [
+        "View medical history",
+        "View patient history"
+      ],
+      [
+        "Check in patient",
+        "Check in"
+      ],
+      [
+        "Dispense prescription",
+        "Mark prescription dispensed",
+        "View prescriptions"
+      ],
+      [
+        "Generate invoice",
+        "Create invoice"
+      ],
+      [
+        "Pay invoice",
+        "Pay online",
+        "Make payment"
+      ],
+      [
+        "Manage doctors",
+        "Add doctor",
+        "Remove doctor"
+      ]
+    ],
+    "interactions": [
+      [
+        "Patient",
+        "Register patient"
+      ],
+      [
+        "Patient",
+        "Book appointment"
+      ],
+      [
+        "Patient",
+        "Cancel appointment"
+      ],
+      [
+        "Patient",
+        "Pay invoice"
+      ],
+      [
+        "Doctor",
+        "Set availability"
+      ],
+      [
+        "Doctor",
+        "View appointments"
+      ],
+      [
+        "Doctor",
+        "Write prescription"
+      ],
+      [
+        "Doctor",
+        "View medical history"
+      ],
+      [
+        "Receptionist",
+        "Check in patient"
+      ],
+      [
+        "Receptionist",
+        "Book appointment"
+      ],
+      [
+        "Pharmacist",
+        "Dispense prescription"
+      ],
+      [
+        "Administrator",
+        "Manage doctors"
+      ]
+    ],
+    "relationships": [
+      [
+        "Patient",
+        "Appointment"
+      ],
+      [
+        "Doctor",
+        "Appointment"
+      ],
+      [
+        "Appointment",
+        "Slot"
+      ],
+      [
+        "Doctor",
+        "Prescription"
+      ],
+      [
+        "Patient",
+        "Prescription"
+      ],
+      [
+        "Patient",
+        "Medical history"
+      ],
+      [
+        "Consultation",
+        "Invoice"
+      ],
+      [
+        "Appointment",
+        "Consultation"
+      ]
+    ]
+  },
+  "forbidden": []
+}

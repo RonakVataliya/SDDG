@@ -47,7 +47,7 @@ function EditForm({ projectId, item, confirmed, onClose }: { projectId: string; 
       <DialogTitle>Edit {categoryLabel[item.category].toLowerCase()}</DialogTitle>
       <DialogDescription>
         Saving marks this item as edited by you, so re-extraction will never overwrite it.
-        {confirmed && ' It also clears your confirmation; confirm again before generating.'}
+        {confirmed && ' Generate again to redraw your diagrams with the change.'}
       </DialogDescription>
       <div className="mt-5 space-y-4">
         <div className="space-y-1.5">
