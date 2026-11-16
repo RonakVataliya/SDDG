@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS flags (
   seq bigint GENERATED ALWAYS AS IDENTITY);
 ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
 
+-- Diagram look chosen by the user (#38): JSON, see core/styling.py. NULL = inherit from parent_id, else default.
+ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS style text;
+
 -- Stream 5: PM reporting and client management (FR3b, FR3e, FR20, FR21, FR32).
 -- The client is stored on the project (no client directory). archived_at marks an archived project: the web app
 -- shows it read-only and Home lists it under Archived; the API does not block writes to it.
