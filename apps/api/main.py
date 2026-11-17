@@ -11,16 +11,13 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from core import db  # noqa: E402
+from core.migrate import migrate  # noqa: E402
 from routers.layout import router as layout_router  # noqa: E402
-from routers.validation import router as validation_router  # noqa: E402
 from routers.integrated import router  # noqa: E402
 from routers.flags import router as flags_router  # noqa: E402
 from routers.reporting import router as reporting_router  # noqa: E402
 from routers.clients import router as clients_router  # noqa: E402
 from routers.statements import router as statements_router  # noqa: E402
-from routers.testing_design import router as testing_design_router  # noqa: E402
-from routers.testing_cases import router as testing_cases_router  # noqa: E402
-from routers.testing_runs import router as testing_runs_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -28,6 +25,8 @@ async def lifespan(_):
     # Mock tokens let anyone sign in as any email; never allow them next to real Supabase auth.
     if os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true" and os.getenv("SUPABASE_URL"):
         raise RuntimeError("DEV_AUTH_BYPASS=true is for local development only; unset it when SUPABASE_URL is set.")
+    if os.getenv("AUTO_MIGRATE", "false").lower() == "true":
+        migrate()  # numbered SQL files in migrations/; each runs once
     db.init_db()
     db.fail_interrupted_jobs()
     yield
@@ -43,15 +42,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(layout_router, prefix="/api/v1")
-app.include_router(validation_router, prefix="/api/v1")
 app.include_router(router, prefix="/api/v1")
 app.include_router(flags_router, prefix="/api/v1")
 app.include_router(reporting_router, prefix="/api/v1")
 app.include_router(clients_router, prefix="/api/v1")
 app.include_router(statements_router, prefix="/api/v1")
-app.include_router(testing_design_router, prefix="/api/v1")
-app.include_router(testing_cases_router, prefix="/api/v1")
-app.include_router(testing_runs_router, prefix="/api/v1")
 
 
 @app.get("/health")

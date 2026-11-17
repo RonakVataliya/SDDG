@@ -167,27 +167,24 @@ cp apps/web/.env.example apps/web/.env.local
 
 Edit the copied files before starting the services. Do not commit `.env` or `.env.local` files, and never put LLM secrets in frontend variables.
 
-#### 2. Configure the database and apply the schema
+#### 2. Configure the database and apply the migrations
 
 Set `DATABASE_URL` in `apps/api/.env` to your PostgreSQL connection string. The included example shows the expected Supabase connection-string format.
 
-Apply the schema once to the target database. For example, with `psql` and a shell that can load the `.env` file:
+The schema lives in numbered SQL files in `apps/api/migrations/` (`0001_baseline.sql`, `0002_…`). Apply the ones the database has not run yet, from `apps/api`:
 
 ```bash
-set -a
-source apps/api/.env
-set +a
-psql "$DATABASE_URL" -f apps/api/schema.sql
+python -m core.migrate
 ```
 
-The API needs the tables in `apps/api/schema.sql` before it can operate. The API startup code opens the connection pool; do not rely on startup to apply the schema automatically.
+It records what it applied in a `schema_migrations` table, so running it again does nothing. Set `AUTO_MIGRATE=true` to run it every time the API starts. Every file is idempotent, so a database that was set up with the old `schema.sql` migrates cleanly. To change the schema, add the next numbered file; never edit one that has been applied.
 
 To move an existing deployment to the version with project membership and encrypted storage, do these steps in this order. A different order either stops the API from starting or shows `enc:...` text to users.
 
 1. Generate a key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and set it as `DATA_ENCRYPTION_KEY` on the host (for example Render) and in `apps/api/.env`. Keep a second copy in a password manager: if the key is lost, the stored content cannot be read.
-2. Run `apps/api/schema.sql` against the database.
+2. Run `python -m core.migrate` against the database.
 3. Deploy the API.
-4. Run `apps/api/schema.sql` once more (it adds any project created between steps 2 and 3 to its members), then run `python encrypt_existing.py` once from `apps/api` to encrypt content saved earlier.
+4. Run `python encrypt_existing.py` once from `apps/api` to encrypt content saved earlier. (If projects were created between steps 2 and 3 by an older API, first re-run the membership line of `migrations/0001_baseline.sql` by hand: `INSERT INTO project_members (project_id, user_id) SELECT id, owner_id FROM projects ON CONFLICT DO NOTHING;`.)
 
 #### 3. Configure and start the AI extraction service
 

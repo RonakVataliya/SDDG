@@ -15,13 +15,7 @@ pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-JSON_COLS = (
-    "qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes",
-    # Tests feature (stream 6)
-    "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
-    "preconditions", "steps",
-    "case_ids",
-)
+JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes")
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
     "projects": ("name", "client_name"),
@@ -30,14 +24,6 @@ SECRET = {
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
     "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
     "jobs": ("error",),  # a failure message can repeat part of the requirements
-    # Tests feature (stream 6): everything derived from requirement text.
-    "test_designs": ("performance_targets",),
-    "test_criteria": ("given_text", "when_text", "then_text"),
-    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes"),
-    "test_flows": ("flow_text",),
-    "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
-    "test_runs": ("name",),
-    "test_results": ("note",),
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
@@ -237,7 +223,7 @@ def _item_key(i):
     return key + (i["source_item_id"], i["target_item_id"]) if i.get("source_item_id") or i.get("target_item_id") else key
 
 
-def add_system_items(pid, items, model_used=None):
+def add_system_items(pid, items):
     """Adds one submission's extracted items to the project; items from earlier submissions stay.
 
     An item the project already has (see _item_key) is not added again: it gains the new statement refs, and
@@ -266,13 +252,13 @@ def add_system_items(pid, items, model_used=None):
         with c.cursor() as cur:
             cur.executemany(
                 "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
-                "statement_ids, source_item_id, target_item_id, relation_type, model_used) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "statement_ids, source_item_id, target_item_id, relation_type) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 [
                     (
                         i["id"], pid, i["category"], encrypt(i["name"]), encrypt(i.get("description")), "system-extracted",
                         json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
-                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"), model_used,
+                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"),
                     )
                     for i in new
                 ],
@@ -325,7 +311,7 @@ def fail_interrupted_jobs():
     old process may still finish such a job; its final update then overwrites this.)"""
     run(
         "UPDATE jobs SET status='failed', queue_position=NULL, error=%s, progress_label='Interrupted', finished_at=%s "
-        "WHERE status IN ('queued', 'running', 'waiting')",
+        "WHERE status IN ('queued', 'running')",
         "Interrupted by a server restart. Try again.", now(),
     )
 
@@ -335,10 +321,6 @@ def member_job(jid, user_id):
         "SELECT j.* FROM jobs j JOIN project_members m ON m.project_id=j.project_id WHERE j.id=%s AND m.user_id=%s",
         jid, user_id,
     ))
-
-
-def get_job(jid):
-    return _job(one("SELECT * FROM jobs WHERE id=%s", jid))
 
 
 def get_latest_extraction_job(pid):
@@ -358,30 +340,15 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
-    # One transaction: a new version never exists without the accepted warnings it carries over.
-    with pool.connection() as c:
-        d = c.execute(
-            "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-            "plantuml_source, parent_id, instruction, spec, layout, model_used) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-            (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
-             json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
-             encrypt(json.dumps(spec)) if spec is not None else None,
-             json.dumps(layout) if layout else None, model_used),
-        ).fetchone()
-        if parent_id:  # accepted warnings stay accepted on versions made from this one
-            c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
-                      "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
-    return _decode(d)
-
-
-def accepted_warnings(did):
-    return {r["warning_id"]: r for r in many("SELECT * FROM accepted_warnings WHERE diagram_id=%s", did)}
-
-
-def accept_warning(did, warning_id, email):
-    run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
+                   parent_id=None, instruction=None, spec=None, layout=None):
+    return one(
+        "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
+        "plantuml_source, parent_id, instruction, spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
+        json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
+        encrypt(json.dumps(spec)) if spec is not None else None,
+        json.dumps(layout) if layout else None,
+    )
 
 
 def member_diagram(did, user_id):
@@ -416,9 +383,6 @@ def get_flag(pid, fid):
                "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s AND f.id=%s", pid, fid)
 
 
-CHECKER_FLAG_TYPES = ("ambiguous", "incomplete", "conflict")
-
-
 def save_flags(pid, flags, statement_ids):
     """Stores the checker's flags for these statements, matched to earlier flags by (statement, type, reason).
 
@@ -428,12 +392,9 @@ def save_flags(pid, flags, statement_ids):
     - An open flag that is no longer found is resolved by re-analysis.
     """
     with pool.connection() as c:
-        # Only the checker's own types: flags raised elsewhere (the Tests feature's 'untestable' questions) must not be
-        # resolved as "no longer found" just because the checker never reports that type.
         old = [_decode(r) for r in c.execute(
             "SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
-            "WHERE project_id=%s AND statement_id = ANY(%s) AND type = ANY(%s)",
-            (pid, list(statement_ids), list(CHECKER_FLAG_TYPES))).fetchall()]
+            "WHERE project_id=%s AND statement_id = ANY(%s)", (pid, list(statement_ids))).fetchall()]
         known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
         found = set()
         for f in flags:
@@ -499,22 +460,3 @@ def reset_model(pid):
 
 def set_extracted_nodes(pid, nodes):
     run("UPDATE projects SET extracted_nodes=%s WHERE id=%s", json.dumps(sorted(set(nodes))), pid)
-
-
-def project_model(pid):
-    """The model that produced most of the project's system items (sticky provider choice), else None."""
-    r = one("SELECT model_used FROM items WHERE project_id=%s AND model_used IS NOT NULL "
-            "GROUP BY model_used ORDER BY count(*) DESC LIMIT 1", pid)
-    return r["model_used"] if r else None
-
-
-def add_llm_calls(job_id, pid, calls, mixed):
-    """Metadata only (the AI service's X-LLM-Usage): never prompt or output text."""
-    cols = ("node", "provider", "model", "input_tokens", "output_tokens", "wait_ms", "duration_ms", "attempts",
-            "rate_limited", "status")
-    with pool.connection() as c, c.cursor() as cur:
-        cur.executemany(
-            f"INSERT INTO llm_calls(job_id, project_id, {', '.join(cols)}, mixed_models) "
-            f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
-            [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
-        )
