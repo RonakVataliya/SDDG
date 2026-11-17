@@ -8,6 +8,7 @@ import { advance, createJob, diagramView, getDb, projectView, publicJob, resetMo
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
+import { testingHandlers } from './testing'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
 
@@ -53,6 +54,8 @@ const notFound = () => fail(404, 'Not found, or you do not have access to it.')
 
 export const handlers = [
   http.get(u('/health'), () => HttpResponse.json({ status: 'ok' })),
+  // Tests feature (stream 6): src/mocks/testing.ts
+  ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
 
   http.get(
     u('/me/consent'),

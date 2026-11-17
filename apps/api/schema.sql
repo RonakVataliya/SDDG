@@ -75,113 +75,115 @@ CREATE TABLE IF NOT EXISTS flags (
   seq bigint GENERATED ALWAYS AS IDENTITY);
 ALTER TABLE flags ENABLE ROW LEVEL SECURITY;
 
--- ===================== Sprint 3 =====================
--- Safe to re-run, and safe on a database that already holds Sprint 2 data.
--- Convention: "who did it" columns hold an email (as accepted_warnings.accepted_by does); *_ids columns hold a JSON list.
-
--- C1. Stable IDs: matched and kept, never wiped. updated_at is NULL until the row is first edited,
--- so existing diagrams are not all marked out of date by this migration.
-ALTER TABLE statements ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';  -- active | removed
-ALTER TABLE statements ADD COLUMN IF NOT EXISTS revision int NOT NULL DEFAULT 1;
-ALTER TABLE statements ADD COLUMN IF NOT EXISTS updated_at timestamptz;
-ALTER TABLE items ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';       -- active | stale
-ALTER TABLE items ADD COLUMN IF NOT EXISTS updated_at timestamptz;
-
--- C2. Members and roles. Upgrades the table above: one row per invite, user_id filled once the invite is accepted.
--- The role default keeps the current create_project insert working (it only ever adds the owner).
-ALTER TABLE project_members ADD COLUMN IF NOT EXISTS email text;
-ALTER TABLE project_members ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'owner';    -- owner | editor | viewer | client
-ALTER TABLE project_members ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'; -- invited | active | removed
-ALTER TABLE project_members ADD COLUMN IF NOT EXISTS invited_by text;
-ALTER TABLE project_members ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
-ALTER TABLE project_members DROP CONSTRAINT IF EXISTS project_members_pkey;
-ALTER TABLE project_members ALTER COLUMN user_id DROP NOT NULL;
--- Cleanup below may touch the last owner row of a project; pause row triggers (e.g. keep-an-owner) for these two statements only.
-ALTER TABLE project_members DISABLE TRIGGER USER;
--- A half-applied earlier run (primary key gone, index not yet made) lets line 13 insert owners twice; keep one copy.
-DELETE FROM project_members a USING project_members b
-  WHERE a.ctid > b.ctid AND a.project_id = b.project_id AND a.user_id = b.user_id;
-CREATE UNIQUE INDEX IF NOT EXISTS project_members_user_uq ON project_members (project_id, user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS project_members_email_uq ON project_members (project_id, email);
-UPDATE project_members m SET email = u.email FROM users u WHERE u.id = m.user_id AND m.email IS NULL;
-ALTER TABLE project_members ENABLE TRIGGER USER;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at timestamptz;
-
--- Client management (A): a thin client directory; a project may belong to one client. Archived = read-only after handover.
-CREATE TABLE IF NOT EXISTS clients (
-  id text PRIMARY KEY, owner_id text NOT NULL, name text NOT NULL, created_at timestamptz NOT NULL);
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_id text REFERENCES clients ON DELETE SET NULL;
+-- Stream 5: PM reporting and client management (FR3b, FR3e, FR20, FR21, FR32).
+-- The client is stored on the project (no client directory). archived_at marks an archived project: the web app
+-- shows it read-only and Home lists it under Archived; the API does not block writes to it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_name text;     -- encrypted; Home groups projects by it
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contact_email text;   -- lowercased
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_by text;
 
--- Design pack (C): the diagrams and requirements the client is allowed to see. Sent to the client once shared_at is set.
-CREATE TABLE IF NOT EXISTS design_packs (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
-  name text NOT NULL, diagram_ids text NOT NULL, statement_ids text NOT NULL,
-  shared_at timestamptz, created_at timestamptz NOT NULL);
-ALTER TABLE design_packs ENABLE ROW LEVEL SECURITY;
+-- Requirements-first workflow: which extraction nodes (actors, entities, …) have run on the confirmed
+-- requirements, as a JSON list. Reset whenever a requirement changes, so the next generation re-extracts.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS extracted_nodes text NOT NULL DEFAULT '[]';
 
--- C3. Comments and sign-off. An approve on a design pack records the exact diagram versions it covered.
-CREATE TABLE IF NOT EXISTS reviews (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
-  target_type text NOT NULL,          -- statement | diagram | pack
-  target_id text NOT NULL,
-  author text NOT NULL,
-  kind text NOT NULL,                 -- comment | approve | request_changes
-  body text, diagram_ids text,        -- diagram_ids: only on a pack approval
-  created_at timestamptz NOT NULL, resolved_at timestamptz);
-ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+-- Design packs and reviews were dropped from Stream 5. Removes them where an earlier PM build created them.
+DROP TABLE IF EXISTS reviews, design_packs;
 
--- Change requests (D): proposed requirement edits, previewed for impact, then accepted or rejected.
-CREATE TABLE IF NOT EXISTS change_requests (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
-  description text NOT NULL,
-  edits text NOT NULL,                -- JSON {statement_id: new text}
-  status text NOT NULL DEFAULT 'open', -- open | accepted | rejected
-  created_by text NOT NULL, created_at timestamptz NOT NULL,
-  decided_by text, decided_at timestamptz);
-ALTER TABLE change_requests ENABLE ROW LEVEL SECURITY;
+-- Tests feature (Sprint 3, stream 6): test design per requirement, test cases and manual runs.
+-- Every table has project_id, so access checks and tests_access.py's encryption sweep can find its rows.
+-- Text and JSON columns that hold requirement content are encrypted (core/db.py SECRET).
 
--- Meeting audio. Chunks hold audio only until transcribed, then audio is set to NULL ("keep text only").
-CREATE TABLE IF NOT EXISTS meetings (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
-  started_by text NOT NULL,
-  consent_at timestamptz NOT NULL,    -- recording cannot start without consent
-  status text NOT NULL DEFAULT 'recording', -- recording | transcribing | ready | failed
-  started_at timestamptz NOT NULL, ended_at timestamptz,
-  transcript text);                   -- merged, editable text with speaker labels and timestamps
-ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
-CREATE TABLE IF NOT EXISTS meeting_chunks (
-  meeting_id text NOT NULL REFERENCES meetings ON DELETE CASCADE,
-  track text NOT NULL,                -- tab | mic
-  seq int NOT NULL,
-  audio bytea, segments text, transcribed_at timestamptz,
-  PRIMARY KEY (meeting_id, track, seq));
-ALTER TABLE meeting_chunks ENABLE ROW LEVEL SECURITY;
+-- One row per requirement that AI request 1 has designed. requirement_hash (an HMAC of the requirement text at the
+-- time) tells later reads whether the text has changed since.
+CREATE TABLE IF NOT EXISTS test_designs (
+  statement_id text PRIMARY KEY REFERENCES statements ON DELETE CASCADE,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  requirement_hash text NOT NULL,
+  performance_targets text NOT NULL,          -- JSON list: [{measure, limit, unit, load}]
+  generated_at timestamptz NOT NULL);
+CREATE INDEX IF NOT EXISTS test_designs_project_idx ON test_designs (project_id);
 
--- Test design. A criterion or case is out of date when a statement it links to changed (see C1).
-CREATE TABLE IF NOT EXISTS acceptance_criteria (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+-- Acceptance criteria in Given / When / Then form.
+CREATE TABLE IF NOT EXISTS test_criteria (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
   statement_id text NOT NULL REFERENCES statements ON DELETE CASCADE,
-  text text NOT NULL,                 -- Given / When / Then
-  question text, answer text,         -- missing detail the AI asked about, and the user's reply
-  created_at timestamptz NOT NULL);
-ALTER TABLE acceptance_criteria ENABLE ROW LEVEL SECURITY;
+  given_text text NOT NULL, when_text text NOT NULL, then_text text NOT NULL,
+  seq bigint GENERATED ALWAYS AS IDENTITY);
+CREATE INDEX IF NOT EXISTS test_criteria_project_idx ON test_criteria (project_id, statement_id, seq);
+
+-- The inputs a requirement talks about. kind: range | count | set.
+CREATE TABLE IF NOT EXISTS test_conditions (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  statement_id text NOT NULL REFERENCES statements ON DELETE CASCADE,
+  name text NOT NULL, kind text NOT NULL, description text, unit text,
+  limits text NOT NULL,                        -- JSON {"min": n|null, "max": n|null}
+  set_values text NOT NULL,                    -- JSON list of valid values (sets)
+  invalid_values text NOT NULL,                -- JSON list of values a set must reject
+  classes text,                                -- JSON [{label, valid}], from the AI service's /tests/derive
+  boundaries text,                             -- JSON [{value, valid}], from the AI service's /tests/derive
+  seq bigint GENERATED ALWAYS AS IDENTITY);
+CREATE INDEX IF NOT EXISTS test_conditions_project_idx ON test_conditions (project_id, statement_id, seq);
+-- For a database that ran an earlier draft of this table: add the columns if they are missing (no-op otherwise).
+ALTER TABLE test_conditions ADD COLUMN IF NOT EXISTS classes text;
+ALTER TABLE test_conditions ADD COLUMN IF NOT EXISTS boundaries text;
+
+-- Basic and alternate flows. kind: basic | alternate.
+CREATE TABLE IF NOT EXISTS test_flows (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  statement_id text NOT NULL REFERENCES statements ON DELETE CASCADE,
+  kind text NOT NULL, flow_text text NOT NULL,
+  seq bigint GENERATED ALWAYS AS IDENTITY);
+CREATE INDEX IF NOT EXISTS test_flows_project_idx ON test_flows (project_id, statement_id, seq);
+
+-- Test cases. number (TC-001...) is never reused within a project.
+-- status: draft (no steps yet) | ready. origin: generated | manual. kept=false: a draft the user unticked.
 CREATE TABLE IF NOT EXISTS test_cases (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
-  title text NOT NULL, kind text NOT NULL, -- positive | negative | edge
-  preconditions text, steps text, expected text, -- steps stay NULL until the title is approved
-  statement_ids text NOT NULL, created_at timestamptz NOT NULL);
-ALTER TABLE test_cases ENABLE ROW LEVEL SECURITY;
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  statement_id text NOT NULL REFERENCES statements ON DELETE CASCADE,
+  number text NOT NULL, title text NOT NULL,
+  technique text NOT NULL, kind text NOT NULL, priority text NOT NULL,
+  status text NOT NULL, kept boolean NOT NULL, origin text NOT NULL, outcome text,
+  test_data text NOT NULL, covers text NOT NULL, preconditions text NOT NULL, steps text NOT NULL, expected text,
+  requirement_hash text NOT NULL,              -- HMAC of the requirement text the case was written for
+  created_at timestamptz NOT NULL,
+  seq bigint GENERATED ALWAYS AS IDENTITY,
+  UNIQUE (project_id, number));
+CREATE INDEX IF NOT EXISTS test_cases_project_idx ON test_cases (project_id, seq);
+
+-- Last TC number handed out per project. Drafts are replaced when a design changes, so numbering cannot come from
+-- max(number) the way R-numbers do: that would hand a deleted draft's number to a new case.
+CREATE TABLE IF NOT EXISTS test_counters (
+  project_id text PRIMARY KEY REFERENCES projects ON DELETE CASCADE,
+  last_case integer NOT NULL);
+
+-- Manual runs. mode: all | failed | regression | minimal | pick. A run is open until finished_at is set.
 CREATE TABLE IF NOT EXISTS test_runs (
-  id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
-  name text NOT NULL, started_by text NOT NULL, created_at timestamptz NOT NULL);
-ALTER TABLE test_runs ENABLE ROW LEVEL SECURITY;
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  name text NOT NULL, mode text NOT NULL,
+  case_ids text NOT NULL,                      -- JSON list, in the order the run shows them
+  created_by text NOT NULL, created_at timestamptz NOT NULL, finished_at timestamptz);
+CREATE INDEX IF NOT EXISTS test_runs_project_idx ON test_runs (project_id, created_at);
+
+-- One result per case per run. status: pass | fail | blocked | skipped. Who marked it and when are kept.
 CREATE TABLE IF NOT EXISTS test_results (
   run_id text NOT NULL REFERENCES test_runs ON DELETE CASCADE,
   case_id text NOT NULL REFERENCES test_cases ON DELETE CASCADE,
-  status text NOT NULL,               -- pass | fail | blocked | skipped
-  note text, marked_by text NOT NULL, marked_at timestamptz NOT NULL,
+  project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
+  status text NOT NULL, note text, marked_by text NOT NULL, marked_at timestamptz NOT NULL,
   PRIMARY KEY (run_id, case_id));
+CREATE INDEX IF NOT EXISTS test_results_case_idx ON test_results (case_id);
+
+ALTER TABLE test_designs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE test_criteria ENABLE ROW LEVEL SECURITY;
+ALTER TABLE test_conditions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE test_flows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE test_cases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE test_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE test_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE test_counters ENABLE ROW LEVEL SECURITY;
