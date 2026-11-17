@@ -20,6 +20,7 @@ import routers.integrated as integrated
 import tests_integration
 from core import db
 from core import testing_db as tdb
+from core.notifications import notify
 from core.crypto import PREFIX
 from core.styling import DEFAULT_STYLE
 from main import app
@@ -53,6 +54,7 @@ def main():
         integrated.httpx.AsyncClient = original
         sql('DELETE FROM projects WHERE owner_id = ANY(%s)', [OWNER_ID, STRANGER_ID])
         sql('DELETE FROM consents WHERE user_id = ANY(%s)', [OWNER_ID, STRANGER_ID])
+        sql('DELETE FROM notifications WHERE user_id = ANY(%s)', [OWNER_ID, STRANGER_ID])
 
 
 def check(client):
@@ -84,10 +86,15 @@ def check(client):
     run = tdb.create_run(pid, SECRET_TEXT, 'all', [case['id']], OWNER)
     tdb.save_result(pid, run['id'], case['id'], 'fail', SECRET_TEXT, OWNER)
 
+    invitation = client.post(f'{api}/projects/{pid}/invitations', headers=mine,
+                             json={'email': f'acc-{uuid.uuid4().hex[:8]}@example.com'}).json()
+    note = notify(OWNER_ID, 'mention', {'project_id': pid})
+
     # 1. A stranger gets 404 on every route that takes a resource id, whatever the method.
     ids = {'project_id': pid, 'item_id': item['id'], 'statement_id': statement['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id,
            'condition_id': tdb.get_conditions(pid)[0]['id'], 'criterion_id': tdb.get_criteria(pid)[0]['id'],
-           'case_id': case['id'], 'run_id': run['id']}
+           'case_id': case['id'], 'run_id': run['id'],
+           'invitation_id': invitation['id'], 'notification_id': note['id']}
     bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
               '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
@@ -101,7 +108,10 @@ def check(client):
               '/tests/cases': {'statement_id': statement['id'], 'title': 'Hacked', 'kind': 'edge', 'priority': 'low',
                                'steps': ['x'], 'expected': 'x'},
               '/tests/cases/{case_id}': {'kept': False}, '/tests/runs': {'name': 'Hacked', 'mode': 'all'},
-              '/results/{case_id}': {'status': 'pass'}}
+              '/results/{case_id}': {'status': 'pass'},
+              # Invitations and traceability: valid bodies, so a refusal can only come from the access check
+              '/invitations': {'email': 'hacked@example.com', 'role': 'owner'},
+              '/naming/apply': {'model_item_id': item['id'], 'name': 'Hacked'}}
     swept = 0
     for path, methods in app.openapi()['paths'].items():
         if not any(f'{{{k}}}' in path for k in ids):
@@ -111,7 +121,8 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 52, swept  # a new route with a resource id must be added to this check (34 + 3 style + 15 Tests routes)
+    assert swept == 60, swept  # a new route with a resource id must be added to this check
+    # (34 + 3 style + 15 Tests + 8 invitations/notifications/traceability routes)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)

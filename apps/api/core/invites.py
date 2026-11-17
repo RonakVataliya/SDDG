@@ -5,7 +5,6 @@ account signs up first, then sees it), and the invitation's link is the fallback
 An invitation expires after 7 days and can be revoked while it is open. Accepting adds the person to
 project_members with the invited role.
 """
-import json
 import re
 import secrets
 from datetime import timedelta
@@ -180,20 +179,23 @@ def view(inv, with_token):
 
 def sync_notifications(user):
     """Puts every open invitation addressed to this user's email in their bell, once. This is what delivers an
-    invitation sent before the invitee had an account."""
+    invitation sent before the invitee had an account.
+
+    The bell polls, so this runs often: it is one statement that inserts nothing in the ordinary case (the
+    notifications_invitation_uq index already holds a row for every invitation this user has been told about),
+    rather than a read followed by an insert per invitation."""
     email = (user.email or "").lower()
     if not email:
         return
-    for i in db.many(
-        "SELECT id, project_id, invited_by, created_at FROM invitations WHERE email=%s AND accepted_at IS NULL "
-        "AND revoked_at IS NULL AND expires_at > %s", email, db.now()):
-        db.run(
-            "INSERT INTO notifications(id, user_id, type, payload, created_at) VALUES (%s,%s,'invitation',%s,%s) "
-            "ON CONFLICT DO NOTHING",
-            db.uid("nt"), user.id,
-            json.dumps({"invitation_id": i["id"], "project_id": i["project_id"], "from_user_id": i["invited_by"]}),
-            i["created_at"],
-        )
+    db.run(
+        "INSERT INTO notifications(id, user_id, type, payload, created_at) "
+        "SELECT 'nt_' || replace(gen_random_uuid()::text, '-', ''), %s, 'invitation', "
+        "json_build_object('invitation_id', i.id, 'project_id', i.project_id, 'from_user_id', i.invited_by)::text, "
+        "i.created_at FROM invitations i "
+        "WHERE i.email=%s AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > %s "
+        "ON CONFLICT DO NOTHING",
+        user.id, email, db.now(),
+    )
 
 
 def notification_view(user, rows):
