@@ -21,6 +21,7 @@ import tests_integration
 from core import db
 from core import testing_db as tdb
 from core.crypto import PREFIX
+from core.styling import DEFAULT_STYLE
 from main import app
 
 SECRET_TEXT = f'Zebra{uuid.uuid4().hex} logs in.'  # must never show up in the database or the logs
@@ -93,6 +94,7 @@ def check(client):
               '/layout': {'positions': {}}, '/projects/{project_id}': {'name': 'Hacked', 'confirm_name': 'Secret project'}, '/client': {'client_name': 'Hacked'},
               '/statements': {'text': 'Hacked'}, '/statements/{statement_id}': {'text': 'Hacked'},
               '/validation/accept': {'warning_id': 'Hacked'}, '/validation/fix': {'warning_id': 'Hacked'},
+              '/style': dict(DEFAULT_STYLE), '/preview': dict(DEFAULT_STYLE),
               # Tests feature: valid bodies, so a refusal can only come from the access check
               '/criteria-jobs': {'statement_ids': [statement['id']]}, '/step-jobs': {},
               '/conditions/{condition_id}': {'min': 0}, '/criteria/{criterion_id}': {'given': 'x', 'when': 'x', 'then': 'x'},
@@ -109,7 +111,7 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 49, swept  # a new route with a resource id must be added to this check (34 + 15 Tests routes)
+    assert swept == 52, swept  # a new route with a resource id must be added to this check (34 + 3 style + 15 Tests routes)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)
