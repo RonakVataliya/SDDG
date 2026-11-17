@@ -96,14 +96,30 @@ def get_project(pid):
 
 def member_project(pid, user_id):
     return one(
-        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
+        "SELECT p.*, m.role FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
         pid, user_id,
     )
 
 
+ROLES = ("viewer", "editor", "owner")  # lowest to highest
+
+
+def project_with_role(pid, user_id):
+    """The project with the caller's role as "role", or None when it is not theirs to see. A System Administrator
+    (users.is_admin) counts as owner on every project, member or not. Read on every request, never cached, so a
+    role change applies to the person's next request."""
+    r = one(
+        "SELECT p.*, CASE WHEN u.is_admin THEN 'owner' ELSE m.role END AS role FROM projects p "
+        "LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=%s "
+        "LEFT JOIN users u ON u.id=%s WHERE p.id=%s",
+        user_id, user_id, pid,
+    )
+    return r if r and r["role"] else None
+
+
 def project_rows(user_id):
     return many(
-        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id "
+        "SELECT p.*, m.role FROM projects p JOIN project_members m ON m.project_id=p.id "
         "WHERE m.user_id=%s ORDER BY p.created_at DESC",
         user_id,
     )
