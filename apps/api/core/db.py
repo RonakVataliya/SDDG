@@ -39,6 +39,7 @@ SECRET = {
     "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
     "test_runs": ("name",),
     "test_results": ("note",),
+    "comments": ("body",),  # comments and issue reports (FR32, FR27)
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
