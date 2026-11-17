@@ -13,7 +13,8 @@ from app.llm.limiter import Limits
 CHARS_PER_TOKEN = 3.5
 PROMPT_OVERHEAD_TOKENS = 200  # message framing and tool definition wrapper
 # Output reserved per call, by node; the rest of the nodes use DEFAULT_OUTPUT_RESERVE. Tuned from logged p95 usage.
-OUTPUT_RESERVE = {"split": 2500, "usecase_spec": 2500, "usecase_revision": 2500}
+OUTPUT_RESERVE = {"split": 2500, "usecase_spec": 2500, "usecase_revision": 2500,
+                  "test_criteria": 2500}  # Tests: criteria, conditions and flows for up to 5 requirements
 DEFAULT_OUTPUT_RESERVE = 1500
 
 

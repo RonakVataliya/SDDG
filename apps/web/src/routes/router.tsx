@@ -9,6 +9,7 @@ import { ProjectsPage } from '@/features/projects/projects-page'
 import { ItemsPage } from '@/features/review/items-page'
 import { ReviewPage } from '@/features/review/review-page'
 import { SearchPage } from '@/features/search/search-page'
+import { TestsPage } from '@/features/tests/tests-page'
 import { ViewerPage } from '@/features/viewer/viewer-page'
 import { AppLayout } from './app-layout'
 import { NotFoundPage } from './not-found-page'
@@ -38,6 +39,7 @@ export const routes = [
               { path: 'items', element: <ItemsPage /> },
               { path: 'generate', element: <GeneratePage /> },
               { path: 'search', element: <SearchPage /> },
+              { path: 'tests', element: <TestsPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },
             ],
           },

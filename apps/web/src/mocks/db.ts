@@ -15,7 +15,7 @@ type ProjectRow = {
   /** Extraction nodes already run on the confirmed requirements (requirements-first workflow). */
   extracted_nodes?: string[]
 }
-type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
+export type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
 /** The server keeps the model and drawing; the API only exposes the summary fields and the PNG. */
 export type DiagramRow = Diagram & {
   project_id: string
@@ -27,7 +27,25 @@ export type DiagramRow = Diagram & {
   style?: DiagramStyle
 }
 
+/** Tests feature (stream 6) rows; shapes live in ./testing.ts. */
+export type TestsState = {
+  designs: Record<string, unknown>
+  criteria: unknown[]
+  conditions: unknown[]
+  flows: unknown[]
+  targets: Record<string, unknown[]>
+  cases: unknown[]
+  runs: unknown[]
+  results: unknown[]
+  flags: unknown[]
+  nextCase: Record<string, number>
+}
+export const emptyTests = (): TestsState => ({
+  designs: {}, criteria: [], conditions: [], flows: [], targets: {}, cases: [], runs: [], results: [], flags: [], nextCase: {},
+})
+
 export type MockDb = {
+  tests: TestsState
   consent: Record<string, { version: string; at: string }>
   projects: ProjectRow[]
   statements: Record<string, RequirementStatement[]>
@@ -38,7 +56,7 @@ export type MockDb = {
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {} })
+const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {} })
 
 let db: MockDb = load()
 
@@ -67,14 +85,24 @@ const now = () => new Date().toISOString()
 
 /* ---------- job timing: status is derived from elapsed time, so polling shows real progress ---------- */
 
-const QUEUE_MS = 1200
-const STEP_MS = 1600
+const QUEUE_DEFAULT_MS = 1200
+const STEP_DEFAULT_MS = 1600
 const EXTRACTION_STEPS = ['Splitting the text into requirements', 'Checking requirement quality', 'Requirements ready to review']
 const GENERATION_STEPS = ['Extracting building blocks', 'Rendering the diagram', 'Checking notation']
 
+/** Extra job kinds (the Tests feature registers test_criteria and test_steps) with their steps and result. */
+type JobKindPlugin = { steps: string[]; queueMs: number; stepMs: number; apply: (job: JobRow) => void }
+const plugins: Record<string, JobKindPlugin> = {}
+export function registerJobKind(kind: string, plugin: JobKindPlugin) {
+  plugins[kind] = plugin
+}
+
 export function advance(job: JobRow): JobRow {
   if (job.status === 'succeeded' || job.status === 'failed') return job
-  const steps = job.kind === 'extraction' ? EXTRACTION_STEPS : GENERATION_STEPS
+  const plugin = plugins[job.kind]
+  const steps = plugin?.steps ?? (job.kind === 'extraction' ? EXTRACTION_STEPS : GENERATION_STEPS)
+  const QUEUE_MS = plugin?.queueMs ?? QUEUE_DEFAULT_MS
+  const STEP_MS = plugin?.stepMs ?? STEP_DEFAULT_MS
   const elapsed = Date.now() - new Date(job.created_at!).getTime()
   if (elapsed < QUEUE_MS) {
     job.status = 'queued'
@@ -96,7 +124,8 @@ export function advance(job: JobRow): JobRow {
   job.progress = { step: steps.length, total: steps.length, label: 'Done' }
   if (!job.applied) {
     job.applied = true
-    if (job.kind === 'extraction') applyExtraction(job)
+    if (plugin) plugin.apply(job)
+    else if (job.kind === 'extraction') applyExtraction(job)
     else applyGeneration(job)
   }
   save()

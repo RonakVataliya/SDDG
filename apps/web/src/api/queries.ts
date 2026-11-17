@@ -1,5 +1,20 @@
+import { useEffect } from 'react'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, unwrap, type Diagram, type DiagramType, type ItemCategory, type Job, type Point, type Schemas } from './client'
+import {
+  api,
+  unwrap,
+  type ConditionUpdate,
+  type Diagram,
+  type DiagramType,
+  type ItemCategory,
+  type Job,
+  type Point,
+  type ResultStatus,
+  type RunMode,
+  type Schemas,
+  type TestCaseCreate,
+  type TestCaseUpdate,
+} from './client'
 import type { paths } from './schema'
 
 export const keys = {
@@ -17,6 +32,14 @@ export const keys = {
   diagramLayout: (id: string) => ['diagrams', id, 'layout'] as const,
   job: (id: string) => ['jobs', id] as const,
   consent: ['me', 'consent'] as const,
+  // Tests (stream 6): everything under ['projects', id, 'tests'] is refreshed together after a test job or an edit.
+  tests: (id: string) => ['projects', id, 'tests'] as const,
+  testRequirements: (id: string) => ['projects', id, 'tests', 'requirements'] as const,
+  testDesign: (id: string, statementId: string) => ['projects', id, 'tests', 'requirements', statementId] as const,
+  testCases: (id: string) => ['projects', id, 'tests', 'cases'] as const,
+  testRuns: (id: string) => ['projects', id, 'tests', 'runs'] as const,
+  testRun: (id: string, runId: string) => ['projects', id, 'tests', 'runs', runId] as const,
+  runSelection: (id: string) => ['projects', id, 'tests', 'selection'] as const,
 }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
@@ -101,6 +124,7 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
       void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
       void qc.invalidateQueries({ queryKey: keys.items(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
     },
   })
 }
@@ -337,4 +361,217 @@ export function saveBlob(blob: Blob, filename: string) {
   const a = Object.assign(document.createElement('a'), { href: url, download: filename })
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/* ---------- tests (Sprint 3, stream 6) ---------- */
+
+const projectPath = (projectId: string) => ({ params: { path: { project_id: projectId } } })
+
+/** Every requirement with its test-design summary. Polls while a test job is queued or running. */
+export function useTestRequirements(projectId: string) {
+  return useQuery({
+    queryKey: keys.testRequirements(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/requirements', projectPath(projectId))),
+    refetchInterval: (q) => (isActive(q.state.data?.active_job) ? 2000 : false),
+  })
+}
+
+export function useTestDesign(projectId: string, statementId: string | null) {
+  return useQuery({
+    queryKey: keys.testDesign(projectId, statementId ?? 'none'),
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{project_id}/tests/requirements/{statement_id}', {
+          params: { path: { project_id: projectId, statement_id: statementId! } },
+        }),
+      ),
+    enabled: !!statementId,
+  })
+}
+
+/** Polls a test job and refreshes every Tests query once it finishes, so the new design or steps show up. */
+export function useTestJob(projectId: string, jobId: string | null | undefined) {
+  const qc = useQueryClient()
+  const job = useJob(jobId)
+  const done = job.data && !isActive(job.data)
+  useEffect(() => {
+    if (done) void qc.invalidateQueries({ queryKey: keys.tests(projectId) })
+  }, [done, projectId, qc])
+  return job
+}
+
+/** AI request 1 for the chosen requirements (the server sends them 5 at a time). */
+export function useStartCriteria(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (statementIds: string[]) =>
+      unwrap(api.POST('/projects/{project_id}/tests/criteria-jobs', { ...projectPath(projectId), body: { statement_ids: statementIds } })),
+    onSuccess: (job) => {
+      qc.setQueryData(keys.job(job.id), job)
+      void qc.invalidateQueries({ queryKey: keys.testRequirements(projectId) })
+    },
+  })
+}
+
+/** Editing a condition recomputes classes, boundaries and drafts in code (no AI) and returns the new design. */
+export function useUpdateCondition(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ conditionId, body }: { conditionId: string; body: ConditionUpdate }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/tests/conditions/{condition_id}', {
+          params: { path: { project_id: projectId, condition_id: conditionId } },
+          body,
+        }),
+      ),
+    onSuccess: (design) => {
+      qc.setQueryData(keys.testDesign(projectId, design.statement_id), design)
+      void qc.invalidateQueries({ queryKey: keys.testRequirements(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.testCases(projectId) })
+    },
+  })
+}
+
+export function useUpdateCriterion(projectId: string, statementId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ criterionId, given, when, then }: { criterionId: string; given: string; when: string; then: string }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/tests/criteria/{criterion_id}', {
+          params: { path: { project_id: projectId, criterion_id: criterionId } },
+          body: { given, when, then },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.testDesign(projectId, statementId) }),
+  })
+}
+
+/** AI request 2: steps for kept drafts only (all of them when caseIds is omitted). */
+export function useStartSteps(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (caseIds?: string[]) =>
+      unwrap(api.POST('/projects/{project_id}/tests/step-jobs', { ...projectPath(projectId), body: { case_ids: caseIds } })),
+    onSuccess: (job) => {
+      qc.setQueryData(keys.job(job.id), job)
+      void qc.invalidateQueries({ queryKey: keys.testRequirements(projectId) })
+    },
+  })
+}
+
+export function useTestCases(projectId: string) {
+  return useQuery({
+    queryKey: keys.testCases(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/cases', projectPath(projectId))),
+  })
+}
+
+export function useCreateCase(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: TestCaseCreate) => unwrap(api.POST('/projects/{project_id}/tests/cases', { ...projectPath(projectId), body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tests(projectId) }),
+  })
+}
+
+/** Keep/discard a draft or edit a case's text. */
+export function useUpdateCase(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ caseId, body }: { caseId: string; body: TestCaseUpdate }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/tests/cases/{case_id}', {
+          params: { path: { project_id: projectId, case_id: caseId } },
+          body,
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tests(projectId) }),
+  })
+}
+
+export function useTestRuns(projectId: string) {
+  return useQuery({
+    queryKey: keys.testRuns(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/runs', projectPath(projectId))),
+  })
+}
+
+export function useTestRun(projectId: string, runId: string | null) {
+  return useQuery({
+    queryKey: keys.testRun(projectId, runId ?? 'none'),
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{project_id}/tests/runs/{run_id}', { params: { path: { project_id: projectId, run_id: runId! } } }),
+      ),
+    enabled: !!runId,
+  })
+}
+
+/** What each run mode would pick (shown in the Start run dialog). */
+export function useRunSelection(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.runSelection(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/runs/selection', projectPath(projectId))),
+    enabled,
+    // The picks depend on the latest results and requirement texts, so the dialog always asks again when it opens.
+    refetchOnMount: 'always',
+  })
+}
+
+export function useStartRun(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; mode: RunMode; case_ids?: string[] }) =>
+      unwrap(api.POST('/projects/{project_id}/tests/runs', { ...projectPath(projectId), body })),
+    onSuccess: (run) => {
+      qc.setQueryData(keys.testRun(projectId, run.id), run)
+      void qc.invalidateQueries({ queryKey: keys.testRuns(projectId) })
+    },
+  })
+}
+
+export function useMarkResult(projectId: string, runId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ caseId, status, note }: { caseId: string; status: ResultStatus; note?: string | null }) =>
+      unwrap(
+        api.PUT('/projects/{project_id}/tests/runs/{run_id}/results/{case_id}', {
+          params: { path: { project_id: projectId, run_id: runId, case_id: caseId } },
+          body: { status, note: note ?? null },
+        }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.testRun(projectId, runId) })
+      void qc.invalidateQueries({ queryKey: keys.testRuns(projectId), exact: true })
+    },
+  })
+}
+
+export function useFinishRun(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) =>
+      unwrap(
+        api.POST('/projects/{project_id}/tests/runs/{run_id}/finish', { params: { path: { project_id: projectId, run_id: runId } } }),
+      ),
+    onSuccess: (run) => {
+      qc.setQueryData(keys.testRun(projectId, run.id), run)
+      void qc.invalidateQueries({ queryKey: keys.tests(projectId) })
+    },
+  })
+}
+
+/** Answers a flag's question; for an untestable flag the answer fills in the suggested requirement. */
+export function useAnswerFlag(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ flagId, answer }: { flagId: string; answer: string }) =>
+      unwrap(
+        api.POST('/projects/{project_id}/flags/{flag_id}/answer', {
+          params: { path: { project_id: projectId, flag_id: flagId } },
+          body: { answer },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tests(projectId) }),
+  })
 }

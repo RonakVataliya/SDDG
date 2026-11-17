@@ -25,6 +25,8 @@ from app.routers.llm import router as llm_router
 from app.routers.sequence import router as sequence_router
 from app.routers.state import router as state_router
 from app.routers.quality import router as quality_router
+from app.routers.testgen import router as testgen_router
+from app.routers.testgen_derive import router as testgen_derive_router
 from app.routers.usecase import router as usecase_router
 
 configure_logging()
@@ -58,6 +60,8 @@ for router in (
     state_router,
     quality_router,
     llm_router,
+    testgen_router,
+    testgen_derive_router,
 ):
     app.include_router(router, prefix=settings.API_V1_PREFIX, dependencies=[Depends(require_internal_key)])
 

@@ -15,7 +15,13 @@ pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes")
+JSON_COLS = (
+    "qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes",
+    # Tests feature (stream 6)
+    "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
+    "preconditions", "steps",
+    "case_ids",
+)
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
     "projects": ("name", "client_name"),
@@ -24,6 +30,15 @@ SECRET = {
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
     "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
     "jobs": ("error",),  # a failure message can repeat part of the requirements
+    # Tests feature (stream 6): everything derived from requirement text.
+    "test_designs": ("performance_targets",),
+    "test_criteria": ("given_text", "when_text", "then_text"),
+    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes",
+                        "boundaries"),
+    "test_flows": ("flow_text",),
+    "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
+    "test_runs": ("name",),
+    "test_results": ("note",),
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
@@ -402,6 +417,9 @@ def get_flag(pid, fid):
                "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s AND f.id=%s", pid, fid)
 
 
+CHECKER_FLAG_TYPES = ("ambiguous", "incomplete", "conflict")
+
+
 def save_flags(pid, flags, statement_ids):
     """Stores the checker's flags for these statements, matched to earlier flags by (statement, type, reason).
 
@@ -411,9 +429,12 @@ def save_flags(pid, flags, statement_ids):
     - An open flag that is no longer found is resolved by re-analysis.
     """
     with pool.connection() as c:
+        # Only the checker's own types: flags raised elsewhere (the Tests feature's 'untestable' questions) must not be
+        # resolved as "no longer found" just because the checker never reports that type.
         old = [_decode(r) for r in c.execute(
             "SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
-            "WHERE project_id=%s AND statement_id = ANY(%s)", (pid, list(statement_ids))).fetchall()]
+            "WHERE project_id=%s AND statement_id = ANY(%s) AND type = ANY(%s)",
+            (pid, list(statement_ids), list(CHECKER_FLAG_TYPES))).fetchall()]
         known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
         found = set()
         for f in flags:
