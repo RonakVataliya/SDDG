@@ -125,7 +125,7 @@ def replace_design(pid, sid, text, criteria, conditions, flows, targets):
                       (db.uid("cd"), pid, sid, encrypt(cd["name"]), cd["kind"], encrypt(cd.get("description") or ""),
                        encrypt(cd.get("unit")), _enc_json({"min": cd.get("min"), "max": cd.get("max")}),
                        _enc_json(cd.get("values") or []), _enc_json(cd.get("invalid_values") or []),
-                       _enc_json(cd.get("classes") or []), json.dumps(cd.get("boundaries") or [])))
+                       _enc_json(cd.get("classes") or []), _enc_json(cd.get("boundaries") or [])))
         for fl in flows:
             c.execute("INSERT INTO test_flows(id, project_id, statement_id, kind, flow_text) VALUES (%s,%s,%s,%s,%s)",
                       (db.uid("fl"), pid, sid, fl["kind"], encrypt(fl["text"])))
@@ -140,7 +140,7 @@ def update_criterion(pid, cid, given, when, then):
 def set_condition_derived(pid, cid, classes, boundaries):
     """Stores the classes and boundary values the AI service's engine (POST /tests/derive) computed for a condition."""
     db.run("UPDATE test_conditions SET classes=%s, boundaries=%s WHERE project_id=%s AND id=%s",
-           _enc_json(classes), json.dumps(boundaries), pid, cid)
+           _enc_json(classes), _enc_json(boundaries), pid, cid)
 
 
 def update_condition(pid, cid, *, min_value, max_value, values, invalid_values):
@@ -210,8 +210,8 @@ def replace_drafts(pid, sid, text, drafts):
     its number and its keep/discard choice; other new drafts take the replaced drafts' numbers first, in order, and
     only then new ones. That reuse is safe because a draft has no steps, so it was never in a run, has no results and
     no export points at it as a tested case. Cases that already have steps, and cases written by hand, are kept; a new
-    draft whose title matches one of them is skipped so the same test is not listed twice. Returns how many drafts
-    were added.
+    draft whose title matches one of them, or an earlier new draft (two identical flows from the AI), is skipped so
+    the same test is not listed twice. Returns how many drafts were added.
     """
     with db.pool.connection() as c:
         old = [db._decode(r) for r in c.execute(
@@ -222,7 +222,11 @@ def replace_drafts(pid, sid, text, drafts):
         remaining = [db._decode(r) for r in c.execute(
             "SELECT title FROM test_cases WHERE project_id=%s AND statement_id=%s", (pid, sid)).fetchall()]
         titles = {r["title"] for r in remaining}
-        fresh = [d for d in drafts if d["title"] not in titles]
+        fresh = []
+        for d in drafts:
+            if d["title"] not in titles:
+                titles.add(d["title"])
+                fresh.append(d)
         if not fresh:
             return 0
         by_title = {o["title"]: o for o in old}
@@ -287,8 +291,14 @@ def _tally_sql():
             "FROM test_runs r LEFT JOIN test_results x ON x.run_id = r.id WHERE r.project_id=%s")
 
 
-def _run(r):
-    case_ids = r["case_ids"]
+def _existing_case_ids(pid):
+    return {r["id"] for r in db.many("SELECT id FROM test_cases WHERE project_id=%s", pid)}
+
+
+def _run(r, existing):
+    # Deleting a requirement deletes its cases and their results (database cascade), so a run counts only the cases
+    # that still exist; otherwise its unmarked count could never reach 0.
+    case_ids = [cid for cid in r["case_ids"] if cid in existing]
     return {
         "id": r["id"], "name": r["name"], "mode": r["mode"], "case_ids": case_ids, "case_count": len(case_ids),
         "created_by": r["created_by"], "created_at": r["created_at"], "finished_at": r["finished_at"],
@@ -306,17 +316,18 @@ def create_run(pid, name, mode, case_ids, created_by):
 
 def list_runs(pid):
     """Newest first."""
-    return [_run(r) for r in db.many(_tally_sql() + " GROUP BY r.id ORDER BY r.created_at DESC", pid)]
+    existing = _existing_case_ids(pid)
+    return [_run(r, existing) for r in db.many(_tally_sql() + " GROUP BY r.id ORDER BY r.created_at DESC", pid)]
 
 
 def get_run(pid, rid):
     r = db.one(_tally_sql() + " AND r.id=%s GROUP BY r.id", pid, rid)
-    return _run(r) if r else None
+    return _run(r, _existing_case_ids(pid)) if r else None
 
 
 def latest_finished_run(pid):
     r = db.one(_tally_sql() + " AND r.finished_at IS NOT NULL GROUP BY r.id ORDER BY r.created_at DESC LIMIT 1", pid)
-    return _run(r) if r else None
+    return _run(r, _existing_case_ids(pid)) if r else None
 
 
 def run_results(pid, rid):
@@ -381,6 +392,23 @@ def flags_by_statement(pid):
     for f in db.list_flags(pid):
         out.setdefault(f["statement_id"], []).append(f)
     return out
+
+
+def start_test_job(pid, kind, total, label):
+    """Creates a Tests job (AI request 1 or 2) and returns it, or returns None while another one is queued, running
+    or waiting for this project. The project row is locked first, so two requests at the same moment cannot both
+    start one: two jobs rebuilding the same drafts at once could list them twice, and the AI would be paid twice.
+    Same row as db.create_job writes."""
+    with db.pool.connection() as c:
+        c.execute("SELECT 1 FROM projects WHERE id=%s FOR UPDATE", (pid,))
+        if c.execute("SELECT 1 FROM jobs WHERE project_id=%s AND kind = ANY(%s) AND status IN ('queued', 'running', "
+                     "'waiting') LIMIT 1", (pid, list(TEST_JOB_KINDS))).fetchone():
+            return None
+        r = c.execute(
+            "INSERT INTO jobs(id, project_id, kind, status, queue_position, progress_step, progress_total, "
+            "progress_label, diagram_types, diagram_ids, created_at) VALUES (%s,%s,%s,'queued',1,0,%s,%s,'[]','[]',%s) "
+            "RETURNING *", (db.uid("job"), pid, kind, total, label, db.now())).fetchone()
+    return db._job(r)
 
 
 def active_test_job(pid):

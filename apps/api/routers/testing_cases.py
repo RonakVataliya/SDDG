@@ -18,6 +18,7 @@ from routers.integrated import NOT_FOUND, require_project
 from routers.testing_design import Context
 
 router = APIRouter()
+DRAFT_EDIT = "A draft can only be kept or discarded. Write its steps first, then edit the case."
 
 Kind = Literal["positive", "negative", "edge"]
 Priority = Literal["high", "medium", "low"]
@@ -80,11 +81,17 @@ def add_case(project_id: str, body: TestCaseCreate, user: User = Depends(get_cur
 
 @router.patch("/projects/{project_id}/tests/cases/{case_id}")
 def update_case(project_id: str, case_id: str, body: TestCaseUpdate, user: User = Depends(get_current_user)):
-    """Unticking a draft (kept=false) means AI request 2 skips it, so no tokens are spent on it."""
+    """Unticking a draft (kept=false) means AI request 2 skips it, so no tokens are spent on it.
+
+    A draft can only be kept or discarded: drafts are rebuilt whenever their conditions change, so any other edit
+    would be lost. Once AI request 2 has written its steps, the case is ready and every field can be edited."""
     require_project(project_id, user)
-    if not tdb.get_case(project_id, case_id):
+    case = tdb.get_case(project_id, case_id)
+    if not case:
         raise HTTPException(404, NOT_FOUND)
     fields = {k: getattr(body, k) for k in body.model_fields_set if getattr(body, k) is not None}
+    if case["status"] == "draft" and set(fields) - {"kept"}:
+        raise HTTPException(409, DRAFT_EDIT)
     for k in ("title", "expected"):
         if k in fields:
             fields[k] = fields[k].strip()

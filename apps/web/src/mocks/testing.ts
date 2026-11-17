@@ -64,6 +64,15 @@ const statementsOf = (pid: string) => getDb().statements[pid] ?? []
 const statementOf = (pid: string, sid: string) => statementsOf(pid).find((s) => s.id === sid)
 
 /** Mirrors the database's ON DELETE CASCADE: a deleted requirement takes its design, cases and their results with it. */
+/** The project's Tests job still queued, running or waiting, if any: only one runs at a time (like the API). */
+function activeTestJob(pid: string) {
+  return getDb()
+    .jobs.filter((j) => j.project_id === pid && j.kind.startsWith('test_') && ['queued', 'running', 'waiting'].includes(j.status))
+    .at(-1)
+}
+
+const BUSY = 'Test generation is already running for this project. Wait for it to finish, then try again.'
+
 function cascade(pid: string) {
   const live = new Set(statementsOf(pid).map((s) => s.id))
   const t = T()
@@ -76,6 +85,8 @@ function cascade(pid: string) {
   t.cases = t.cases.filter((r) => !gone(r))
   t.flags = t.flags.filter((r) => !gone(r))
   t.results = t.results.filter((r) => !goneCases.has(r.case_id))
+  // runs count only the cases that still exist, so their unmarked count can still reach 0
+  for (const run of t.runs) if (run.project_id === pid) run.case_ids = run.case_ids.filter((id) => !goneCases.has(id))
   for (const [sid, d] of Object.entries(t.designs)) if (d.project_id === pid && !live.has(sid)) delete t.designs[sid]
   save()
 }
@@ -230,7 +241,11 @@ function rebuildDrafts(pid: string, sid: string) {
     t.flows.filter((f) => f.statement_id === sid),
     t.targets[sid] ?? [],
     t.criteria.filter((c) => c.statement_id === sid),
-  ).filter((d) => !taken.has(d.title))
+  ).filter((d) => {
+    if (taken.has(d.title)) return false // already listed: a kept or hand-written case, or an identical new draft
+    taken.add(d.title)
+    return true
+  })
   const byTitle = new Map(old.map((o) => [o.title, o]))
   const same = new Set(fresh.filter((d) => byTitle.has(d.title)).map((d) => d.title))
   const pool = old.filter((o) => !same.has(o.title)).map((o) => o.number).sort((a, b) => tc(a) - tc(b))
@@ -414,9 +429,7 @@ export function testingHandlers({ u, authed, ownedProject, fail, notFound }: Hel
         const p = ownedProject(email, params.project_id)
         if (p) cascade(p.id)
         if (!p) return notFound()
-        const active = getDb()
-          .jobs.filter((j) => j.project_id === p.id && j.kind.startsWith('test_') && (j.status === 'queued' || j.status === 'running' || j.status === 'waiting'))
-          .at(-1)
+        const active = activeTestJob(p.id)
         return HttpResponse.json({
           requirements: statementsOf(p.id).map((s) => summary(p.id, s.id)),
           active_job: active ? publicJob(active) : null,
@@ -442,6 +455,7 @@ export function testingHandlers({ u, authed, ownedProject, fail, notFound }: Hel
         const ids = ((await request.json()) as { statement_ids?: string[] }).statement_ids ?? []
         if (!ids.length || ids.length > 30) return fail(422, 'Choose between 1 and 30 requirements.')
         if (ids.some((id) => !statementOf(p.id, id))) return fail(422, 'One of the requirements no longer exists.')
+        if (activeTestJob(p.id)) return fail(409, BUSY)
         const job = createJob(p.id, 'test_criteria', { payload: JSON.stringify(ids), progress: { step: 0, total: 2, label: 'Queued' } })
         return HttpResponse.json(publicJob(job), { status: 202 })
       }),
@@ -487,6 +501,7 @@ export function testingHandlers({ u, authed, ownedProject, fail, notFound }: Hel
         const asked = ((await request.json()) as { case_ids?: string[] }).case_ids
         const kept = T().cases.filter((c) => c.project_id === p.id && c.status === 'draft' && c.kept && (!asked || asked.includes(c.id)))
         if (!kept.length) return fail(409, 'There are no kept draft cases to write steps for.')
+        if (activeTestJob(p.id)) return fail(409, BUSY)
         const job = createJob(p.id, 'test_steps', { payload: JSON.stringify(kept.map((c) => c.id)), progress: { step: 0, total: 2, label: 'Queued' } })
         return HttpResponse.json(publicJob(job), { status: 202 })
       }),
@@ -534,6 +549,8 @@ export function testingHandlers({ u, authed, ownedProject, fail, notFound }: Hel
         const c = p && T().cases.find((x) => x.id === params.case_id && x.project_id === p.id)
         if (!p || !c) return notFound()
         const b = (await request.json()) as Partial<Pick<TestCase, 'kept' | 'title' | 'priority' | 'preconditions' | 'steps' | 'expected'>>
+        if (c.status === 'draft' && Object.keys(b).some((k) => k !== 'kept'))
+          return fail(409, 'A draft can only be kept or discarded. Write its steps first, then edit the case.')
         if (b.title !== undefined && !b.title.trim()) return fail(422, 'A case needs a title.')
         if (b.priority !== undefined && !PRIORITIES.includes(b.priority)) return fail(422, 'Unknown priority.')
         Object.assign(c, b)

@@ -349,11 +349,112 @@ def check_edges(c):
     assert c.get(f'{t}/runs/run_nope', headers=H).status_code == 404
 
     # Everything stored from the odd text is encrypted.
-    for table, col in (('test_criteria', 'given_text'), ('test_conditions', 'description'), ('test_cases', 'steps'),
+    for table, col in (('test_criteria', 'given_text'), ('test_conditions', 'description'),
+                       ('test_conditions', 'classes'), ('test_conditions', 'boundaries'), ('test_cases', 'steps'),
                        ('test_runs', 'name'), ('test_results', 'note')):
         for (value,) in sql(f'SELECT {col} FROM {table} WHERE project_id=%s AND {col} IS NOT NULL', pid):
             assert value.startswith(PREFIX), (table, col)
     assert sql('SELECT count(*) FROM test_cases WHERE project_id=%s', pid)[0][0] > 0  # the DROP TABLE text did nothing
+    return pid
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Points from the pull request review
+# ---------------------------------------------------------------------------------------------------------------------
+
+REVIEW_DESIGN = {
+    'requirement_id': None, 'testable': True, 'question': None, 'suggestion_template': None,
+    'criteria': [{'given': 'A signed-in patient', 'when': 'they book', 'then': 'the booking is confirmed'}],
+    'conditions': [{'name': 'days', 'kind': 'range', 'description': 'days ahead', 'min_value': 1, 'max_value': 3,
+                    'unit': 'days', 'values': [], 'invalid_values': []}],
+    'flows': [{'kind': 'basic', 'text': 'The patient books a slot.'}] * 2,  # the AI repeats a flow
+    'performance_targets': []}
+
+
+class ReviewAI(EdgeAI):
+    async def post(self, url, **kwargs):
+        if url.endswith('/tests/criteria'):
+            body = kwargs.get('json') or {}
+            return tests_integration.FakeResponse({'requirements': [
+                {**REVIEW_DESIGN, 'requirement_id': r['id']} for r in body['requirements']], 'errors': [], 'metadata': {}})
+        return await EdgeAI.post(self, url, **kwargs)
+
+
+def check_review(c):
+    api = '/api/v1'
+    pid = c.post(f'{api}/projects', headers=H, json={'name': 'Review'}).json()['id']
+    t = f'{api}/projects/{pid}/tests'
+    c.post(f'{api}/me/consent', headers=H, json={'policy_version': integrated.POLICY_VERSION})
+    ids = db.insert_statements(pid, [{'text': 'A patient books a slot 1 to 3 days ahead.'},
+                                     {'text': 'A patient cancels a slot.'}])
+    assert c.post(f'{t}/criteria-jobs', headers=H, json={'statement_ids': ids}).status_code == 202
+
+    # The AI repeats a flow: the same test is listed once, and stays once (same number) after a condition edit.
+    d = c.get(f'{t}/requirements/{ids[0]}', headers=H).json()
+    titles = [x['title'] for x in d['drafts']]
+    assert titles.count('Basic flow: The patient books a slot.') == 1 and len(titles) == len(set(titles)), titles
+    flow = next(x for x in d['drafts'] if x['title'].startswith('Basic flow'))
+    edited = c.patch(f'{t}/conditions/{d["conditions"][0]["id"]}', headers=H, json={'max': 5}).json()
+    assert [x['number'] for x in edited['drafts'] if x['title'] == flow['title']] == [flow['number']]
+
+    # A draft can only be kept or discarded: drafts are rebuilt when their conditions change, so other edits would be
+    # lost. Once its steps are written, the case is ready and can be edited.
+    draft = c.get(f'{t}/requirements/{ids[0]}', headers=H).json()['drafts'][0]
+    for body in ({'title': 'Mine'}, {'steps': ['Open the page']}, {'kept': True, 'expected': 'Shown'}):
+        r = c.patch(f'{t}/cases/{draft["id"]}', headers=H, json=body)
+        assert r.status_code == 409 and r.json()['detail'].startswith('A draft can only be kept'), (body, r.text)
+    assert c.patch(f'{t}/cases/{draft["id"]}', headers=H, json={'kept': False}).json()['kept'] is False
+    assert c.patch(f'{t}/cases/{draft["id"]}', headers=H, json={'kept': True}).json()['kept'] is True
+    job = c.post(f'{t}/step-jobs', headers=H, json={'case_ids': [draft['id']]}).json()
+    assert c.get(f'{api}/jobs/{job["id"]}', headers=H).json()['status'] == 'succeeded'
+    assert c.patch(f'{t}/cases/{draft["id"]}', headers=H, json={'title': 'Mine'}).json()['title'] == 'Mine'
+
+    # Deleting a requirement deletes its cases and their results (database cascade). A run then counts only the cases
+    # that still exist, so marking those leaves nothing unmarked.
+    other = c.get(f'{t}/requirements/{ids[1]}', headers=H).json()['drafts'][0]
+    job = c.post(f'{t}/step-jobs', headers=H, json={'case_ids': [other['id']]}).json()
+    assert c.get(f'{api}/jobs/{job["id"]}', headers=H).json()['status'] == 'succeeded'
+    run = c.post(f'{t}/runs', headers=H, json={'name': 'Both', 'mode': 'pick', 'case_ids': [draft['id'], other['id']]}).json()
+    assert run['case_count'] == 2 and run['tally']['unmarked'] == 2
+    c.put(f'{t}/runs/{run["id"]}/results/{draft["id"]}', headers=H, json={'status': 'pass'})
+    assert c.delete(f'{api}/projects/{pid}/statements/{ids[1]}', headers=H).status_code == 204
+    listed = next(r for r in c.get(f'{t}/runs', headers=H).json() if r['id'] == run['id'])
+    assert listed['case_count'] == 1 and listed['tally'] == {'pass': 1, 'fail': 0, 'blocked': 0, 'skipped': 0,
+                                                              'unmarked': 0}, listed
+    assert [i['case']['id'] for i in c.get(f'{t}/runs/{run["id"]}', headers=H).json()['items']] == [draft['id']]
+
+    # One Tests job at a time per project: while one is queued, running or waiting, both kinds of start are refused,
+    # also when 10 requests arrive at the same moment.
+    import threading
+    from core import testing_db as tdb
+    busy = tdb.start_test_job(pid, 'test_criteria', 2, 'Queued')  # a job that has not run yet
+    assert busy and tdb.start_test_job(pid, 'test_steps', 2, 'Queued') is None
+    assert c.get(f'{t}/requirements', headers=H).json()['active_job']['id'] == busy['id']
+    for path, body in (('criteria-jobs', {'statement_ids': [ids[0]]}), ('step-jobs', {})):
+        r = c.post(f'{t}/{path}', headers=H, json=body)
+        assert r.status_code == 409 and r.json()['detail'].startswith('Test generation is already running'), r.text
+    db.update_job(busy['id'], status='failed', finished_at=db.now())
+    started = []
+    threads = [threading.Thread(target=lambda: started.append(tdb.start_test_job(pid, 'test_criteria', 2, 'Queued')))
+               for _ in range(10)]
+    [th.start() for th in threads]
+    [th.join() for th in threads]
+    winners = [j for j in started if j]
+    assert len(started) == 10 and len(winners) == 1, started
+    db.update_job(winners[0]['id'], status='failed', finished_at=db.now())
+    job = c.post(f'{t}/criteria-jobs', headers=H, json={'statement_ids': [ids[0]]}).json()  # free again
+    assert c.get(f'{api}/jobs/{job["id"]}', headers=H).json()['status'] == 'succeeded'
+
+    # Boundary values are encrypted like their sibling classes, on generation and on an edit; a row stored in plain
+    # JSON before this change still reads.
+    cond = c.get(f'{t}/requirements/{ids[0]}', headers=H).json()['conditions'][0]
+    assert sql('SELECT boundaries FROM test_conditions WHERE id=%s', cond['id'])[0][0].startswith(PREFIX)
+    edited = c.patch(f'{t}/conditions/{cond["id"]}', headers=H, json={'max': 4}).json()['conditions'][0]
+    assert [b['value'] for b in edited['boundaries']] == [0, 1, 2, 3, 4, 5]
+    assert sql('SELECT boundaries FROM test_conditions WHERE id=%s', cond['id'])[0][0].startswith(PREFIX)
+    with psycopg.connect(os.environ['DATABASE_URL'], prepare_threshold=None) as conn:
+        conn.execute('UPDATE test_conditions SET boundaries=%s WHERE id=%s', ('[{"value": 7, "valid": true}]', cond['id']))
+    assert c.get(f'{t}/requirements/{ids[0]}', headers=H).json()['conditions'][0]['boundaries'] == [{'value': 7, 'valid': True}]
     return pid
 
 
@@ -365,6 +466,8 @@ def main():
             check(client)
             integrated.httpx.AsyncClient = EdgeAI
             check_edges(client)
+            integrated.httpx.AsyncClient = ReviewAI
+            check_review(client)
         print('tests feature integration test passed (main flow and edge cases)')
     finally:
         integrated.httpx.AsyncClient = original

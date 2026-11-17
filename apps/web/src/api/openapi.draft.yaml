@@ -228,6 +228,7 @@ paths:
       responses:
         '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
         '403': { description: No AI consent recorded (X8), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: A Tests job is already running for this project, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { description: Unknown requirement, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /projects/{project_id}/tests/conditions/{condition_id}:
     parameters:
@@ -262,7 +263,7 @@ paths:
       responses:
         '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
         '403': { description: No AI consent recorded (X8), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '409': { description: No kept draft cases to write, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: No kept draft cases to write, or a Tests job is already running, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /projects/{project_id}/tests/cases:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:
@@ -284,11 +285,13 @@ paths:
       - { $ref: '#/components/parameters/CaseId' }
     patch:
       summary: Keep or discard a draft, or edit a case's text
+      description: A draft only accepts `kept`; its other fields can be edited once its steps are written (status ready).
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/TestCaseUpdate' } } }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestCase' } } } }
+        '409': { description: A draft can only be kept or discarded, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /projects/{project_id}/tests/runs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:

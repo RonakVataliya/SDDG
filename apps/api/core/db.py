@@ -33,7 +33,8 @@ SECRET = {
     # Tests feature (stream 6): everything derived from requirement text.
     "test_designs": ("performance_targets",),
     "test_criteria": ("given_text", "when_text", "then_text"),
-    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes"),
+    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes",
+                        "boundaries"),
     "test_flows": ("flow_text",),
     "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
     "test_runs": ("name",),

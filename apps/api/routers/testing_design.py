@@ -34,6 +34,7 @@ logger = logging.getLogger("sddg.tests")
 
 AI_BATCH = 5  # AI request 1 takes at most 5 requirements per call (the AI service rejects more)
 STEPS_BATCH = 6  # AI request 2 takes at most 6 cases per call
+BUSY = "Test generation is already running for this project. Wait for it to finish, then try again."
 
 
 class CriteriaJobCreate(BaseModel):
@@ -272,7 +273,9 @@ def start_criteria(project_id: str, body: CriteriaJobCreate, bg: BackgroundTasks
     if any(i not in known for i in ids):
         raise HTTPException(422, "One of the requirements no longer exists. Reload and try again.")
     batches = -(-len(ids) // AI_BATCH)
-    job = db.create_job(project_id, "test_criteria", batches + 1, "Queued")
+    job = tdb.start_test_job(project_id, "test_criteria", batches + 1, "Queued")
+    if not job:
+        raise HTTPException(409, BUSY)
     bg.add_task(queued, criteria_worker, job["id"], project_id, ids)
     return job
 
@@ -390,6 +393,8 @@ def start_steps(project_id: str, body: StepJobCreate, bg: BackgroundTasks, user:
     if not kept:
         raise HTTPException(409, "There are no kept draft cases to write steps for.")
     batches = -(-len(kept) // STEPS_BATCH)
-    job = db.create_job(project_id, "test_steps", batches + 1, "Queued")
+    job = tdb.start_test_job(project_id, "test_steps", batches + 1, "Queued")
+    if not job:
+        raise HTTPException(409, BUSY)
     bg.add_task(queued, steps_worker, job["id"], project_id, kept)
     return job

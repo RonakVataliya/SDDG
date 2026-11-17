@@ -1129,6 +1129,15 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                /** @description A Tests job is already running for this project */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description Unknown requirement */
                 422: {
                     headers: {
@@ -1391,7 +1400,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Keep or discard a draft, or edit a case's text */
+        /**
+         * Keep or discard a draft, or edit a case's text
+         * @description A draft only accepts `kept`; its other fields can be edited once its steps are written (status ready).
+         */
         patch: {
             parameters: {
                 query?: never;
@@ -1415,6 +1427,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["TestCase"];
+                    };
+                };
+                /** @description A draft can only be kept or discarded */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
                     };
                 };
             };
