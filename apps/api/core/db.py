@@ -306,13 +306,15 @@ def get_items(pid):
     return [_item(r) for r in many("SELECT * FROM items WHERE project_id=%s ORDER BY seq", pid)]
 
 
-def update_item(pid, iid, name, description):
-    """Edit an item; a system-extracted item becomes user-edited. name=None keeps the name."""
+def update_item(pid, iid, name, description, by=None):
+    """Edit an item; a system-extracted item becomes user-edited. name=None keeps the name.
+    Every save counts the revision up; by = the editing user's id."""
     r = one(
         "UPDATE items SET name=COALESCE(%s, name), description=%s, "
-        "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END "
+        "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END, "
+        "revision=revision+1, revised_by=%s, revised_at=%s "
         "WHERE id=%s AND project_id=%s RETURNING *",
-        encrypt(name), encrypt(description), iid, pid,
+        encrypt(name), encrypt(description), by, now(), iid, pid,
     )
     return _item(r) if r else None
 
@@ -375,17 +377,19 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None, by=None):
+    """A new diagram, or a new version of parent_id: its revision is the parent's plus one (1 for a fresh one)."""
     # One transaction: a new version never exists without the accepted warnings it carries over.
     with pool.connection() as c:
         d = c.execute(
             "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-            "plantuml_source, parent_id, instruction, spec, layout, model_used) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "plantuml_source, parent_id, instruction, spec, layout, model_used, revision, revised_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+            "COALESCE((SELECT revision + 1 FROM diagrams WHERE id=%s), 1),%s) RETURNING *",
             (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
              json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
              encrypt(json.dumps(spec)) if spec is not None else None,
-             json.dumps(layout) if layout else None, model_used),
+             json.dumps(layout) if layout else None, model_used, parent_id, by),
         ).fetchone()
         if parent_id:  # accepted warnings stay accepted on versions made from this one
             c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
@@ -478,18 +482,21 @@ def update_flag(pid, fid, **fields):
     run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
 
 
-def set_statement_text(pid, sid, text):
-    run("UPDATE statements SET text=%s WHERE id=%s AND project_id=%s", encrypt(text), sid, pid)
+def set_statement_text(pid, sid, text, by=None):
+    """Every save of a requirement counts its revision up; by = the editing user's id."""
+    run("UPDATE statements SET text=%s, revision=revision+1, revised_by=%s, revised_at=%s WHERE id=%s AND project_id=%s",
+        encrypt(text), by, now(), sid, pid)
 
 
 def get_statement(pid, sid):
     return next((s for s in get_statements(pid) if s["id"] == sid), None)
 
 
-def update_statement(pid, sid, text=None, label=None):
-    """text/label None keeps the current value."""
-    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label) WHERE id=%s AND project_id=%s",
-        encrypt(text), label, sid, pid)
+def update_statement(pid, sid, text=None, label=None, by=None):
+    """text/label None keeps the current value. Every save counts the revision up; by = the editing user's id."""
+    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label), "
+        "revision=revision+1, revised_by=%s, revised_at=%s WHERE id=%s AND project_id=%s",
+        encrypt(text), label, by, now(), sid, pid)
     return get_statement(pid, sid)
 
 

@@ -694,7 +694,7 @@ def edit_item(
     name = payload.name.strip() if payload.name is not None else None
     if name == "":
         raise HTTPException(422, "Name cannot be empty.")
-    item = db.update_item(project_id, item_id, name, payload.description)
+    item = db.update_item(project_id, item_id, name, payload.description, by=user.id)
     if not item:
         raise HTTPException(404, NOT_FOUND)
     # Requirements-first: confirmation is about the requirements, so an item fix only makes diagrams stale.
