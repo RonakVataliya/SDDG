@@ -1,4 +1,4 @@
-"""Supabase Postgres access. Schema: apps/api/schema.sql (applied at startup)."""
+"""Supabase Postgres access. Schema: apps/api/migrations/ (python -m core.migrate, or AUTO_MIGRATE=true; see README)."""
 import json
 import os
 from datetime import datetime, timezone
@@ -8,12 +8,39 @@ from uuid import uuid4
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from core.crypto import decrypt, encrypt, fernet
+
 # prepare_threshold=None: Supabase's transaction pooler (port 6543) has no prepared statements.
 pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-JSON_COLS = ("qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec")
+JSON_COLS = (
+    "qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes",
+    # Tests feature (stream 6)
+    "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
+    "preconditions", "steps",
+    "case_ids",
+)
+# Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
+SECRET = {
+    "projects": ("name", "client_name"),
+    "statements": ("text", "source_excerpt"),
+    "items": ("name", "description"),
+    "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
+    "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
+    "jobs": ("error",),  # a failure message can repeat part of the requirements
+    # Tests feature (stream 6): everything derived from requirement text.
+    "test_designs": ("performance_targets",),
+    "test_criteria": ("given_text", "when_text", "then_text"),
+    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes",
+                        "boundaries"),
+    "test_flows": ("flow_text",),
+    "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
+    "test_runs": ("name",),
+    "test_results": ("note",),
+}
+SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
 
 def now():
@@ -25,11 +52,14 @@ def uid(prefix):
 
 
 def init_db():
+    fernet()  # fail fast if DATA_ENCRYPTION_KEY is missing
     pool.open(wait=True)  # fail fast if the database is unreachable
-    
 
 
 def _decode(r):
+    for k in SECRET_COLS:
+        if isinstance(r.get(k), str):
+            r[k] = decrypt(r[k])
     for k in JSON_COLS:  # JSON is stored as text; tolerate jsonb columns too
         if isinstance(r.get(k), str):
             r[k] = json.loads(r[k])
@@ -64,29 +94,59 @@ def get_project(pid):
     return one("SELECT * FROM projects WHERE id=%s", pid)
 
 
-def owned_project(pid, user_id):
-    return one("SELECT * FROM projects WHERE id=%s AND owner_id=%s", pid, user_id)
+def member_project(pid, user_id):
+    return one(
+        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
+        pid, user_id,
+    )
 
 
 def project_rows(user_id):
-    return many("SELECT * FROM projects WHERE owner_id=%s ORDER BY created_at DESC", user_id)
+    return many(
+        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id "
+        "WHERE m.user_id=%s ORDER BY p.created_at DESC",
+        user_id,
+    )
 
 
 def project_counts(pid):
     return one(
         "SELECT (SELECT count(*) FROM statements WHERE project_id=%s) AS statement_count, "
         "(SELECT count(*) FROM items WHERE project_id=%s) AS item_count, "
-        "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count",
-        pid, pid, pid,
+        "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count, "
+        "(SELECT count(*) FROM flags WHERE project_id=%s AND status='open') AS open_flag_count",
+        pid, pid, pid, pid,
     )
 
 
-def create_project(user_id, name):
+def create_project(user_id, name, client_name=None, contact_email=None):
     t = now()
-    return one(
-        "INSERT INTO projects(id, owner_id, name, created_at, updated_at) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-        uid("pr"), user_id, name, t, t,
+    return one(  # the creator is the first member
+        "WITH p AS (INSERT INTO projects(id, owner_id, name, client_name, contact_email, created_at, updated_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *), "
+        "m AS (INSERT INTO project_members(project_id, user_id) SELECT id, owner_id FROM p) SELECT * FROM p",
+        uid("pr"), user_id, encrypt(name), encrypt(client_name), contact_email, t, t,
     )
+
+
+def set_client(pid, client_name, contact_email):
+    return one("UPDATE projects SET client_name=%s, contact_email=%s, updated_at=%s WHERE id=%s RETURNING *",
+               encrypt(client_name), contact_email, now(), pid)
+
+
+def rename_project(pid, name):
+    return one("UPDATE projects SET name=%s, updated_at=%s WHERE id=%s RETURNING *", encrypt(name), now(), pid)
+
+
+def delete_project(pid):
+    run("DELETE FROM projects WHERE id=%s", pid)  # every child table cascades
+
+
+def set_archived(pid, by):
+    """by = the archiving user's email; None reopens."""
+    t = now()
+    return one("UPDATE projects SET archived_at=%s, archived_by=%s, updated_at=%s WHERE id=%s RETURNING *",
+               t if by else None, by, t, pid)
 
 
 def touch_project(pid, clear_confirmation=False):
@@ -114,11 +174,14 @@ def set_consent(user_id, version):
     )
 
 
-def insert_statements(pid, statements):
-    """Store extracted statements; returns their new ids in order."""
+def insert_statements(pid, statements, document="pasted requirements"):
+    """Store statements (from the splitter or typed by the user); returns their new ids in order."""
     with pool.connection() as c:
+        # Lock the project row so two extractions finishing together cannot both pick the next R-number;
+        # numbering continues from the highest ref, so a ref is never reused.
+        c.execute("SELECT 1 FROM projects WHERE id=%s FOR UPDATE", (pid,))
         n = c.execute(
-            "SELECT count(*) AS n FROM statements WHERE project_id=%s",
+            "SELECT COALESCE(max(substring(ref from 3)::int), 0) AS n FROM statements WHERE project_id=%s",
             (pid,)
         ).fetchone()["n"]
 
@@ -131,14 +194,14 @@ def insert_statements(pid, statements):
                 uid("st"),
                 pid,
                 f"R-{n + i + 1:03d}",
-                s["text"],
+                encrypt(s["text"]),
                 (s.get("labels") or ["unknown"])[0],
-                "pasted requirements",
+                document,
                 src.get("page"),
                 src.get("paragraph"),
                 src.get("line_start"),
                 src.get("line_end"),
-                src.get("excerpt"),
+                encrypt(src.get("excerpt")),
             ))
 
         # IMPORTANT: execute only once, after all rows are prepared
@@ -169,23 +232,52 @@ def get_statements(pid):
     ]
 
 
-def replace_system_items(pid, items):
+def _item_key(i):
+    """Same category and name (case-insensitive); a relation also needs the same ends."""
+    key = (i["category"], (i["name"] or "").strip().lower())
+    return key + (i["source_item_id"], i["target_item_id"]) if i.get("source_item_id") or i.get("target_item_id") else key
+
+
+def add_system_items(pid, items, model_used=None):
+    """Adds one submission's extracted items to the project; items from earlier submissions stay.
+
+    An item the project already has (see _item_key) is not added again: it gains the new statement refs, and
+    relations that pointed at the duplicate point at the existing item instead."""
     with pool.connection() as c:
-        c.execute("DELETE FROM items WHERE project_id=%s AND origin='system-extracted'", (pid,))
+        existing = {_item_key(_decode(r)): r for r in c.execute(
+            "SELECT id, category, name, statement_ids, source_item_id, target_item_id FROM items WHERE project_id=%s",
+            (pid,),
+        ).fetchall()}
+        same, new = {}, []  # same: new item id -> existing item id
+        # Plain items before relations, so a relation's ends are already mapped to existing items.
+        for i in sorted(items, key=lambda i: bool(i.get("source_item_id") or i.get("target_item_id"))):
+            i = {**i, "statement_ids": list(i.get("statement_ids", [])),
+                 "source_item_id": same.get(i.get("source_item_id"), i.get("source_item_id")),
+                 "target_item_id": same.get(i.get("target_item_id"), i.get("target_item_id"))}
+            old = existing.get(_item_key(i))
+            if old is None:
+                existing[_item_key(i)] = i
+                new.append(i)
+                continue
+            same[i["id"]] = old["id"]
+            refs = list(dict.fromkeys(old["statement_ids"] + i["statement_ids"]))
+            if refs != old["statement_ids"]:
+                old["statement_ids"] = refs  # a duplicate within this batch is inserted below with these refs
+                c.execute("UPDATE items SET statement_ids=%s WHERE id=%s", (json.dumps(refs), old["id"]))
         with c.cursor() as cur:
             cur.executemany(
-            "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
-            "statement_ids, source_item_id, target_item_id, relation_type) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            [
-                (
-                    i["id"], pid, i["category"], i["name"], i.get("description"), "system-extracted",
-                    json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
-                    i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"),
-                )
-                for i in items
-            ],
-        )
+                "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
+                "statement_ids, source_item_id, target_item_id, relation_type, model_used) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                [
+                    (
+                        i["id"], pid, i["category"], encrypt(i["name"]), encrypt(i.get("description")), "system-extracted",
+                        json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
+                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"), model_used,
+                    )
+                    for i in new
+                ],
+            )
 
 
 def _item(r):
@@ -204,13 +296,17 @@ def update_item(pid, iid, name, description):
         "UPDATE items SET name=COALESCE(%s, name), description=%s, "
         "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END "
         "WHERE id=%s AND project_id=%s RETURNING *",
-        name, description, iid, pid,
+        encrypt(name), encrypt(description), iid, pid,
     )
     return _item(r) if r else None
 
 
 def _job(r):
     if r:
+        if r["status"] == "queued":  # place in the line of jobs waiting for a free slot (NFR9a)
+            r["queue_position"] = one(
+                "SELECT count(*) AS n FROM jobs WHERE status='queued' AND created_at <= %s", r["created_at"]
+            )["n"]
         r["progress"] = {"step": r.pop("progress_step"), "total": r.pop("progress_total"), "label": r.pop("progress_label")}
         r.pop("project_id")
     return r
@@ -224,10 +320,26 @@ def create_job(pid, kind, total, label, diagram_types=()):
     ))
 
 
-def owned_job(jid, user_id):
+def fail_interrupted_jobs():
+    """Jobs run inside the API process, so one still queued or running at startup died with the previous process.
+    Fail it so the user can try again instead of watching a spinner forever. (During a zero-downtime deploy the
+    old process may still finish such a job; its final update then overwrites this.)"""
+    run(
+        "UPDATE jobs SET status='failed', queue_position=NULL, error=%s, progress_label='Interrupted', finished_at=%s "
+        "WHERE status IN ('queued', 'running', 'waiting')",
+        "Interrupted by a server restart. Try again.", now(),
+    )
+
+
+def member_job(jid, user_id):
     return _job(one(
-        "SELECT j.* FROM jobs j JOIN projects p ON p.id=j.project_id WHERE j.id=%s AND p.owner_id=%s", jid, user_id
+        "SELECT j.* FROM jobs j JOIN project_members m ON m.project_id=j.project_id WHERE j.id=%s AND m.user_id=%s",
+        jid, user_id,
     ))
+
+
+def get_job(jid):
+    return _job(one("SELECT * FROM jobs WHERE id=%s", jid))
 
 
 def get_latest_extraction_job(pid):
@@ -240,23 +352,43 @@ def update_job(jid, **fields):
     """Columns come from server code only, never from request data."""
     if "diagram_ids" in fields:
         fields["diagram_ids"] = json.dumps(fields["diagram_ids"])
+    if "error" in fields:
+        fields["error"] = encrypt(fields["error"])
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE jobs SET {sets} WHERE id=%s", *fields.values(), jid)
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None):
-    return one(
-        "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-        "plantuml_source, parent_id, instruction, spec) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        uid("dg"), pid, dtype, title, now(), svg, json.dumps(elements), json.dumps(statement_ids),
-        plantuml_source, parent_id, instruction, json.dumps(spec) if spec is not None else None,
-    )
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
+    # One transaction: a new version never exists without the accepted warnings it carries over.
+    with pool.connection() as c:
+        d = c.execute(
+            "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
+            "plantuml_source, parent_id, instruction, spec, layout, model_used) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
+             json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
+             encrypt(json.dumps(spec)) if spec is not None else None,
+             json.dumps(layout) if layout else None, model_used),
+        ).fetchone()
+        if parent_id:  # accepted warnings stay accepted on versions made from this one
+            c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
+                      "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
+    return _decode(d)
 
 
-def owned_diagram(did, user_id):
+def accepted_warnings(did):
+    return {r["warning_id"]: r for r in many("SELECT * FROM accepted_warnings WHERE diagram_id=%s", did)}
+
+
+def accept_warning(did, warning_id, email):
+    run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
+
+
+def member_diagram(did, user_id):
     return one(
-        "SELECT d.* FROM diagrams d JOIN projects p ON p.id=d.project_id WHERE d.id=%s AND p.owner_id=%s", did, user_id
+        "SELECT d.* FROM diagrams d JOIN project_members m ON m.project_id=d.project_id WHERE d.id=%s AND m.user_id=%s",
+        did, user_id,
     )
 
 
@@ -265,3 +397,125 @@ def list_diagrams(pid):
         "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
         pid,
     )
+
+
+def diagram_rows(pid):
+    """Every diagram version without its drawing: what version grouping and coverage need."""
+    return many("SELECT id, type, title, created_at, statement_ids FROM diagrams WHERE project_id=%s", pid)
+
+
+def list_flags(pid, status=None):
+    sql = ("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
+           "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s")
+    if status:
+        return many(sql + " AND f.status=%s ORDER BY f.seq", pid, status)
+    return many(sql + " ORDER BY f.seq", pid)
+
+
+def get_flag(pid, fid):
+    return one("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
+               "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s AND f.id=%s", pid, fid)
+
+
+CHECKER_FLAG_TYPES = ("ambiguous", "incomplete", "conflict")
+
+
+def save_flags(pid, flags, statement_ids):
+    """Stores the checker's flags for these statements, matched to earlier flags by (statement, type, reason).
+
+    - An open flag found again stays open (with its answer).
+    - A flag the user resolved is not added again, even though the checker still finds it.
+    - A flag closed by re-analysis that comes back is reopened instead of duplicated.
+    - An open flag that is no longer found is resolved by re-analysis.
+    """
+    with pool.connection() as c:
+        # Only the checker's own types: flags raised elsewhere (the Tests feature's 'untestable' questions) must not be
+        # resolved as "no longer found" just because the checker never reports that type.
+        old = [_decode(r) for r in c.execute(
+            "SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
+            "WHERE project_id=%s AND statement_id = ANY(%s) AND type = ANY(%s)",
+            (pid, list(statement_ids), list(CHECKER_FLAG_TYPES))).fetchall()]
+        known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
+        found = set()
+        for f in flags:
+            key = (f["statement_id"], f["type"], f["reason"])
+            if key in found:
+                continue
+            found.add(key)
+            prev = known.get(key)
+            if prev is None:
+                c.execute("INSERT INTO flags(id, project_id, statement_id, type, reason, trigger_text, "
+                          "related_statement_id, question, suggested_fix, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                          (uid("fl"), pid, f["statement_id"], f["type"], encrypt(f["reason"]), encrypt(f.get("trigger_text")),
+                           f.get("related_statement_id"), encrypt(f.get("question")), encrypt(f.get("suggested_fix")), now()))
+            elif prev["status"] == "resolved" and prev["resolved_by"] == "re-analysis":
+                c.execute("UPDATE flags SET status='open', resolved_by=NULL, resolved_at=NULL WHERE id=%s", (prev["id"],))
+        gone = [f["id"] for k, f in known.items() if f["status"] == "open" and k not in found]
+        if gone:  # no longer found -> fixed
+            c.execute("UPDATE flags SET status='resolved', resolved_by='re-analysis', resolved_at=%s WHERE id = ANY(%s)",
+                      (now(), gone))
+
+
+def update_flag(pid, fid, **fields):
+    fields = {k: encrypt(v) if k in SECRET_COLS else v for k, v in fields.items()}
+    sets = ", ".join(f"{k}=%s" for k in fields)
+    run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
+
+
+def set_statement_text(pid, sid, text):
+    run("UPDATE statements SET text=%s WHERE id=%s AND project_id=%s", encrypt(text), sid, pid)
+
+
+def get_statement(pid, sid):
+    return next((s for s in get_statements(pid) if s["id"] == sid), None)
+
+
+def update_statement(pid, sid, text=None, label=None):
+    """text/label None keeps the current value."""
+    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label) WHERE id=%s AND project_id=%s",
+        encrypt(text), label, sid, pid)
+    return get_statement(pid, sid)
+
+
+def delete_statement(pid, sid):
+    """Its flags go with it (FK cascade); so do conflict flags on other requirements that pointed at it."""
+    with pool.connection() as c:
+        c.execute("DELETE FROM flags WHERE project_id=%s AND related_statement_id=%s", (pid, sid))
+        return c.execute("DELETE FROM statements WHERE id=%s AND project_id=%s", (sid, pid)).rowcount > 0
+
+
+def reset_model(pid):
+    """A requirement changed: drop the system-extracted building blocks and the confirmation, so the next generation
+    extracts again from the confirmed requirements. Items the user added or edited are kept (they are the user's
+    work); relations left with a missing end are dropped. Diagrams already drawn are kept.
+    shortcut: a kept user-edited item can be extracted again under its old name; Phase 4 (incremental extraction)
+    replaces this wipe-and-redo with re-extracting only the changed statements."""
+    with pool.connection() as c:
+        c.execute("DELETE FROM items WHERE project_id=%s AND origin='system-extracted'", (pid,))
+        c.execute("DELETE FROM items i WHERE project_id=%s AND ("
+                  "(source_item_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM items s WHERE s.id=i.source_item_id)) OR "
+                  "(target_item_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM items t WHERE t.id=i.target_item_id)))", (pid,))
+        c.execute("UPDATE projects SET extracted_nodes='[]', confirmed_at=NULL, updated_at=%s WHERE id=%s", (now(), pid))
+
+
+def set_extracted_nodes(pid, nodes):
+    run("UPDATE projects SET extracted_nodes=%s WHERE id=%s", json.dumps(sorted(set(nodes))), pid)
+
+
+def project_model(pid):
+    """The model that produced most of the project's system items (sticky provider choice), else None."""
+    r = one("SELECT model_used FROM items WHERE project_id=%s AND model_used IS NOT NULL "
+            "GROUP BY model_used ORDER BY count(*) DESC LIMIT 1", pid)
+    return r["model_used"] if r else None
+
+
+def add_llm_calls(job_id, pid, calls, mixed):
+    """Metadata only (the AI service's X-LLM-Usage): never prompt or output text."""
+    cols = ("node", "provider", "model", "input_tokens", "output_tokens", "wait_ms", "duration_ms", "attempts",
+            "rate_limited", "status")
+    with pool.connection() as c, c.cursor() as cur:
+        cur.executemany(
+            f"INSERT INTO llm_calls(job_id, project_id, {', '.join(cols)}, mixed_models) "
+            f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
+            [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
+        )

@@ -23,7 +23,7 @@ export function Badge({ className, tone, ...props }: React.ComponentProps<'span'
 export function RefTag({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
-      className={cn('rounded-sm border border-rule bg-paper px-1 font-mono text-[12px] leading-5 text-ink', className)}
+      className={cn('rounded-sm border border-rule bg-paper px-1 font-mono text-[12px] leading-5 whitespace-nowrap text-ink', className)}
       {...props}
     />
   )

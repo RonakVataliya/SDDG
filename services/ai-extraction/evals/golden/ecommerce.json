@@ -1,0 +1,200 @@
+{
+  "id": "ecommerce",
+  "title": "Online shop",
+  "style": "user-stories",
+  "reviewed": false,
+  "requirement_count": 12,
+  "text": "As a shopper, I want to browse products by category so that I can find what I need.\nAs a shopper, I want to add products to my cart so that I can buy several items at once.\nAs a shopper, I want to check out and pay by card or UPI so that my order is placed.\nAs a shopper, I want to track my order so that I know when it will arrive.\nAs a shopper, I want to write a review of a product I bought.\nAs a shopper, I want to return an item within 30 days and get a refund.\nAs a seller, I want to list a new product with price, stock and photos.\nAs a seller, I want to update the stock level of my products.\nAs a seller, I want to see the orders for my products so that I can ship them.\nAs an admin, I want to approve new sellers before they can list products.\nAs an admin, I want to remove reviews that break the rules.\nAs the payment gateway, I want to confirm or reject each payment.\n",
+  "labels": {
+    "actors": [
+      [
+        "Shopper",
+        "Customer",
+        "Buyer"
+      ],
+      [
+        "Seller",
+        "Vendor"
+      ],
+      [
+        "Admin",
+        "Administrator"
+      ],
+      [
+        "Payment gateway"
+      ]
+    ],
+    "entities": [
+      [
+        "Product",
+        "Item"
+      ],
+      [
+        "Cart",
+        "Shopping cart"
+      ],
+      [
+        "Order"
+      ],
+      [
+        "Payment"
+      ],
+      [
+        "Review",
+        "Product review"
+      ],
+      [
+        "Seller",
+        "Vendor"
+      ],
+      [
+        "Category",
+        "Product category"
+      ],
+      [
+        "Return",
+        "Return request",
+        "Refund"
+      ]
+    ],
+    "processes": [
+      [
+        "Browse products",
+        "Browse by category",
+        "Browse catalogue"
+      ],
+      [
+        "Add to cart",
+        "Add product to cart"
+      ],
+      [
+        "Checkout",
+        "Check out",
+        "Place order"
+      ],
+      [
+        "Pay for order",
+        "Make payment",
+        "Pay"
+      ],
+      [
+        "Track order"
+      ],
+      [
+        "Write review",
+        "Review product"
+      ],
+      [
+        "Return item",
+        "Request return",
+        "Request refund"
+      ],
+      [
+        "List product",
+        "Add product"
+      ],
+      [
+        "Update stock",
+        "Manage stock"
+      ],
+      [
+        "View orders",
+        "View seller orders"
+      ],
+      [
+        "Approve seller",
+        "Approve new seller"
+      ],
+      [
+        "Remove review",
+        "Moderate review"
+      ],
+      [
+        "Confirm payment",
+        "Process payment",
+        "Verify payment"
+      ]
+    ],
+    "interactions": [
+      [
+        "Shopper",
+        "Browse products"
+      ],
+      [
+        "Shopper",
+        "Add to cart"
+      ],
+      [
+        "Shopper",
+        "Checkout"
+      ],
+      [
+        "Shopper",
+        "Track order"
+      ],
+      [
+        "Shopper",
+        "Write review"
+      ],
+      [
+        "Shopper",
+        "Return item"
+      ],
+      [
+        "Seller",
+        "List product"
+      ],
+      [
+        "Seller",
+        "Update stock"
+      ],
+      [
+        "Seller",
+        "View orders"
+      ],
+      [
+        "Admin",
+        "Approve seller"
+      ],
+      [
+        "Admin",
+        "Remove review"
+      ],
+      [
+        "Payment gateway",
+        "Confirm payment"
+      ]
+    ],
+    "relationships": [
+      [
+        "Cart",
+        "Product"
+      ],
+      [
+        "Order",
+        "Product"
+      ],
+      [
+        "Order",
+        "Payment"
+      ],
+      [
+        "Review",
+        "Product"
+      ],
+      [
+        "Seller",
+        "Product"
+      ],
+      [
+        "Product",
+        "Category"
+      ],
+      [
+        "Return",
+        "Order"
+      ]
+    ]
+  },
+  "forbidden": []
+}

@@ -3,6 +3,8 @@ Exercises the full split -> extract -> merge graph with a fake AI service,
 so CI can verify the pipeline's wiring, state merging, and timing metadata
 without calling the real Groq API.
 """
+import re
+
 from app.schemas.elements import (
     Actor,
     ActorExtraction,
@@ -20,10 +22,20 @@ from app.schemas.elements import (
 from app.schemas.requirements import RequirementSplitResult, RequirementStatement
 
 
+def _id(prefix, content, default):
+    """The first id with this prefix that the node was given (ids are hashes after canonicalisation)."""
+    m = re.search(rf"\b{prefix}-[0-9a-z]+\b", content or "")
+    return m.group(0) if m else default
+
+
 class FakeAIService:
-    """Stands in for AIService, returning one canned object per node."""
+    """Stands in for AIService, returning one canned object per node; relations use the ids the node was given."""
 
     def structured_extract(self, *, node_name, system_prompt, user_content, schema):
+        a, p, e = _id("A", user_content, "A-001"), _id("P", user_content, None), _id("E", user_content, "E-001")
+        entities = re.findall(r"\bE-[0-9a-z]+\b", user_content or "")
+        rel_source = p or (entities[1] if len(entities) > 1 else "E-002")  # a class run has no processes
+        p = p or "P-001"
         meta = {
             "node": node_name,
             "model": "fake-model",
@@ -45,7 +57,8 @@ class FakeAIService:
             return ActorExtraction(actors=[Actor(id="A-001", name="User", source_refs=["R-001"])]), meta
         if schema is EntityExtraction:
             return (
-                EntityExtraction(entities=[Entity(id="E-001", name="Account", source_refs=["R-001"])]),
+                EntityExtraction(entities=[Entity(id="E-001", name="Account", source_refs=["R-001"]),
+                                           Entity(id="E-002", name="Sessions", source_refs=["R-001"])]),
                 meta,
             )
         if schema is ProcessExtraction:
@@ -60,8 +73,8 @@ class FakeAIService:
                         DataFlow(
                             id="DF-001",
                             name="Credentials",
-                            source_id="A-001",
-                            target_id="P-001",
+                            source_id=a,
+                            target_id=p,
                             source_refs=["R-001"],
                         )
                     ],
@@ -74,7 +87,7 @@ class FakeAIService:
                 InteractionExtraction(
                     interactions=[
                         Interaction(
-                            id="I-001", source_id="A-001", target_id="P-001", source_refs=["R-001"]
+                            id="I-001", source_id=a, target_id=p, source_refs=["R-001"]
                         )
                     ]
                 ),
@@ -84,7 +97,7 @@ class FakeAIService:
             return (
                 RelationshipExtraction(
                     relationships=[
-                        Relationship(id="REL-001", source_id="P-001", target_id="E-001")
+                        Relationship(id="REL-001", source_id=rel_source, target_id=e)
                     ]
                 ),
                 meta,
@@ -99,6 +112,7 @@ def test_full_pipeline_with_fake_ai_service(monkeypatch):
     import app.graph.nodes.extract_interactions as interactions_mod
     import app.graph.nodes.extract_processes as processes_mod
     import app.graph.nodes.extract_relationships as relationships_mod
+    import app.graph.node_runner as runner_mod
     import app.graph.nodes.split as split_mod
 
     fake = FakeAIService()
@@ -110,20 +124,21 @@ def test_full_pipeline_with_fake_ai_service(monkeypatch):
         dataflows_mod,
         interactions_mod,
         relationships_mod,
+        runner_mod,
     ):
-        monkeypatch.setattr(mod, "get_ai_service", lambda: fake)
+        monkeypatch.setattr(mod, "get_ai_service", lambda: fake, raising=False)
 
     from app.services.extraction_service import run_extraction_pipeline
 
     result = run_extraction_pipeline("The user shall log in.", project_name="Test Project")
 
     assert len(result.requirements) == 1
-    assert result.actors[0].id == "A-001"
-    assert result.entities[0].id == "E-001"
-    assert result.processes[0].id == "P-001"
-    assert result.data_flows[0].source_id == "A-001"
-    assert result.interactions[0].target_id == "P-001"
-    assert result.relationships[0].source_id == "P-001"
+    # ids are hashes of (kind, normalised name), so a re-run reproduces them; relations point at them
+    assert result.actors[0].id.startswith("A-") and result.actors[0].id != "A-001"
+    assert result.data_flows[0].source_id == result.actors[0].id
+    assert result.interactions[0].target_id == result.processes[0].id
+    assert result.relationships[0].source_id == result.processes[0].id
+    assert result.relationships[0].target_id == result.entities[0].id
 
     # timing metadata present and total duration measured.
     assert result.metadata.total_duration_seconds >= 0
@@ -131,3 +146,108 @@ def test_full_pipeline_with_fake_ai_service(monkeypatch):
     assert result.metadata.met_timing_target is True
     assert len(result.metadata.node_timings) == 7  # one per AI-calling node
     assert result.metadata.project_name == "Test Project"
+
+
+def _patch_ai(monkeypatch):
+    """Every node gets one shared fake that records which nodes were called, in order."""
+    import app.graph.nodes.extract_actors as actors_mod
+    import app.graph.nodes.extract_dataflows as dataflows_mod
+    import app.graph.nodes.extract_entities as entities_mod
+    import app.graph.nodes.extract_interactions as interactions_mod
+    import app.graph.nodes.extract_processes as processes_mod
+    import app.graph.nodes.extract_relationships as relationships_mod
+    import app.graph.nodes.split as split_mod
+
+    calls = []
+
+    class Recording(FakeAIService):
+        def structured_extract(self, *, node_name, system_prompt, user_content, schema):
+            calls.append((node_name, system_prompt, user_content))
+            return super().structured_extract(
+                node_name=node_name, system_prompt=system_prompt, user_content=user_content, schema=schema
+            )
+
+    import app.graph.node_runner as runner_mod
+
+    fake = Recording()
+    for mod in (split_mod, actors_mod, entities_mod, processes_mod, dataflows_mod, interactions_mod, relationships_mod, runner_mod):
+        monkeypatch.setattr(mod, "get_ai_service", lambda: fake, raising=False)
+    return calls
+
+
+REQUIREMENTS = [RequirementStatement(id="R-001", text="The user shall log in.")]
+
+
+def test_use_case_run_skips_split_and_unneeded_nodes(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["use_case"])
+
+    assert sorted(c[0] for c in calls) == ["extract_actors", "extract_interactions", "extract_processes"]
+    assert result.actors and result.processes and result.interactions
+    assert not result.entities and not result.data_flows and not result.relationships
+    assert result.metadata.nodes_run == ["actors", "interactions", "processes"]
+
+
+def test_class_run_extracts_entities_before_relationships(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["class"])
+
+    assert [c[0] for c in calls] == ["extract_entities", "extract_relationships"]
+    assert result.entities and result.relationships and not result.actors
+
+
+def test_adding_a_diagram_only_runs_the_missing_nodes(monkeypatch):
+    from app.schemas.elements import Actor, Process
+    from app.schemas.results import KnownElements
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    known = KnownElements(actors=[Actor(id="A-001", name="User")], processes=[Process(id="P-001", name="Login")])
+    result = run_extraction_pipeline(
+        requirements=REQUIREMENTS,
+        diagram_types=["use_case", "sequence"],
+        done_nodes=["actors", "processes", "interactions"],
+        known=known,
+    )
+
+    assert [c[0] for c in calls] == ["extract_entities"]
+    assert result.entities and not result.actors and not result.interactions
+    assert result.metadata.nodes_needed == ["actors", "entities", "interactions", "processes"]
+
+
+def test_nothing_new_to_extract_makes_no_ai_calls(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    calls = _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["activity"], done_nodes=["processes"])
+
+    assert calls == [] and result.metadata.nodes_run == []
+
+
+def test_suggestions_only_cover_what_the_run_was_for(monkeypatch):
+    from app.services.extraction_service import run_extraction_pipeline
+
+    _patch_ai(monkeypatch)
+    result = run_extraction_pipeline(requirements=REQUIREMENTS, diagram_types=["class"])
+
+    assert "name-an-actor" not in [s.id for s in result.suggestions]
+
+
+def test_split_alone_and_with_feedback(monkeypatch):
+    from app.services.extraction_service import run_split
+
+    calls = _patch_ai(monkeypatch)
+    first = run_split("The user shall log in.", "Shop")
+    assert [c[0] for c in calls] == ["split"] and first.metadata.requirement_count == 1
+    assert "FEEDBACK" not in calls[0][2]
+
+    calls.clear()
+    run_split("The user shall log in.", "Shop", feedback="split login and logout", previous=REQUIREMENTS)
+    _, system_prompt, user_content = calls[0]
+    assert "FEEDBACK:\nsplit login and logout" in user_content
+    assert "R-001 [unknown]: The user shall log in." in user_content
+    assert "revising an earlier split" in system_prompt

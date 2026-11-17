@@ -31,8 +31,8 @@ export function GeneratePage() {
     return (
       <div className="space-y-4">
         <StepHeading title="Generate diagrams" />
-        <Notice tone="warning" title="Confirm the extracted items first">
-          Diagrams are built only from confirmed items.{' '}
+        <Notice tone="warning" title="Confirm the requirements first">
+          Diagrams are built only from confirmed requirements.{' '}
           <Link to="../review" className="font-medium underline">
             Go to Review
           </Link>

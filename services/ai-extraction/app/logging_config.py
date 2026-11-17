@@ -11,6 +11,7 @@ LLM calls are logged from.
 """
 import logging
 import sys
+import traceback
 
 from app.config import get_settings
 
@@ -32,6 +33,12 @@ def configure_logging() -> None:
     # Keep third-party libraries from being overly chatty by default.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("groq").setLevel(logging.WARNING)
+
+
+def error_location(exc: BaseException) -> str:
+    """File and line where an error was raised, never its message (the message can hold user text)."""
+    frames = traceback.extract_tb(exc.__traceback__)
+    return f"{frames[-1].filename}:{frames[-1].lineno}" if frames else "unknown"
 
 
 def get_logger(name: str) -> logging.Logger:

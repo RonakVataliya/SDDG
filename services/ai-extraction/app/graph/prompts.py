@@ -20,6 +20,14 @@ infer them, otherwise omit them.
 - Preserve the original meaning; do not summarize away important detail.
 """
 
+SPLIT_FEEDBACK = """
+You are revising an earlier split. You are given the PREVIOUS REQUIREMENTS and \
+the reviewer's FEEDBACK after the original text. Produce a corrected, complete \
+list that applies the feedback (merge, split, reword, add or drop statements as \
+asked), keeping everything the feedback does not mention. Renumber the ids \
+"R-001", "R-002", ... in reading order.
+"""
+
 ACTORS_SYSTEM_PROMPT = """You are a software analyst identifying actors from \
 requirement statements, for a use-case / DFD diagram.
 

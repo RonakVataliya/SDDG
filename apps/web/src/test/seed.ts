@@ -7,7 +7,7 @@ const EMAIL = 'dev@sddg.test'
 export function seedProject({ confirmed = false, consent = false } = {}) {
   const db = getDb()
   const at = new Date().toISOString()
-  db.projects.push({ id: 'pr_1', name: 'Library system', owner: EMAIL, created_at: at, updated_at: at, confirmed_at: confirmed ? at : null })
+  db.projects.push({ id: 'pr_1', name: 'Library system', owner: EMAIL, created_at: at, updated_at: at, confirmed_at: confirmed ? at : null, extracted_nodes: confirmed ? ['actors', 'processes', 'interactions'] : [] })
   const statements: RequirementStatement[] = [
     { id: 'st_1', ref: 'R-001', text: 'The librarian shall issue a book to a member.', label: 'FR3', source: { document: 'Pasted text', page: null, paragraph: 1 } },
   ]

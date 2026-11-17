@@ -69,6 +69,25 @@ paths:
         '200':
           description: OK
           content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RequirementStatement' } } } }
+    post:
+      summary: Add a requirement (next R-number). Clears the confirmation and the building blocks.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StatementWrite' } } }
+      responses:
+        '201': { description: Added, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementStatement' } } } }
+  /projects/{project_id}/statements/{statement_id}:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { name: statement_id, in: path, required: true, schema: { type: string } }]
+    patch:
+      summary: Edit a requirement; 422 "Requirement text can't be empty."
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StatementWrite' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementStatement' } } } }
+    delete:
+      responses:
+        '204': { description: Deleted }
   /projects/{project_id}/items:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:
@@ -113,6 +132,16 @@ paths:
         '200':
           description: OK
           content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DiagramSummary' } } } }
+  /projects/{project_id}/diagrams/export:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: The project's diagrams as one ZIP (PNG, SVG, PDF and source code for each, plus README.txt; no PDF for Mermaid)
+      parameters:
+        - { name: versions, in: query, required: false, description: 'all (default) = every version; latest = newest version of each diagram', schema: { type: string, enum: [all, latest], default: all } }
+      responses:
+        '200': { description: ZIP file, content: { application/zip: { schema: { type: string, format: binary } } } }
+        '404': { description: The project has no diagrams yet, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: 'versions is not all/latest, or the all-versions ZIP is over the version cap (ZIP_MAX_VERSIONS, default 30)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /jobs/{job_id}:
     parameters: [{ name: job_id, in: path, required: true, schema: { type: string } }]
     get:
@@ -138,17 +167,214 @@ paths:
   /diagrams/{diagram_id}/export:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
-      summary: The rendered diagram as a still PNG, shown in the viewer and downloaded by Export (FR18a — 2x, capped at 8000 px)
+      summary: The rendered diagram as PNG (shown in the viewer; FR18a — 2x, capped at 8000 px), SVG or PDF, downloaded by Export. Pictures are drawn with the diagram's saved style (#38).
       parameters:
-        - { name: format, in: query, required: true, schema: { type: string, enum: [png] } }
+        - { name: format, in: query, required: true, schema: { type: string, enum: [png, svg, pdf, source] } }
+      responses:
+        '200':
+          description: File
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/svg+xml: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+            text/plain: { description: 'format=source: the diagram code (text/x-plantuml, text/vnd.graphviz or text/x-mermaid)', schema: { type: string } }
+        '422': { description: Unsupported format, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/layout:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: Element positions and the lines between them, for moving elements by hand (#37). Positions are element centres.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramLayout' } } } }
+    post:
+      summary: Save moved elements. Returns the new version; the one it came from is kept.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LayoutUpdate' } } }
+      responses:
+        '201': { description: New version, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+        '422': { description: Not an element of this diagram, or a position is not a number, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/flags/{flag_id}/answer:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: flag_id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Answer a flag's question (#34). For an untestable flag the answer also fills in the suggested requirement.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/FlagAnswer' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Flag' } } } }
+  /projects/{project_id}/tests/requirements:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Every requirement with its test-design summary, plus the project's running test job if there is one
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestRequirementList' } } } }
+  /projects/{project_id}/tests/requirements/{statement_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { $ref: '#/components/parameters/StatementId' }
+    get:
+      summary: One requirement's test design - criteria, conditions with classes and boundaries, flows, drafts, open question
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestDesign' } } } }
+  /projects/{project_id}/tests/criteria-jobs:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: AI request 1 - acceptance criteria, conditions, flows and questions for the chosen requirements (5 per AI call). Replaces an earlier design.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CriteriaJobCreate' } } }
+      responses:
+        '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        '403': { description: No AI consent recorded (X8), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: A Tests job is already running for this project, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Unknown requirement, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/tests/conditions/{condition_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: condition_id, in: path, required: true, schema: { type: string } }
+    patch:
+      summary: Edit a condition. Classes, boundaries and draft cases are recomputed in code - no AI call.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ConditionUpdate' } } }
+      responses:
+        '200': { description: The requirement's updated design, content: { application/json: { schema: { $ref: '#/components/schemas/TestDesign' } } } }
+        '422': { description: Invalid limits or values, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/tests/criteria/{criterion_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: criterion_id, in: path, required: true, schema: { type: string } }
+    patch:
+      summary: Edit an acceptance criterion
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CriterionUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Criterion' } } } }
+  /projects/{project_id}/tests/step-jobs:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: AI request 2 - preconditions, steps and expected results for kept draft cases only (6 per AI call)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StepJobCreate' } } }
+      responses:
+        '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        '403': { description: No AI consent recorded (X8), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: No kept draft cases to write, or a Tests job is already running, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/tests/cases:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Every test case with its freshness and last result
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TestCase' } } } }
+    post:
+      summary: Add a test case by hand
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TestCaseCreate' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/TestCase' } } } }
+  /projects/{project_id}/tests/cases/{case_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { $ref: '#/components/parameters/CaseId' }
+    patch:
+      summary: Keep or discard a draft, or edit a case's text
+      description: A draft only accepts `kept`; its other fields can be edited once its steps are written (status ready).
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TestCaseUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestCase' } } } }
+        '409': { description: A draft can only be kept or discarded, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/tests/runs:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Runs, newest first, with their result counts
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TestRunSummary' } } } }
+    post:
+      summary: Start a manual run
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TestRunCreate' } } }
+      responses:
+        '201': { description: Started, content: { application/json: { schema: { $ref: '#/components/schemas/TestRun' } } } }
+        '422': { description: The selection is empty, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/tests/runs/selection:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Which ready cases each run mode would pick, and why
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/RunSelection' } } } }
+  /projects/{project_id}/tests/runs/{run_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { $ref: '#/components/parameters/RunId' }
+    get:
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestRun' } } } }
+  /projects/{project_id}/tests/runs/{run_id}/results/{case_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { $ref: '#/components/parameters/RunId' }
+      - { $ref: '#/components/parameters/CaseId' }
+    put:
+      summary: Mark one case in an open run. Who marked it and when are recorded.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TestResultUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestResult' } } } }
+        '409': { description: The run is finished, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/tests/runs/{run_id}/finish:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { $ref: '#/components/parameters/RunId' }
+    post:
+      summary: Finish a run. It is kept so later runs can be compared with it.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TestRun' } } } }
+  /diagrams/{diagram_id}/style:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: The diagram's look (#38). A version with no saved style uses the nearest earlier version's, else the default.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } } }
+    put:
+      summary: Save the diagram's look. Only drawing changes; the diagram's elements and relationships never do, so no new version is made.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } }
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } } }
+        '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /diagrams/{diagram_id}/preview:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post:
+      summary: Draw the diagram with a style that is not saved yet, for the live preview while customising (#38)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DiagramStyle' } } }
       responses:
         '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
+        '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
   parameters:
     ProjectId: { name: project_id, in: path, required: true, schema: { type: string } }
     DiagramId: { name: diagram_id, in: path, required: true, schema: { type: string } }
+    StatementId: { name: statement_id, in: path, required: true, schema: { type: string } }
+    CaseId: { name: case_id, in: path, required: true, schema: { type: string } }
+    RunId: { name: run_id, in: path, required: true, schema: { type: string } }
   schemas:
     Error:
       type: object
@@ -175,7 +401,7 @@ components:
     Role: { type: string, enum: [owner, editor, viewer] }
     Project:
       type: object
-      required: [id, name, role, created_at, updated_at, statement_count, item_count, extraction, confirmed, diagram_count]
+      required: [id, name, role, created_at, updated_at, statement_count, item_count, extraction, confirmed, diagram_count, extracted_nodes]
       properties:
         id: { type: string }
         name: { type: string, minLength: 1, maxLength: 100 }
@@ -185,9 +411,10 @@ components:
         statement_count: { type: integer }
         item_count: { type: integer }
         extraction: { oneOf: [{ $ref: '#/components/schemas/Job' }, { type: 'null' }], description: Latest extraction job }
-        confirmed: { type: boolean, description: Current extraction is confirmed (cleared by any change) }
+        confirmed: { type: boolean, description: The requirements are confirmed (cleared by any requirement change) }
         confirmed_at: { type: [string, 'null'], format: date-time }
         diagram_count: { type: integer }
+        extracted_nodes: { type: array, items: { type: string }, description: 'Extraction nodes already run on the confirmed requirements (actors, entities, ...)' }
     ProjectCreate:
       type: object
       required: [name]
@@ -212,6 +439,11 @@ components:
         text: { type: string }
         label: { type: [string, 'null'], description: Label the input already carried, e.g. FR3 }
         source: { $ref: '#/components/schemas/SourceLocation' }
+    StatementWrite:
+      type: object
+      properties:
+        text: { type: string, maxLength: 2000 }
+        label: { type: [string, 'null'], enum: [functional, non_functional, user_story, constraint, unknown, null] }
     ItemCategory:
       type: string
       enum: [actor, entity, process, data_flow, data_store, interaction, relationship]
@@ -257,13 +489,13 @@ components:
       required: [diagram_types]
       properties:
         diagram_types: { type: array, minItems: 1, items: { $ref: '#/components/schemas/DiagramType' } }
-    JobStatus: { type: string, enum: [queued, running, succeeded, failed] }
+    JobStatus: { type: string, enum: [queued, running, waiting, succeeded, failed], description: 'waiting = the AI provider is at its rate limit; the job resumes by itself' }
     Job:
       type: object
       required: [id, kind, status, progress]
       properties:
         id: { type: string }
-        kind: { type: string, enum: [extraction, generation] }
+        kind: { type: string, enum: [extraction, generation, test_criteria, test_steps] }
         status: { $ref: '#/components/schemas/JobStatus' }
         queue_position: { type: [integer, 'null'] }
         progress:
@@ -296,3 +528,313 @@ components:
       required: [instruction]
       properties:
         instruction: { type: string, minLength: 1, maxLength: 500 }
+    LayoutDirection:
+      type: string
+      enum: [auto, TB, LR]
+      description: auto keeps the direction the generator chose; TB is top to bottom, LR left to right
+    DiagramStyle:
+      type: object
+      required: [preset, background, fill, text, line, direction, font_size]
+      properties:
+        preset: { type: [string, 'null'], enum: [default, high_contrast, dark, blueprint, warm, null], description: Preset the colours came from; null once a colour is edited by hand }
+        background: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Canvas }
+        fill: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Element boxes }
+        text: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: All labels }
+        line: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Borders and arrows }
+        direction: { $ref: '#/components/schemas/LayoutDirection' }
+        font_size: { type: integer, minimum: 8, maximum: 24, description: Points }
+    Point:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+    LayoutElement:
+      type: object
+      required: [id, kind, label, x, y]
+      properties:
+        id: { type: string }
+        kind: { type: string, description: 'e.g. actor, use_case, class, process, start, decision' }
+        label: { type: string }
+        x: { type: number, description: Centre of the element }
+        y: { type: number, description: Centre of the element }
+    LayoutLine:
+      type: object
+      required: [id, kind, source, target]
+      properties:
+        id: { type: string }
+        kind: { type: string, description: 'e.g. association, include, extend, message, data_flow, flow, or a class relation type' }
+        source: { type: string, description: Element id the line starts at }
+        target: { type: string, description: Element id the line ends at }
+        label: { type: [string, 'null'], description: 'Text drawn on the line: a flow name, message, relation name, dependency label, transition event or decision guard; null when the line has none' }
+    DiagramLayout:
+      type: object
+      required: [diagram_id, type, saved, elements, lines]
+      properties:
+        diagram_id: { type: string }
+        type: { $ref: '#/components/schemas/DiagramType' }
+        saved: { type: boolean, description: True when this version has positions moved by hand; false means the default grid }
+        elements: { type: array, items: { $ref: '#/components/schemas/LayoutElement' } }
+        lines: { type: array, items: { $ref: '#/components/schemas/LayoutLine' } }
+    LayoutUpdate:
+      type: object
+      required: [positions]
+      properties:
+        positions: { type: object, description: Only the elements that moved, by element id, additionalProperties: { $ref: '#/components/schemas/Point' } }
+    FlagType: { type: string, enum: [ambiguous, incomplete, conflict, untestable] }
+    Flag:
+      type: object
+      required: [id, statement_id, statement_ref, type, reason, status, has_suggestion, suggestion]
+      properties:
+        id: { type: string }
+        statement_id: { type: string }
+        statement_ref: { type: string }
+        type: { $ref: '#/components/schemas/FlagType' }
+        reason: { type: string }
+        trigger_text: { type: [string, 'null'] }
+        question: { type: [string, 'null'] }
+        answer: { type: [string, 'null'] }
+        has_suggestion: { type: boolean }
+        suggestion: { type: string, description: 'The suggested requirement text, or "No suggestion available."' }
+        status: { type: string, enum: [open, resolved] }
+        resolved_by: { type: [string, 'null'] }
+    FlagAnswer:
+      type: object
+      required: [answer]
+      properties: { answer: { type: string, minLength: 1, maxLength: 1000 } }
+    TestRequirementSummary:
+      type: object
+      required: [statement_id, ref, text, designed, stale, criteria_count, draft_count, kept_count, ready_count, boundary_count, open_question, open_flags]
+      properties:
+        statement_id: { type: string }
+        ref: { type: string }
+        text: { type: string }
+        label: { type: [string, 'null'] }
+        designed: { type: boolean, description: AI request 1 has run for this requirement }
+        stale: { type: boolean, description: The requirement text changed after its design was made }
+        criteria_count: { type: integer }
+        draft_count: { type: integer, description: Generated cases still waiting for steps }
+        kept_count: { type: integer, description: Drafts that will get steps }
+        ready_count: { type: integer, description: Cases with steps written }
+        boundary_count: { type: integer, description: Boundary values across this requirement's conditions }
+        open_question: { type: boolean, description: An open untestable flag is waiting for an answer }
+        open_flags: { type: array, items: { $ref: '#/components/schemas/FlagType' }, description: Types of the requirement's open flags }
+    TestRequirementList:
+      type: object
+      required: [requirements, active_job]
+      properties:
+        requirements: { type: array, items: { $ref: '#/components/schemas/TestRequirementSummary' } }
+        active_job: { oneOf: [{ $ref: '#/components/schemas/Job' }, { type: 'null' }], description: A queued or running test job }
+    Criterion:
+      type: object
+      required: [id, given, when, then]
+      properties:
+        id: { type: string }
+        given: { type: string }
+        when: { type: string }
+        then: { type: string }
+    ConditionKind: { type: string, enum: [range, count, set] }
+    EquivalenceClass:
+      type: object
+      required: [label, valid]
+      properties:
+        label: { type: string, description: 'e.g. "1–30", "< 1", "Surgery"' }
+        valid: { type: boolean }
+    BoundaryValue:
+      type: object
+      required: [value, valid]
+      properties:
+        value: { type: number }
+        valid: { type: boolean, description: False when the system should reject this value }
+    Condition:
+      type: object
+      required: [id, name, kind, description, values, invalid_values, classes, boundaries]
+      properties:
+        id: { type: string }
+        name: { type: string, description: 'The input, e.g. days_ahead' }
+        kind: { $ref: '#/components/schemas/ConditionKind' }
+        description: { type: string }
+        min: { type: [number, 'null'] }
+        max: { type: [number, 'null'] }
+        unit: { type: [string, 'null'] }
+        values: { type: array, items: { type: string }, description: Valid values of a set }
+        invalid_values: { type: array, items: { type: string }, description: Values a set must reject }
+        classes: { type: array, items: { $ref: '#/components/schemas/EquivalenceClass' } }
+        boundaries: { type: array, items: { $ref: '#/components/schemas/BoundaryValue' } }
+    Flow:
+      type: object
+      required: [id, kind, text]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [basic, alternate] }
+        text: { type: string }
+    PerformanceTarget:
+      type: object
+      required: [measure, limit, unit]
+      properties:
+        measure: { type: string }
+        limit: { type: number }
+        unit: { type: string }
+        load: { type: [string, 'null'] }
+    TestDesign:
+      type: object
+      required: [statement_id, ref, text, designed, stale, criteria, conditions, flows, performance_targets, drafts, question, open_flags]
+      properties:
+        statement_id: { type: string }
+        ref: { type: string }
+        text: { type: string }
+        label: { type: [string, 'null'] }
+        designed: { type: boolean }
+        stale: { type: boolean }
+        generated_at: { type: [string, 'null'], format: date-time }
+        criteria: { type: array, items: { $ref: '#/components/schemas/Criterion' } }
+        conditions: { type: array, items: { $ref: '#/components/schemas/Condition' } }
+        flows: { type: array, items: { $ref: '#/components/schemas/Flow' } }
+        performance_targets: { type: array, items: { $ref: '#/components/schemas/PerformanceTarget' } }
+        drafts: { type: array, items: { $ref: '#/components/schemas/TestCase' }, description: This requirement's generated cases }
+        question: { oneOf: [{ $ref: '#/components/schemas/Flag' }, { type: 'null' }], description: The latest untestable flag }
+        open_flags: { type: array, items: { $ref: '#/components/schemas/FlagType' } }
+    CriteriaJobCreate:
+      type: object
+      required: [statement_ids]
+      properties:
+        statement_ids: { type: array, minItems: 1, maxItems: 30, items: { type: string } }
+    ConditionUpdate:
+      type: object
+      properties:
+        min: { type: [number, 'null'] }
+        max: { type: [number, 'null'] }
+        values: { type: array, items: { type: string } }
+        invalid_values: { type: array, items: { type: string } }
+    CriterionUpdate:
+      type: object
+      required: [given, when, then]
+      properties:
+        given: { type: string, minLength: 1, maxLength: 500 }
+        when: { type: string, minLength: 1, maxLength: 500 }
+        then: { type: string, minLength: 1, maxLength: 500 }
+    StepJobCreate:
+      type: object
+      properties:
+        case_ids: { type: array, items: { type: string }, description: Defaults to every kept draft case }
+    CaseTechnique: { type: string, enum: [EC, BVA, BVA+EC, Flow, NFR, AC, Manual] }
+    CaseKind: { type: string, enum: [positive, negative, edge] }
+    CasePriority: { type: string, enum: [high, medium, low] }
+    ResultStatus: { type: string, enum: [pass, fail, blocked, skipped] }
+    TestCase:
+      type: object
+      required: [id, number, statement_id, statement_ref, title, technique, kind, priority, status, kept, origin, test_data, covers, preconditions, steps, freshness, created_at]
+      properties:
+        id: { type: string }
+        number: { type: string, description: 'Project-unique, never reused, e.g. TC-009' }
+        statement_id: { type: string }
+        statement_ref: { type: string }
+        title: { type: string }
+        technique: { $ref: '#/components/schemas/CaseTechnique' }
+        kind: { $ref: '#/components/schemas/CaseKind' }
+        priority: { $ref: '#/components/schemas/CasePriority' }
+        status: { type: string, enum: [draft, ready], description: ready once steps are written }
+        kept: { type: boolean, description: False for a draft the user unticked }
+        origin: { type: string, enum: [generated, manual] }
+        outcome: { type: [string, 'null'], enum: [accepted, rejected, null], description: What the system should do with the test data }
+        test_data: { type: object, additionalProperties: { type: [string, number] } }
+        covers: { type: array, items: { type: string }, description: 'e.g. EC:days_ahead:high, BVA:days_ahead:31' }
+        preconditions: { type: array, items: { type: string } }
+        steps: { type: array, items: { type: string } }
+        expected: { type: [string, 'null'] }
+        freshness: { type: string, enum: [current, out_of_date], description: out_of_date once the requirement text changes }
+        last_result: { oneOf: [{ $ref: '#/components/schemas/ResultStatus' }, { type: 'null' }], description: Result in the newest run that marked this case }
+        created_at: { type: string, format: date-time }
+    TestCaseCreate:
+      type: object
+      required: [statement_id, title, kind, priority, steps, expected]
+      properties:
+        statement_id: { type: string }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        kind: { $ref: '#/components/schemas/CaseKind' }
+        priority: { $ref: '#/components/schemas/CasePriority' }
+        preconditions: { type: array, items: { type: string } }
+        steps: { type: array, minItems: 1, items: { type: string } }
+        expected: { type: string, minLength: 1, maxLength: 1000 }
+    TestCaseUpdate:
+      type: object
+      properties:
+        kept: { type: boolean }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        priority: { $ref: '#/components/schemas/CasePriority' }
+        preconditions: { type: array, items: { type: string } }
+        steps: { type: array, items: { type: string } }
+        expected: { type: string, minLength: 1, maxLength: 1000 }
+    RunMode: { type: string, enum: [all, failed, regression, minimal, pick] }
+    TestRunCreate:
+      type: object
+      required: [name, mode]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        case_ids: { type: array, items: { type: string }, description: Required for mode pick }
+    RunTally:
+      type: object
+      required: [pass, fail, blocked, skipped, unmarked]
+      properties:
+        pass: { type: integer }
+        fail: { type: integer }
+        blocked: { type: integer }
+        skipped: { type: integer }
+        unmarked: { type: integer }
+    TestRunSummary:
+      type: object
+      required: [id, name, mode, case_count, created_by, created_at, finished_at, tally]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        case_count: { type: integer }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        tally: { $ref: '#/components/schemas/RunTally' }
+    TestResult:
+      type: object
+      required: [case_id, status, marked_by, marked_at]
+      properties:
+        case_id: { type: string }
+        status: { $ref: '#/components/schemas/ResultStatus' }
+        note: { type: [string, 'null'] }
+        marked_by: { type: string }
+        marked_at: { type: string, format: date-time }
+    TestRunItem:
+      type: object
+      required: [case, result]
+      properties:
+        case: { $ref: '#/components/schemas/TestCase' }
+        result: { oneOf: [{ $ref: '#/components/schemas/TestResult' }, { type: 'null' }] }
+    TestRun:
+      allOf:
+        - { $ref: '#/components/schemas/TestRunSummary' }
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/TestRunItem' } }
+    TestResultUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ResultStatus' }
+        note: { type: [string, 'null'], maxLength: 1000 }
+    RunSelectionMode:
+      type: object
+      required: [case_ids, reasons, warning]
+      properties:
+        case_ids: { type: array, items: { type: string }, description: In the order the run will show them }
+        reasons: { type: object, additionalProperties: { type: string }, description: Why each case was picked, by case id }
+        warning: { type: [string, 'null'] }
+    RunSelection:
+      type: object
+      required: [changed_refs, all, failed, regression, minimal]
+      properties:
+        changed_refs: { type: array, items: { type: string }, description: Requirements whose text changed since their cases were made }
+        all: { $ref: '#/components/schemas/RunSelectionMode' }
+        failed: { $ref: '#/components/schemas/RunSelectionMode' }
+        regression: { $ref: '#/components/schemas/RunSelectionMode' }
+        minimal: { $ref: '#/components/schemas/RunSelectionMode' }
