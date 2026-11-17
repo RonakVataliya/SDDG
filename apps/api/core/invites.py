@@ -86,14 +86,18 @@ def is_member_email(project_id, email):
 def membership_info(project, user):
     """For the projects list: who owns a project the user was invited to, and when they joined it. Their own
     projects need no query, which is what every row of the projects list is for most people."""
+    none = {"owner_email": None, "joined_at": None}
     if project["owner_id"] == user.id:
-        return {"owner_email": None, "joined_at": None}
-    row = db.one(
-        "SELECT (SELECT email FROM users WHERE id=%s) AS owner_email, "
-        "(SELECT max(accepted_at) FROM invitations WHERE project_id=%s AND lower(email)=%s "
-        "AND accepted_at IS NOT NULL) AS joined_at",
-        project["owner_id"], project["id"], (user.email or "").lower(),
-    )
+        return none
+    try:
+        row = db.one(
+            "SELECT (SELECT email FROM users WHERE id=%s) AS owner_email, "
+            "(SELECT max(accepted_at) FROM invitations WHERE project_id=%s AND lower(email)=%s "
+            "AND accepted_at IS NOT NULL) AS joined_at",
+            project["owner_id"], project["id"], (user.email or "").lower(),
+        )
+    except (errors.UndefinedTable, errors.UndefinedColumn):
+        return none  # migration 0011 has not run here; the projects list must still work
     return {"owner_email": row["owner_email"], "joined_at": row["joined_at"]}
 
 
