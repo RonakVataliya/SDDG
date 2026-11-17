@@ -466,6 +466,8 @@ export function useRunSelection(projectId: string, enabled = true) {
     queryKey: keys.runSelection(projectId),
     queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/runs/selection', projectPath(projectId))),
     enabled,
+    // The picks depend on the latest results and requirement texts, so the dialog always asks again when it opens.
+    refetchOnMount: 'always',
   })
 }
 

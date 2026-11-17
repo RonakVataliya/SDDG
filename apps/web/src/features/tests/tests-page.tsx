@@ -1,6 +1,8 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { DownloadIcon, FileCodeIcon } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router'
-import { saveBlob, useTestCases, useTestRequirements } from '@/api/queries'
+import { keys, saveBlob, useTestCases, useTestRequirements } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { StepHeading } from '@/features/input/input-page'
 import { slugify } from '@/features/viewer/export-formats'
@@ -28,6 +30,16 @@ export function TestsPage() {
   const cases = useTestCases(project.id)
   const requirements = useTestRequirements(project.id)
   const canExport = EXPORTS_READY && !!cases.data?.length && !!requirements.data
+
+  // A test job keeps running when the user switches tab. The requirements list polls while one is active; when it
+  // ends, refresh every Tests query so the Cases, Runs and Coverage tabs show its result too.
+  const qc = useQueryClient()
+  const activeJobId = requirements.data?.active_job?.id ?? null
+  const lastActive = useRef<string | null>(null)
+  useEffect(() => {
+    if (lastActive.current && !activeJobId) void qc.invalidateQueries({ queryKey: keys.tests(project.id) })
+    lastActive.current = activeJobId
+  }, [activeJobId, project.id, qc])
 
   const download = (kind: 'csv' | 'feature') => {
     if (!cases.data || !requirements.data) return
