@@ -140,6 +140,7 @@ function applyExtraction(job: JobRow) {
     ...s,
     id: uid('st'),
     ref: `R-${String(start + i).padStart(3, '0')}`,
+    revision: 1,
   }))
   db.nextStatement[pid] = start + statements.length
   db.statements[pid] = [...(db.statements[pid] ?? []), ...statements]
@@ -190,6 +191,7 @@ function applyGeneration(job: JobRow) {
     created_at: now(),
     parent_id: null,
     instruction: null,
+    revision: 1,
     model,
     svg: renderUseCase(model),
   }
@@ -248,6 +250,7 @@ export function diagramView(d: DiagramRow): Diagram & { elements: { label: strin
     created_at: d.created_at,
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
+    revision: d.revision ?? 1,
     elements: [...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => ({ label: e.name })),
   }
 }

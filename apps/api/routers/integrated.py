@@ -156,6 +156,7 @@ def diagram_view(d):
         "created_at": d["created_at"],
         "parent_id": d["parent_id"],
         "instruction": d["instruction"],
+        "revision": d["revision"],
         "plantuml_source": d["plantuml_source"],
         "svg": d["svg"],
         "elements": d["elements"],

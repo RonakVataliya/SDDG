@@ -439,6 +439,7 @@ components:
         text: { type: string }
         label: { type: [string, 'null'], description: Label the input already carried, e.g. FR3 }
         source: { $ref: '#/components/schemas/SourceLocation' }
+        revision: { type: integer, minimum: 1, description: 'Counts up on every save, from 1. The edit conflict check compares it with the revision an edit was based on' }
     StatementWrite:
       type: object
       properties:
@@ -467,6 +468,7 @@ components:
         source_item_id: { type: [string, 'null'], description: For flows, interactions, relationships }
         target_item_id: { type: [string, 'null'] }
         relation_type: { type: [string, 'null'], description: e.g. association, include, extend, generalization }
+        revision: { type: integer, minimum: 1, description: Counts up on every save, from 1 }
     ItemPage:
       type: object
       required: [items, total, page, page_size, counts]
@@ -521,6 +523,7 @@ components:
         created_at: { type: string, format: date-time }
         parent_id: { type: [string, 'null'], description: The version this one was edited from; null for a fresh generation }
         instruction: { type: [string, 'null'], description: The edit request that produced this version; null for a fresh generation }
+        revision: { type: integer, minimum: 1, description: 1 for a fresh generation; each edited version is its parent's revision plus one }
     Diagram:
       $ref: '#/components/schemas/DiagramSummary'
     RevisionCreate:

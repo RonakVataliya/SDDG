@@ -237,7 +237,7 @@ def insert_statements(pid, statements, document="pasted requirements"):
 def get_statements(pid):
     return [
         {
-            "id": r["id"], "ref": r["ref"], "text": r["text"], "label": r["label"],
+            "id": r["id"], "ref": r["ref"], "text": r["text"], "label": r["label"], "revision": r["revision"],
             "source": {
                 "document": r["source_document"], "page": r["source_page"],
                 "paragraph": r["source_paragraph"], "line_start": r["source_line_start"],
@@ -414,7 +414,8 @@ def member_diagram(did, user_id):
 
 def list_diagrams(pid):
     return many(
-        "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
+        "SELECT id, type, title, created_at, parent_id, instruction, revision FROM diagrams WHERE project_id=%s "
+        "ORDER BY created_at DESC",
         pid,
     )
 

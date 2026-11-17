@@ -154,7 +154,7 @@ export const handlers = [
       const db = getDb()
       const n = db.nextStatement[p.id] ?? (db.statements[p.id]?.length ?? 0) + 1
       db.nextStatement[p.id] = n + 1
-      const st = { id: uid('st'), ref: `R-${String(n).padStart(3, '0')}`, text: text.trim(), label: label ?? null, source: { document: 'added by you', page: null, paragraph: null } }
+      const st = { id: uid('st'), ref: `R-${String(n).padStart(3, '0')}`, text: text.trim(), label: label ?? null, source: { document: 'added by you', page: null, paragraph: null }, revision: 1 }
       db.statements[p.id] = [...(db.statements[p.id] ?? []), st]
       resetModel(p.id)
       save()
@@ -171,6 +171,7 @@ export const handlers = [
       if (text !== undefined && !text.trim()) return fail(422, 'Requirement text can’t be empty.')
       if (text !== undefined) st.text = text.trim()
       if (label) st.label = label
+      st.revision = (st.revision ?? 1) + 1 // every save counts up, like the API
       resetModel(p.id)
       save()
       return HttpResponse.json(st)
@@ -222,6 +223,7 @@ export const handlers = [
       if (body.name !== undefined) item.name = body.name.trim()
       if (body.description !== undefined) item.description = body.description
       if (item.origin === 'system-extracted') item.origin = 'user-edited' // FR5b
+      item.revision = (item.revision ?? 1) + 1
       touch(p.id) // requirements-first: an item fix only makes diagrams stale
       save()
       return HttpResponse.json(item)
@@ -301,6 +303,7 @@ export const handlers = [
         id: uid('dg'),
         created_at: new Date().toISOString(),
         parent_id: d.id,
+        revision: (d.revision ?? 1) + 1,
         instruction: text,
         model: result.model,
         svg: renderUseCase(result.model),
@@ -337,6 +340,7 @@ export const handlers = [
         id: uid('dg'),
         created_at: new Date().toISOString(),
         parent_id: d.id,
+        revision: (d.revision ?? 1) + 1,
         instruction: `Moved ${moved.length} element(s)`,
         layout: { ...d.layout, ...Object.fromEntries(moved.map(([id, p]) => [id, [p.x as number, p.y as number]])) },
       }
