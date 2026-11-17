@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading } from '@/components/ui/spinner'
+import { displayName, roleLabel } from '@/lib/people'
 import { formatRelative, plural } from '@/lib/utils'
 import { CreateProjectDialog } from './create-project-dialog'
 import { projectStage, stageLabel, type Stage } from './stage'
@@ -72,7 +73,19 @@ export function ProjectsPage() {
                           : 'No requirements yet'}
                         {' · '}updated {formatRelative(p.updated_at)}
                       </p>
+                      {/* FR24a: a project you joined through an invitation says whose it is and when you joined. */}
+                      {p.joined_at && (
+                        <p className="mt-0.5 text-sm text-slate">
+                          Joined {formatRelative(p.joined_at)}
+                          {p.owner_email ? ` · owner ${displayName(p.owner_email)}` : ''}
+                        </p>
+                      )}
                     </div>
+                    {p.joined_at && (
+                      <Badge tone={p.role === 'editor' ? 'teal' : p.role === 'owner' ? 'violet' : 'neutral'}>
+                        {roleLabel[p.role]}
+                      </Badge>
+                    )}
                     <Badge tone={stageTone[stage]} className="hidden sm:inline-flex">
                       {stageLabel[stage]}
                     </Badge>

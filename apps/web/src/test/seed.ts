@@ -1,4 +1,5 @@
 import type { ExtractedItem, RequirementStatement } from '@/api/client'
+import type { InvitationRow } from '@/mocks/collab'
 import { getDb, save } from '@/mocks/db'
 import { renderUseCase, type UseCaseModel } from '@/mocks/render'
 
@@ -38,6 +39,29 @@ export function seedDiagram() {
   getDb().diagrams.push({
     id: 'dg_1', project_id: 'pr_1', type: 'use_case', title: 'Library system · Use Case', created_at: at,
     parent_id: null, instruction: null, model, svg: renderUseCase(model),
+  })
+  save()
+}
+
+/** An open invitation to pr_1 addressed to the signed-in user (FR24a). */
+export function seedInvitation(over: Partial<InvitationRow> = {}) {
+  const now = Date.now()
+  const row: InvitationRow = {
+    id: 'inv_1', project_id: 'pr_1', email: EMAIL, role: 'editor', token: 'tok_1',
+    invited_by: 'ronak.vataliya@sddg.test', created_at: new Date(now).toISOString(),
+    expires_at: new Date(now + 7 * 86_400_000).toISOString(), accepted_at: null, revoked_at: null, ...over,
+  }
+  getDb().collab.invitations.push(row)
+  save()
+  return row
+}
+
+/** pr_1 owned by someone else, so the signed-in user only reaches it through an invitation. */
+export function seedOthersProject(name = 'Acme Clinic') {
+  const at = new Date().toISOString()
+  getDb().projects.push({
+    id: 'pr_1', name, owner: 'ronak.vataliya@sddg.test', created_at: at, updated_at: at, confirmed_at: at,
+    extracted_nodes: [],
   })
   save()
 }

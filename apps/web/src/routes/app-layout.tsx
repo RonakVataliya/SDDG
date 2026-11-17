@@ -3,7 +3,9 @@ import { Link, Outlet, useNavigate } from 'react-router'
 import { Footer } from '@/components/footer'
 import { ServerWakingBanner } from '@/components/server-waking-banner'
 import { Button } from '@/components/ui/button'
+import { Toaster } from '@/components/ui/toaster'
 import { Wordmark } from '@/components/wordmark'
+import { NotificationBell } from '@/features/notifications/notification-bell'
 import { useAuth } from '@/features/auth/auth-context'
 
 export function AppLayout() {
@@ -19,6 +21,7 @@ export function AppLayout() {
           </Link>
           <div className="flex min-w-0 items-center gap-2">
             <span className="hidden truncate text-sm text-slate sm:inline">{session?.email}</span>
+            <NotificationBell />
             <Button
               variant="ghost"
               size="sm"
@@ -37,6 +40,7 @@ export function AppLayout() {
         <Outlet />
       </main>
       <Footer />
+      <Toaster />
     </div>
   )
 }

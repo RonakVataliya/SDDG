@@ -1,9 +1,10 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
-import type { Diagram, ExtractedItem, Job, RequirementStatement } from '@/api/client'
+import type { Diagram, DiagramDetail, ExtractedItem, Job, RequirementStatement } from '@/api/client'
 import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
 import { buildUseCaseModel, renderUseCase, type UseCaseModel } from './render'
+import { elementsOf, emptyCollab, type CollabState } from './collab'
 
 type ProjectRow = {
   id: string
@@ -45,6 +46,7 @@ export const emptyTests = (): TestsState => ({
 })
 
 export type MockDb = {
+  collab: CollabState
   tests: TestsState
   consent: Record<string, { version: string; at: string }>
   projects: ProjectRow[]
@@ -56,7 +58,7 @@ export type MockDb = {
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {} })
+const empty = (): MockDb => ({ collab: emptyCollab(), tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {} })
 
 let db: MockDb = load()
 
@@ -240,7 +242,8 @@ export function styleFor(d: DiagramRow): DiagramStyle {
   return DEFAULT_STYLE
 }
 
-export function diagramView(d: DiagramRow): Diagram & { elements: { label: string }[] } {
+export function diagramView(d: DiagramRow): DiagramDetail {
+  const ids = new Set(elementsOf(d).flatMap((e) => e.statement_ids))
   return {
     id: d.id,
     type: d.type,
@@ -248,7 +251,8 @@ export function diagramView(d: DiagramRow): Diagram & { elements: { label: strin
     created_at: d.created_at,
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
-    elements: [...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => ({ label: e.name })),
+    elements: elementsOf(d),
+    statements: (db.statements[d.project_id] ?? []).filter((s) => ids.has(s.id)),
   }
 }
 

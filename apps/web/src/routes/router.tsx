@@ -3,6 +3,7 @@ import { LoginPage } from '@/features/auth/login-page'
 import { SignupPage } from '@/features/auth/signup-page'
 import { VerifyEmailPage } from '@/features/auth/verify-email-page'
 import { GeneratePage } from '@/features/generate/generate-page'
+import { AcceptInvitePage } from '@/features/invitations/accept-invite-page'
 import { InputPage } from '@/features/input/input-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
 import { ProjectsPage } from '@/features/projects/projects-page'
@@ -10,6 +11,7 @@ import { ItemsPage } from '@/features/review/items-page'
 import { ReviewPage } from '@/features/review/review-page'
 import { SearchPage } from '@/features/search/search-page'
 import { TestsPage } from '@/features/tests/tests-page'
+import { TraceabilityPage } from '@/features/traceability/traceability-page'
 import { ViewerPage } from '@/features/viewer/viewer-page'
 import { AppLayout } from './app-layout'
 import { NotFoundPage } from './not-found-page'
@@ -29,6 +31,7 @@ export const routes = [
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: 'projects', element: <ProjectsPage /> },
+          { path: 'invite', element: <AcceptInvitePage /> },
           {
             path: 'projects/:projectId',
             element: <WorkspaceLayout />,
@@ -40,6 +43,7 @@ export const routes = [
               { path: 'generate', element: <GeneratePage /> },
               { path: 'search', element: <SearchPage /> },
               { path: 'tests', element: <TestsPage /> },
+              { path: 'traceability', element: <TraceabilityPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },
             ],
           },

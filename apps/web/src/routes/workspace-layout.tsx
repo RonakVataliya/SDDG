@@ -56,6 +56,14 @@ function buildSteps(project: Project, latestDiagramId?: string): Step[] {
       detail: project.statement_count ? 'Test cases and runs' : 'Locked until requirements exist',
       state: project.statement_count && stage !== 'extracting' ? 'open' : 'locked',
     },
+    {
+      // FR17b / FR17e: what the diagrams cover and where they name the same item differently.
+      n: 6,
+      to: 'traceability',
+      label: 'Traceability',
+      detail: project.diagram_count ? 'Coverage and naming' : 'Locked until a diagram exists',
+      state: project.diagram_count ? 'open' : 'locked',
+    },
   ]
 }
 

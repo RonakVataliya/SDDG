@@ -9,6 +9,7 @@ import { advance, createJob, diagramView, getDb, projectView, publicJob, resetMo
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
+import { acceptedProjects, collabHandlers } from './collab'
 import { testingHandlers } from './testing'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
@@ -57,6 +58,8 @@ export const handlers = [
   http.get(u('/health'), () => HttpResponse.json({ status: 'ok' })),
   // Tests feature (stream 6): src/mocks/testing.ts
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts
+  ...collabHandlers({ u, authed, ownedProject, fail, notFound, projectView }, http),
 
   http.get(
     u('/me/consent'),
@@ -87,12 +90,19 @@ export const handlers = [
   http.get(
     u('/projects'),
     authed(({ email }) =>
-      HttpResponse.json(
-        getDb()
+      HttpResponse.json([
+        ...getDb()
           .projects.filter((p) => p.owner === email)
           .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
           .map(projectView),
-      ),
+        // FR24a: a project you joined through an invitation is in your list too, with the role you were given.
+        ...acceptedProjects(email).map(({ project, role, joined_at, owner_email }) => ({
+          ...projectView(project),
+          role,
+          joined_at,
+          owner_email,
+        })),
+      ]),
     ),
   ),
   http.post(

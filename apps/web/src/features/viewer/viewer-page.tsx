@@ -2,7 +2,7 @@ import { ArrowUpIcon, MaximizeIcon, MoveIcon, SparklesIcon, ZoomInIcon, ZoomOutI
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pan-pinch'
-import type { Diagram } from '@/api/client'
+import type { Diagram, DiagramDetail } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
 import { useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useReviseDiagram } from '@/api/queries'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,8 @@ import { typeLabel } from '@/features/generate/diagram-types'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
 import { StylePanel } from '@/features/viewer/style-panel'
+import { DriftBanner } from '@/features/traceability/drift-banner'
+import { SourcePanel } from '@/features/traceability/source-panel'
 import { formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
@@ -49,6 +51,7 @@ export function ViewerPage() {
   const revise = useReviseDiagram(project.id)
   const layout = useDiagramLayout(diagramId)
   const [arrangeFor, setArrangeFor] = useState<string | null>(null)
+  const [sourceFor, setSourceFor] = useState<string | null>(null) // FR17a: the element whose requirements are shown
   const [draft, setDraft] = useState('')
   const [src, setSrc] = useState<string | null>(null)
   const [stylePreviewUrl, setStylePreviewUrl] = useState<string | null>(null)
@@ -61,6 +64,8 @@ export function ViewerPage() {
     setSrc(url)
     return () => URL.revokeObjectURL(url)
   }, [image.data])
+
+  useEffect(() => setSourceFor(null), [diagramId])
 
   const versions = useMemo(() => (diagram ? lineage(all ?? [], diagram) : []), [all, diagram])
   const edits = versions.filter((v) => v.instruction)
@@ -135,6 +140,8 @@ export function ViewerPage() {
         </p>
       )}
 
+      <DriftBanner diagramId={diagram.id} />
+
       {arranging ? (
         <LayoutEditor key={diagram.id} projectId={project.id} layout={layout.data!} title={diagram.title} onClose={() => setArrangeFor(null)} />
       ) : (
@@ -147,6 +154,7 @@ export function ViewerPage() {
                   elements={moved.elements}
                   lines={moved.lines}
                   positions={{}}
+                  onSelect={setSourceFor}
                   label={`${diagram.title}, version ${index + 1}`}
                   className="p-2"
                 />
@@ -184,6 +192,14 @@ export function ViewerPage() {
           )}
           {(moved || src) && <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-slate">Drag to pan, scroll or pinch to zoom</p>}
         </div>
+      )}
+
+      {sourceFor ? (
+        <div className="mx-5 mt-3">
+          <SourcePanel diagram={diagram} elementId={sourceFor} onClose={() => setSourceFor(null)} />
+        </div>
+      ) : (
+        <ElementPicker diagram={diagram} onPick={setSourceFor} />
       )}
 
       {/* The look is applied where Kroki draws the diagram; a moved version is drawn in the browser, so it keeps the standard look. */}
@@ -258,6 +274,36 @@ export function ViewerPage() {
         </div>
         <p className="mt-1.5 px-4 text-xs text-slate">Each change makes a new version. Earlier versions stay under Your diagrams.</p>
       </form>
+    </div>
+  )
+}
+
+/**
+ * FR17a: the diagram's elements as buttons, so their source requirements can be opened without a clickable
+ * picture (Kroki's PNG is flat). A moved version is drawn in the browser and can be clicked directly as well.
+ */
+function ElementPicker({ diagram, onPick }: { diagram: DiagramDetail; onPick: (id: string) => void }) {
+  const elements = diagram.elements.filter((e) => e.label.trim())
+  if (!elements.length) return null
+  return (
+    <div className="mx-5 mt-3">
+      <p className="text-xs text-slate" id="element-sources-hint">
+        Where did this come from? Pick an element to see its requirements.
+      </p>
+      <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-describedby="element-sources-hint">
+        {elements.map((e) => (
+          <li key={e.element_id}>
+            <button
+              type="button"
+              onClick={() => onPick(e.element_id)}
+              className="rounded-sm border border-rule-strong px-2 py-1 text-xs hover:border-teal hover:text-teal-deep"
+            >
+              {e.label}
+              {e.is_assumption && <span className="ml-1 text-amber">·&nbsp;assumption</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

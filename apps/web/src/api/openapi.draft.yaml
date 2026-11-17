@@ -151,9 +151,9 @@ paths:
   /diagrams/{diagram_id}:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     get:
-      summary: One diagram version. The picture itself is the PNG from /export.
+      summary: One diagram version with the elements and requirements behind it (FR17a). The picture itself is the PNG from /export.
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Diagram' } } } }
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramDetail' } } } }
   /diagrams/{diagram_id}/revisions:
     parameters: [{ $ref: '#/components/parameters/DiagramId' }]
     post:
@@ -366,6 +366,100 @@ paths:
       responses:
         '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
         '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /notifications:
+    get:
+      summary: The bell. The newest 50 notifications (invitations, mentions), newest first, and the unread count for the red badge.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationList' } } } }
+  /notifications/unread-count:
+    get:
+      summary: Just the unread count, cheap enough for the bell to poll
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UnreadCount' } } } }
+  /notifications/read-all:
+    post:
+      summary: Mark every notification read
+      responses:
+        '204': { description: Done }
+  /notifications/{notification_id}/read:
+    parameters: [{ name: notification_id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Mark one notification read (idempotent)
+      responses:
+        '204': { description: Done }
+        '404': { description: Not yours, or no such notification, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/invitations:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: The project's open invitations (not accepted, revoked or expired). Only Owners and administrators get each link token.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Invitation' } } } } }
+    post:
+      summary: Invite someone by email (FR24a). Owners and administrators only. Expires after 7 days; no email is sent, the invitee sees it in the bell after logging in. An administrator who is not an Owner notifies every Owner.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InvitationCreate' } } }
+      responses:
+        '201': { description: Sent, content: { application/json: { schema: { $ref: '#/components/schemas/Invitation' } } } }
+        '403': { description: A member who is not an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Already a member, or already has an open invitation, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Not a valid email address, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/invitations/{invitation_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: invitation_id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: Revoke an open invitation
+      responses:
+        '204': { description: Revoked }
+        '404': { description: Not open, or no such invitation, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /invitations/{invitation_id}/accept:
+    parameters: [{ name: invitation_id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Accept an invitation from the bell. Only the person invited may. Returns the project with the invited role.
+      responses:
+        '200': { description: Joined, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { description: Not yours, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '410': { description: Revoked or expired, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /invitations/accept:
+    post:
+      summary: Accept through the invitation's link (the token in it). The same rules as accepting from the bell.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InvitationAccept' } } }
+      responses:
+        '200': { description: Joined, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { description: Not yours, or no such invitation, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '410': { description: Revoked or expired, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/coverage:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Coverage totals and one row per requirement (FR20); not_represented_refs is the FR17b list
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Coverage' } } } }
+  /diagrams/{diagram_id}/drift:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get:
+      summary: FR17d. How this version of an edited diagram drifted from the requirements (nothing is stored; a warning clears when the edit is reverted or the requirement is changed to match)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Drift' } } } }
+  /projects/{project_id}/traceability/naming:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: FR17e. Model items the latest version of each diagram names differently (matched by model item ID, not by name)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NamingReport' } } } }
+  /projects/{project_id}/traceability/naming/apply:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: Apply this name to all diagrams. Makes a new version of each diagram that names the item differently; older versions stay.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/NamingApply' } } }
+      responses:
+        '200': { description: The new versions, content: { application/json: { schema: { $ref: '#/components/schemas/NamingApplied' } } } }
+        '404': { description: No diagram uses that model item, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Empty name, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -414,6 +508,8 @@ components:
         confirmed: { type: boolean, description: The requirements are confirmed (cleared by any requirement change) }
         confirmed_at: { type: [string, 'null'], format: date-time }
         diagram_count: { type: integer }
+        owner_email: { type: [string, 'null'], description: The owner's email, for a project you were invited to (null on your own projects) }
+        joined_at: { type: [string, 'null'], format: date-time, description: When you accepted the invitation (null on your own projects) }
         extracted_nodes: { type: array, items: { type: string }, description: 'Extraction nodes already run on the confirmed requirements (actors, entities, ...)' }
     ProjectCreate:
       type: object
@@ -521,8 +617,26 @@ components:
         created_at: { type: string, format: date-time }
         parent_id: { type: [string, 'null'], description: The version this one was edited from; null for a fresh generation }
         instruction: { type: [string, 'null'], description: The edit request that produced this version; null for a fresh generation }
+    DiagramElement:
+      type: object
+      required: [element_id, kind, label, statement_ids, is_assumption]
+      properties:
+        element_id: { type: string }
+        model_item_id: { type: [string, 'null'], description: The model item the element draws; the same item on different diagrams shares it }
+        kind: { type: string }
+        label: { type: string }
+        statement_ids: { type: array, items: { type: string }, description: The requirements the element comes from }
+        is_assumption: { type: boolean, description: No requirement mentions it (DR2a) }
     Diagram:
       $ref: '#/components/schemas/DiagramSummary'
+    DiagramDetail:
+      allOf:
+        - $ref: '#/components/schemas/DiagramSummary'
+        - type: object
+          required: [elements, statements]
+          properties:
+            elements: { type: array, items: { $ref: '#/components/schemas/DiagramElement' } }
+            statements: { type: array, items: { $ref: '#/components/schemas/RequirementStatement' }, description: The requirements the diagram draws on, with where each is in the document (FR17a) }
     RevisionCreate:
       type: object
       required: [instruction]
@@ -838,3 +952,148 @@ components:
         failed: { $ref: '#/components/schemas/RunSelectionMode' }
         regression: { $ref: '#/components/schemas/RunSelectionMode' }
         minimal: { $ref: '#/components/schemas/RunSelectionMode' }
+    NotificationType: { type: string, enum: [invitation, admin_invited, mention] }
+    NotificationInvitation:
+      type: object
+      required: [id, role, email, status, expires_at]
+      properties:
+        id: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        email: { type: string }
+        status: { type: string, enum: [open, accepted, revoked, expired] }
+        expires_at: { type: string, format: date-time }
+    Notification:
+      type: object
+      required: [id, type, payload, read_at, created_at, project, from_user, invitation]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        payload: { type: object, additionalProperties: { type: string }, description: IDs only, never requirement or comment text }
+        read_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        project:
+          oneOf: [{ type: object, required: [id, name], properties: { id: { type: string }, name: { type: string } } }, { type: 'null' }]
+        from_user:
+          oneOf: [{ type: object, required: [id, email], properties: { id: { type: string }, email: { type: string } } }, { type: 'null' }]
+        invitation: { oneOf: [{ $ref: '#/components/schemas/NotificationInvitation' }, { type: 'null' }] }
+    NotificationList:
+      type: object
+      required: [unread_count, items]
+      properties:
+        unread_count: { type: integer }
+        items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+    UnreadCount:
+      type: object
+      required: [count]
+      properties: { count: { type: integer } }
+    Invitation:
+      type: object
+      required: [id, project_id, email, role, invited_by, created_at, expires_at, token]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        email: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        invited_by:
+          type: object
+          required: [id, email]
+          properties: { id: { type: string }, email: { type: string } }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, description: 7 days after it was sent }
+        token: { type: [string, 'null'], description: The secret in the invitation link; null unless you are an Owner or administrator }
+    InvitationCreate:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, maxLength: 254 }
+        role: { $ref: '#/components/schemas/Role', default: viewer }
+    InvitationAccept:
+      type: object
+      required: [token]
+      properties: { token: { type: string } }
+    CoverageDiagram:
+      type: object
+      required: [id, type, title, version]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/DiagramType' }
+        title: { type: string }
+        version: { type: integer }
+    CoverageRow:
+      type: object
+      required: [id, ref, text, label, source, diagrams, open_flags]
+      properties:
+        id: { type: string }
+        ref: { type: string }
+        text: { type: string }
+        label: { type: [string, 'null'] }
+        source: { type: string }
+        diagrams: { type: array, items: { $ref: '#/components/schemas/CoverageDiagram' }, description: The latest versions of the diagrams that draw it }
+        open_flags: { type: array, items: { type: string } }
+        tests: { type: [integer, 'null'] }
+    Coverage:
+      type: object
+      required: [total, with_diagrams, not_represented, not_represented_refs, with_open_flags, rows]
+      properties:
+        total: { type: integer }
+        with_diagrams: { type: integer }
+        not_represented: { type: integer }
+        not_represented_refs: { type: array, items: { type: string }, description: Refs of the requirements no latest diagram version draws (FR17b); the count equals not_represented }
+        with_open_flags: { type: integer }
+        with_tests: { type: [integer, 'null'] }
+        rows: { type: array, items: { $ref: '#/components/schemas/CoverageRow' } }
+    DriftWarning:
+      type: object
+      required: [id, kind, element_id, label, statement_id, ref, message]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [element_removed, relationship_added] }
+        element_id: { type: string }
+        label: { type: string }
+        statement_id: { type: [string, 'null'] }
+        ref: { type: [string, 'null'], description: The requirement the edit drifted from (element_removed) }
+        message: { type: string }
+    Drift:
+      type: object
+      required: [baseline_id, warnings]
+      properties:
+        baseline_id: { type: [string, 'null'], description: The diagram as first generated; null when this version is that one }
+        warnings: { type: array, items: { $ref: '#/components/schemas/DriftWarning' } }
+    NamingUse:
+      type: object
+      required: [label, diagrams]
+      properties:
+        label: { type: string }
+        diagrams:
+          type: array
+          items:
+            type: object
+            required: [diagram_id, title]
+            properties: { diagram_id: { type: string }, title: { type: string }, version: { type: [integer, 'null'] } }
+    NamingIssue:
+      type: object
+      required: [model_item_id, names, item_name]
+      properties:
+        model_item_id: { type: string }
+        names: { type: array, items: { $ref: '#/components/schemas/NamingUse' } }
+        item_name: { type: [string, 'null'], description: The name the project's own item has }
+    NamingReport:
+      type: object
+      required: [issues]
+      properties: { issues: { type: array, items: { $ref: '#/components/schemas/NamingIssue' } } }
+    NamingApply:
+      type: object
+      required: [model_item_id, name]
+      properties:
+        model_item_id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 200 }
+    NamingApplied:
+      type: object
+      required: [updated]
+      properties:
+        updated:
+          type: array
+          items:
+            type: object
+            required: [id, type, title, version]
+            properties: { id: { type: string }, type: { $ref: '#/components/schemas/DiagramType' }, title: { type: string }, version: { type: integer } }

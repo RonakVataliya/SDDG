@@ -22,7 +22,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 
-from core import db
+from core import db, invites
 from core.auth import User, get_current_user
 from core.ai_client import AIBusyTimeout, AIJob
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
@@ -102,8 +102,8 @@ def project_view(p, user):
     return {
         "id": p["id"],
         "name": p["name"],
-        "role": "owner",
-        "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5); role is still "owner" for everyone until C2
+        "role": invites.role_for(p, user),  # read from the DB on every request, so a change applies at once
+        "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5)
         "archived_at": p["archived_at"],
         "archived_by": p["archived_by"],
         "client_name": p["client_name"],  # Home groups projects by client
@@ -118,6 +118,7 @@ def project_view(p, user):
         "diagram_count": counts["diagram_count"],
         "open_flag_count": counts["open_flag_count"],
         "extracted_nodes": p.get("extracted_nodes") or [],
+        **invites.membership_info(p, user),  # owner_email, joined_at (None for the owner's own projects)
     }
 
 
