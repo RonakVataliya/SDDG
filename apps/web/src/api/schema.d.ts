@@ -1890,6 +1890,8 @@ export interface components {
             /** @description Label the input already carried */
             label?: string | null;
             source: components["schemas"]["SourceLocation"];
+            /** @description Counts up on every save, from 1. The edit conflict check compares it with the revision an edit was based on */
+            revision?: number;
         };
         StatementWrite: {
             text?: string;
@@ -1916,6 +1918,8 @@ export interface components {
             target_item_id?: string | null;
             /** @description e.g. association */
             relation_type?: string | null;
+            /** @description Counts up on every save */
+            revision?: number;
         };
         ItemPage: {
             items: components["schemas"]["ExtractedItem"][];
@@ -1973,6 +1977,8 @@ export interface components {
             parent_id: string | null;
             /** @description The edit request that produced this version; null for a fresh generation */
             instruction: string | null;
+            /** @description 1 for a fresh generation; each edited version is its parent's revision plus one */
+            revision?: number;
         };
         Diagram: components["schemas"]["DiagramSummary"];
         RevisionCreate: {
