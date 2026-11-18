@@ -2919,7 +2919,7 @@ export interface components {
             minimal: components["schemas"]["RunSelectionMode"];
         };
         /** @enum {string} */
-        NotificationType: "invitation" | "admin_invited" | "mention";
+        NotificationType: "invitation" | "admin_invited" | "mention" | "generation_ready" | "generation_failed";
         NotificationInvitation: {
             id: string;
             role: components["schemas"]["Role"];

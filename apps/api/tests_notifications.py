@@ -15,7 +15,7 @@ os.environ['DEV_AUTH_BYPASS'] = 'true'
 os.environ.setdefault('DATA_ENCRYPTION_KEY', Fernet.generate_key().decode())
 
 from fastapi.testclient import TestClient  # noqa: E402
-from core.notifications import notify  # noqa: E402
+from core.notifications import notify, notify_project  # noqa: E402
 from main import app  # noqa: E402
 
 API = '/api/v1'
@@ -58,12 +58,31 @@ def check_bell(client):
     assert len(client.get(f'{API}/notifications', headers=a).json()['items']) == 2  # read ones stay listed
 
 
+def check_project_wide(client):
+    """Issue #36: a generation that finishes or fails tells every member of the project, once each."""
+    pid = client.post(f'{API}/projects', headers=a, json={'name': 'Bell project'}).json()['id']
+    sql('INSERT INTO project_members(project_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING', pid, B_ID)
+    notify_project(pid, 'generation_ready', {'job_id': 'job_1', 'diagram_id': 'dg_1'})
+
+    for headers, who in ((a, 'A'), (b, 'B')):
+        items = [n for n in client.get(f'{API}/notifications', headers=headers).json()['items']
+                 if n['type'] == 'generation_ready']
+        assert len(items) == 1, (who, items)
+        assert items[0]['payload'] == {'project_id': pid, 'job_id': 'job_1', 'diagram_id': 'dg_1'}, items[0]
+        assert items[0]['project']['name'] == 'Bell project', items[0]
+    # Nobody outside the project hears about it.
+    c = f'bell-{uuid.uuid4().hex[:8]}@example.com'
+    assert client.get(f'{API}/notifications', headers={'Authorization': f'Bearer mock-token:{c}'}).json()['items'] == []
+
+
 def main():
     try:
         with TestClient(app) as client:
             check_bell(client)
+            check_project_wide(client)
         print('notifications test passed')
     finally:
+        sql('DELETE FROM projects WHERE owner_id = ANY(%s)', [A_ID, B_ID])
         sql('DELETE FROM notifications WHERE user_id = ANY(%s)', [A_ID, B_ID])
 
 

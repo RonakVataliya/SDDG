@@ -5,7 +5,8 @@ Everyone who needs to tell a user something calls notify(user_id, type, payload)
 wording up when it reads, so nothing a user wrote is copied into this table.
 
 Types: 'invitation' (an invitation to a project), 'admin_invited' (an administrator invited someone to your
-project) and 'mention' (an @mention in a comment).
+project), 'mention' (an @mention in a comment), and 'generation_ready' / 'generation_failed' (issue #36: a
+generation finished or failed; every member of the project is told).
 """
 import json
 
@@ -39,6 +40,17 @@ def notify(user_id, type, payload=None):
         "INSERT INTO notifications(id, user_id, type, payload, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *",
         db.uid("nt"), user_id, type, json.dumps(payload or {}), db.now(),
     ))
+
+
+def notify_project(project_id, type, payload=None):
+    """Adds the same notification for every member of the project, in one statement. Used when something the
+    whole project cares about happens (a generation finished or failed), rather than one person's invitation."""
+    db.run(
+        "INSERT INTO notifications(id, user_id, type, payload, created_at) "
+        "SELECT 'nt_' || replace(gen_random_uuid()::text, '-', ''), m.user_id, %s, %s, %s "
+        "FROM project_members m WHERE m.project_id=%s",
+        type, json.dumps({"project_id": project_id, **(payload or {})}), db.now(), project_id,
+    )
 
 
 def _sync(user):

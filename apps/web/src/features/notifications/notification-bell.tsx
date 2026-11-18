@@ -1,7 +1,7 @@
-import { BellIcon, CheckIcon, MailIcon } from 'lucide-react'
+import { BellIcon, CheckIcon, CircleAlertIcon, MailIcon, SparklesIcon } from 'lucide-react'
 import { DropdownMenu as D } from 'radix-ui'
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import type { ServerNotification } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { useAcceptInvitation, useMarkAllRead, useMarkRead, useNotifications, useUnreadCount } from '@/api/queries'
@@ -18,7 +18,25 @@ function line(n: ServerNotification) {
   const project = n.project?.name ?? 'a project'
   if (n.type === 'invitation') return `${who} invited you to ${project}`
   if (n.type === 'admin_invited') return `${who} (administrator) invited ${n.invitation?.email ?? 'someone'} to ${project}`
+  if (n.type === 'generation_ready') return `Your diagram is ready in ${project}`
+  if (n.type === 'generation_failed') return `Generating a diagram in ${project} did not finish`
   return `${who} mentioned you in ${project}`
+}
+
+/** Issue #36: where the row takes you — the diagram that was drawn, else the project's Generate step to try again. */
+function destination(n: ServerNotification) {
+  const projectId = n.payload.project_id
+  if (!projectId) return null
+  if (n.payload.diagram_id) return { to: `/projects/${projectId}/diagrams/${n.payload.diagram_id}`, label: 'View diagram' }
+  if (n.type === 'generation_failed') return { to: `/projects/${projectId}/generate`, label: 'Try again' }
+  if (n.type === 'generation_ready') return { to: `/projects/${projectId}/generate`, label: 'Open project' }
+  return null
+}
+
+function Icon({ n, className }: { n: ServerNotification; className?: string }) {
+  if (n.type === 'generation_failed') return <CircleAlertIcon className={className} aria-hidden />
+  if (n.type === 'generation_ready') return <SparklesIcon className={className} aria-hidden />
+  return <MailIcon className={className} aria-hidden />
 }
 
 function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => void }) {
@@ -27,6 +45,8 @@ function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => v
   const markRead = useMarkRead()
   const unread = !n.read_at
   const open = n.type === 'invitation' && n.invitation?.status === 'open'
+  const where = destination(n)
+  const failed = n.type === 'generation_failed'
 
   async function onAccept() {
     if (!n.invitation) return
@@ -39,7 +59,10 @@ function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => v
 
   return (
     <li className={cn('flex gap-2.5 border-b border-rule px-4 py-3 last:border-0', unread && 'bg-teal-wash/40')}>
-      <MailIcon className={cn('mt-0.5 size-4 shrink-0', unread ? 'text-teal' : 'text-slate')} aria-hidden />
+      <Icon
+        className={cn('mt-0.5 size-4 shrink-0', failed ? 'text-danger' : unread ? 'text-teal' : 'text-slate')}
+        n={n}
+      />
       <div className="min-w-0 flex-1">
         <p className="text-sm">{line(n)}</p>
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate">
@@ -55,6 +78,18 @@ function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => v
           {n.type === 'invitation' && n.invitation?.status === 'accepted' && <span>· Accepted</span>}
           {n.type === 'invitation' && n.invitation?.status === 'expired' && <span>· Expired</span>}
         </p>
+        {where && (
+          <Link
+            to={where.to}
+            className="mt-1 inline-block text-xs font-medium text-teal hover:underline"
+            onClick={() => {
+              if (unread) markRead.mutate(n.id)
+              onDone()
+            }}
+          >
+            {where.label}
+          </Link>
+        )}
         {open && (
           <div className="mt-2 flex items-center gap-2">
             <Button size="sm" onClick={onAccept} disabled={accept.isPending}>

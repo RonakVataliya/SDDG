@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from core import db, invites
 from core.auth import User, get_current_user
 from core.ai_client import AIBusyTimeout, AIJob
+from core.notifications import notify_project
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
 from core.styling import apply_style, export_style
 from core.quality import detect
@@ -489,6 +490,7 @@ async def generation_worker(job_id, project_id, diagram_types):
     except Exception as e:
         logger.exception("generation job %s failed while extracting building blocks", job_id)
         fail_job(job_id, f"Extracting building blocks failed: {ai_error_detail(e)}")
+        notify_project(project_id, "generation_failed", {"job_id": job_id})  # issue #36 (IDs only, never the error)
         if "client" in locals():
             await client.aclose()
         return
@@ -522,6 +524,9 @@ async def generation_worker(job_id, project_id, diagram_types):
             progress_label="Generation failed",
             diagram_ids=diagram_ids,
         )
+        # issue #36: partial failure still tells the project, and links to whatever was saved.
+        notify_project(project_id, "generation_failed",
+                       {"job_id": job_id, **({"diagram_id": diagram_ids[0]} if diagram_ids else {})})
         return
     db.update_job(
         job_id,
@@ -533,6 +538,8 @@ async def generation_worker(job_id, project_id, diagram_types):
         diagram_ids=diagram_ids,
         finished_at=db.now(),
     )
+    notify_project(project_id, "generation_ready",  # issue #36
+                   {"job_id": job_id, **({"diagram_id": diagram_ids[0]} if diagram_ids else {})})
 
 
 # ============================================================================

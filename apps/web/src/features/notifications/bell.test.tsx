@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getDb } from '@/mocks/db'
 import { renderApp } from '@/test/render'
-import { seedInvitation, seedOthersProject, seedProject } from '@/test/seed'
+import { seedDiagram, seedInvitation, seedOthersProject, seedProject } from '@/test/seed'
 
 describe('FR24a invitations in the bell', () => {
   it('shows an invitation, accepts it, and opens the project with the invited role', async () => {
@@ -71,5 +71,43 @@ describe('FR24a invitation link', () => {
     renderApp(`/invite?token=${inv.token}`)
     expect(await screen.findByText(/This invitation has expired/)).toBeInTheDocument()
     expect(getDb().collab.invitations[0].accepted_at).toBeNull()
+  })
+})
+
+describe('#36 generation finished or failed', () => {
+  it('tells you a diagram is ready and takes you to it', async () => {
+    seedDiagram()
+    const at = new Date().toISOString()
+    getDb().jobs.push({
+      id: 'job_gen', project_id: 'pr_1', kind: 'generation', status: 'succeeded', applied: true,
+      diagram_ids: ['dg_1'], progress: { step: 3, total: 3, label: 'Diagram ready' },
+      created_at: at, started_at: at, finished_at: at,
+    })
+    const user = userEvent.setup()
+    const { router } = renderApp('/projects')
+
+    await user.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }))
+    expect(await screen.findByText('Your diagram is ready in Library system')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'View diagram' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects/pr_1/diagrams/dg_1'))
+  })
+
+  it('tells you a generation did not finish and offers to try again', async () => {
+    seedDiagram()
+    const at = new Date().toISOString()
+    getDb().jobs.push({
+      id: 'job_bad', project_id: 'pr_1', kind: 'generation', status: 'failed', applied: true,
+      error: 'Kroki rejected the source', progress: { step: 3, total: 3, label: 'Generation failed' },
+      created_at: at, started_at: at, finished_at: at,
+    })
+    const user = userEvent.setup()
+    const { router } = renderApp('/projects')
+
+    await user.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }))
+    expect(await screen.findByText('Generating a diagram in Library system did not finish')).toBeInTheDocument()
+    // The failure reason is never carried in the notification; only ids are.
+    expect(screen.queryByText(/Kroki/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Try again' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects/pr_1/generate'))
   })
 })

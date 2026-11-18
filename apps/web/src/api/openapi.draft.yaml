@@ -952,7 +952,7 @@ components:
         failed: { $ref: '#/components/schemas/RunSelectionMode' }
         regression: { $ref: '#/components/schemas/RunSelectionMode' }
         minimal: { $ref: '#/components/schemas/RunSelectionMode' }
-    NotificationType: { type: string, enum: [invitation, admin_invited, mention] }
+    NotificationType: { type: string, enum: [invitation, admin_invited, mention, generation_ready, generation_failed] }
     NotificationInvitation:
       type: object
       required: [id, role, email, status, expires_at]

@@ -1,7 +1,7 @@
 /** MOCK ONLY. Notifications bell, invitations (FR24a) and traceability (FR17b/d/e) for the draft contract. */
 import { HttpResponse, type HttpResponseResolver } from 'msw'
 import type { components } from '@/api/schema'
-import { getDb, save, uid, type DiagramRow } from './db'
+import { advance, getDb, save, uid, type DiagramRow } from './db'
 
 type Role = components['schemas']['Role']
 type Ctx = { email: string; params: Record<string, string | readonly string[] | undefined>; request: Request }
@@ -59,6 +59,24 @@ function invitationView(i: InvitationRow, withToken: boolean) {
 /** Every open invitation for this address reaches the bell, like the server's sync on read. */
 function syncBell(email: string) {
   const s = state()
+  // Issue #36: a generation that has finished tells every member of the project, once.
+  for (const job of getDb().jobs) {
+    if (job.kind !== 'generation') continue
+    const done = advance(job)
+    if (done.status !== 'succeeded' && done.status !== 'failed') continue
+    const project = getDb().projects.find((p) => p.id === done.project_id)
+    if (!project || project.owner !== email) continue
+    if (s.notifications.some((n) => n.user === email && n.payload.job_id === done.id)) continue
+    s.notifications.push({
+      id: uid('nt'), user: email,
+      type: done.status === 'succeeded' ? 'generation_ready' : 'generation_failed',
+      payload: {
+        project_id: project.id, job_id: done.id,
+        ...(done.diagram_ids?.[0] ? { diagram_id: done.diagram_ids[0] } : {}),
+      },
+      read_at: null, created_at: done.finished_at ?? new Date().toISOString(),
+    })
+  }
   for (const i of s.invitations.filter((x) => x.email === email && isOpen(x))) {
     if (!s.notifications.some((n) => n.user === email && n.payload.invitation_id === i.id)) {
       s.notifications.push({
