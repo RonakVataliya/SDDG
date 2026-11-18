@@ -10,6 +10,7 @@ import { Notice } from '@/components/ui/notice'
 import { Spinner } from '@/components/ui/spinner'
 import { cn, formatRelative } from '@/lib/utils'
 import { DIAGRAM_TYPES, NEEDS, typeLabel } from './diagram-types'
+import { useJobStore } from '@/features/notifications/useJobWatcher'
 
 /** Right-hand workspace panel: pick diagram types and start a run (FR9d), then find every version made so far. */
 export function GeneratePanel({ project }: { project: Project }) {
@@ -17,6 +18,7 @@ export function GeneratePanel({ project }: { project: Project }) {
   const [selected, setSelected] = useState<DiagramType[]>(['use_case'])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const start = useStartGeneration(project.id)
+  const register = useJobStore(s => s.register)
   const diagrams = useDiagrams(project.id)
   const locked = !project.confirmed
 
@@ -68,7 +70,7 @@ export function GeneratePanel({ project }: { project: Project }) {
                 />
                 <span className="min-w-0">
                   <span className="block text-sm leading-5 font-medium">{t.label}</span>
-                  <span className="block text-xs leading-4 text-slate">{t.available ? 'Actors and goals' : 'Not available yet'}</span>
+                  <span className="block text-xs leading-4 text-slate">{t.available ? t.shows : 'Not available yet'}</span>
                 </span>
               </label>
             )
@@ -106,7 +108,7 @@ export function GeneratePanel({ project }: { project: Project }) {
                 >
                   <span className="block font-medium">{typeLabel[d.type]}</span>
                   <span className="block truncate text-xs text-slate">
-                    {d.instruction ? `Edited: “${d.instruction}”` : 'Generated'} · {formatRelative(d.created_at)}
+                    {d.instruction ? `Edited: "${d.instruction}"` : 'Generated'} · {formatRelative(d.created_at)}
                   </span>
                 </NavLink>
               </li>
@@ -123,7 +125,6 @@ export function GeneratePanel({ project }: { project: Project }) {
         )}
       </div>
 
-      {/* FR9d: the selection is confirmed explicitly and cannot change while the run is going. */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogTitle>Generate these diagrams?</DialogTitle>
@@ -144,7 +145,10 @@ export function GeneratePanel({ project }: { project: Project }) {
               onClick={async () => {
                 const job = await start.mutateAsync(selected).catch(() => null)
                 setConfirmOpen(false)
-                if (job) navigate(`generate?job=${job.id}`)
+                if (job) {
+                  register({ runId: job.id, projectId: project.id, projectName: project.name })
+                  navigate(`generate?job=${job.id}`)
+                }
               }}
             >
               {start.isPending && <Spinner className="text-white" label="Starting" />}

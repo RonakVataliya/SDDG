@@ -12,7 +12,7 @@ import { typeLabel } from '@/features/generate/diagram-types'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
 import { StylePanel } from '@/features/viewer/style-panel'
-import { formatRelative } from '@/lib/utils'
+import { cn, formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
 import { useWorkspace } from '@/routes/workspace-layout'
 import { ExportMenu } from './export-menu'
@@ -256,7 +256,14 @@ export function ViewerPage() {
             {revise.isPending ? <Spinner className="text-white" label="" /> : <ArrowUpIcon />}
           </Button>
         </div>
-        <p className="mt-1.5 px-4 text-xs text-slate">Each change makes a new version. Earlier versions stay under Your diagrams.</p>
+        <div className="mt-1.5 flex items-center justify-between gap-2 px-4">
+          <p className="text-xs text-slate">Each change makes a new version. Earlier versions stay under Your diagrams.</p>
+          {draft.length > 0 && (
+            <p className={cn('shrink-0 text-xs tabular-nums', draft.length >= MAX_INSTRUCTION - 20 ? 'text-danger' : draft.length >= MAX_INSTRUCTION - 100 ? 'text-amber-600' : 'text-slate')}>
+              {draft.length} / {MAX_INSTRUCTION}
+            </p>
+          )}
+        </div>
       </form>
     </div>
   )
