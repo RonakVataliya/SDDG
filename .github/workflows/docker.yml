@@ -1,0 +1,25 @@
+# The AI service is deployed from its Dockerfile, which no other check builds. This builds the image and
+# calls /health on it, so a broken Dockerfile or a startup error fails here instead of on deploy.
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    paths: ["services/ai-extraction/**", ".github/workflows/docker.yml"]
+  pull_request:
+    paths: ["services/ai-extraction/**", ".github/workflows/docker.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  ai-service-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ai-extraction services/ai-extraction
+      - run: docker run -d --name ai -p 8001:8000 ai-extraction
+      - run: curl --fail --retry 15 --retry-delay 2 --retry-connrefused http://localhost:8001/api/v1/health
+      - if: failure()
+        run: docker logs ai

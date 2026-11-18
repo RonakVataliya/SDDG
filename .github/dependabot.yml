@@ -1,0 +1,18 @@
+# Weekly update pull requests; the Tests workflow runs on each of them.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /services/ai-extraction
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /services/ai-extraction
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
