@@ -1,6 +1,7 @@
 """Supabase Postgres access. Schema: apps/api/migrations/ (python -m core.migrate, or AUTO_MIGRATE=true; see README)."""
 import json
 import os
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -359,9 +360,11 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None, conn=None):
+    """conn: write inside a transaction the caller owns, so several new versions are all saved or none are
+    (renaming a model item across diagrams). Without it this opens its own transaction, as every caller did."""
     # One transaction: a new version never exists without the accepted warnings it carries over.
-    with pool.connection() as c:
+    with nullcontext(conn) if conn is not None else pool.connection() as c:
         d = c.execute(
             "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
             "plantuml_source, parent_id, instruction, spec, layout, model_used) "

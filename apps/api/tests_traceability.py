@@ -20,9 +20,10 @@ from core import db  # noqa: E402
 from main import app  # noqa: E402
 
 API = '/api/v1'
-OWNER, STRANGER = (f'trace-{uuid.uuid4().hex[:8]}@example.com' for _ in range(2))
+OWNER, STRANGER, VIEWER = (f'trace-{uuid.uuid4().hex[:8]}@example.com' for _ in range(3))
 owner = {'Authorization': f'Bearer mock-token:{OWNER}'}
 stranger = {'Authorization': f'Bearer mock-token:{STRANGER}'}
+viewer = {'Authorization': f'Bearer mock-token:{VIEWER}'}
 
 
 def sql(query, *args):
@@ -102,6 +103,14 @@ def check_naming(client, pid, s1):
     assert client.post(f'{base}/apply', headers=owner, json={'model_item_id': 'it_nope', 'name': 'X'}).status_code == 404
     assert client.post(f'{base}/apply', headers=owner, json={'model_item_id': 'it_lib', 'name': '  '}).status_code == 422
     assert client.post(f'{base}/apply', headers=stranger, json={'model_item_id': 'it_lib', 'name': 'X'}).status_code == 404
+
+    # A Viewer may read the flag but not rename across diagrams, and nothing is written when they try.
+    sql("INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, 'viewer')", pid, f'dev:{VIEWER}')
+    before = len(db.many('SELECT id FROM diagrams WHERE project_id=%s', pid))
+    assert client.get(base, headers=viewer).status_code == 200
+    r = client.post(f'{base}/apply', headers=viewer, json={'model_item_id': 'it_lib', 'name': 'Staff'})
+    assert r.status_code == 403 and 'Viewer' in r.json()['detail'], r.text
+    assert len(db.many('SELECT id FROM diagrams WHERE project_id=%s', pid)) == before
 
 
 def main():

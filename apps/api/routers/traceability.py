@@ -70,27 +70,40 @@ def get_naming(project_id: str, user: User = Depends(get_current_user)):
 @router.post("/projects/{project_id}/traceability/naming/apply")
 def apply_naming(project_id: str, body: NamingApply, user: User = Depends(get_current_user)):
     """FR17e 'Apply this name to all diagrams': makes a new version of every diagram whose latest version names this
-    model item differently (the old versions stay) and gives the project's own item the name."""
+    model item differently (the old versions stay) and gives the project's own item the name.
+
+    This writes to every diagram of the project, so a Viewer cannot run it. When C2's require_role lands this
+    becomes require_role(project_id, user, "editor") and this local check goes.
+    All the new versions and the item's new name are written in one transaction: a half-renamed project, where
+    some diagrams say the new name and others the old one, is worse than nothing happening at all.
+    """
     require_project(project_id, user)
+    if invites.member_role(project_id, user.id) == "viewer":
+        raise HTTPException(403, "You're a Viewer on this project, so you can't rename items across diagrams.")
     name = traceability.norm(body.name)
     if not name:
         raise HTTPException(422, "Choose a name.")
     diagrams = latest_diagrams(project_id)
     if not any(e.get("model_item_id") == body.model_item_id for d in diagrams for e in d["elements"]):
         raise HTTPException(404, NOT_FOUND)
-    updated = []
-    for d in diagrams:
-        changed = traceability.rename_in_diagram(d, body.model_item_id, name)
-        if not changed:
-            continue
-        new = db.create_diagram(
-            project_id, d["type"], d["title"], changed["svg"], changed["elements"], d["statement_ids"],
-            plantuml_source=changed["plantuml_source"], parent_id=d["id"], spec=changed["spec"], layout=d.get("layout"),
-            instruction=f'Renamed "{changed["was"][0]}" to "{name}" on all diagrams', model_used=d.get("model_used"),
-        )
-        invites.log(project_id, user.id, "diagram.saved", new["id"], {"reason": "naming"})
-        updated.append({"id": new["id"], "type": new["type"], "title": new["title"], "version": d["version"] + 1})
+    renames = [(d, traceability.rename_in_diagram(d, body.model_item_id, name)) for d in diagrams]
     item = db.one("SELECT description FROM items WHERE id=%s AND project_id=%s", body.model_item_id, project_id)
-    if item:
-        db.update_item(project_id, body.model_item_id, name, item["description"])
+    updated = []
+    with db.pool.connection() as c:
+        for d, changed in renames:
+            if not changed:
+                continue
+            new = db.create_diagram(
+                project_id, d["type"], d["title"], changed["svg"], changed["elements"], d["statement_ids"],
+                plantuml_source=changed["plantuml_source"], parent_id=d["id"], spec=changed["spec"],
+                layout=d.get("layout"), model_used=d.get("model_used"),
+                instruction=f'Renamed "{changed["was"][0]}" to "{name}" on all diagrams', conn=c,
+            )
+            updated.append({"id": new["id"], "type": new["type"], "title": new["title"], "version": d["version"] + 1})
+        if item:
+            c.execute("UPDATE items SET name=%s, origin=CASE WHEN origin='system-extracted' THEN 'user-edited' "
+                      "ELSE origin END WHERE id=%s AND project_id=%s",
+                      (db.encrypt(name), body.model_item_id, project_id))
+    for u in updated:  # logged once the transaction has committed
+        invites.log(project_id, user.id, "diagram.saved", u["id"], {"reason": "naming"})
     return {"updated": updated}
