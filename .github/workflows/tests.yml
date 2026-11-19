@@ -68,7 +68,8 @@ jobs:
             apps/api/requirements.txt
             services/ai-extraction/requirements.txt
       # tests_design.py also loads code from the AI service
-      - run: pip install -r apps/api/requirements.txt -r services/ai-extraction/requirements.txt
+      # reportlab and pytest: only tests_input_processing.py needs them (it builds PDFs and runs under pytest)
+      - run: pip install -r apps/api/requirements.txt -r services/ai-extraction/requirements.txt reportlab pytest
       - name: Database (schema.sql, then every migration in number order)
         run: |
           # Supabase has these; plain Postgres needs stand-ins for migrations that touch Storage
