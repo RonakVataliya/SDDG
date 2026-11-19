@@ -61,3 +61,35 @@ class GenerationCreate(BaseModel):
 
 class RevisionCreate(BaseModel):
     instruction: str = Field(min_length=1, max_length=500)
+
+
+# Stories backlog (3.4). Text and links are checked in routers/stories.py, so a refusal carries a readable message.
+StoryPriority = Literal["must", "should", "could", "wont"]
+StoryStatus = Literal["todo", "in_progress", "done"]
+
+
+class StoryCreate(BaseModel):
+    role: str
+    goal: str
+    reason: str
+    priority: StoryPriority = "should"
+    estimate: int | None = Field(None, ge=0, le=100)
+    status: StoryStatus = "todo"
+    assignee_id: str | None = None
+    confirmations: list[str] = []
+    statement_ids: list[str] = []
+
+
+class StoryUpdate(BaseModel):
+    """A field left out is unchanged. Only assignee_id and estimate accept null (it clears them); the other fields are
+    typed without None, so an explicit null is refused with 422."""
+    role: str = None
+    goal: str = None
+    reason: str = None
+    priority: StoryPriority = None
+    estimate: int | None = Field(None, ge=0, le=100)
+    status: StoryStatus = None
+    assignee_id: str | None = None
+    confirmations: list[str] = None
+    statement_ids: list[str] = None
+

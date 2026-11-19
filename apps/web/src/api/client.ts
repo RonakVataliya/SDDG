@@ -20,6 +20,7 @@ export type Point = Schemas['Point']
 // Tests (Sprint 3, stream 6)
 export type Flag = Schemas['Flag']
 export type FlagType = Schemas['FlagType']
+export type FlagSummary = Schemas['FlagSummary']
 export type TestRequirementSummary = Schemas['TestRequirementSummary']
 export type TestRequirementList = Schemas['TestRequirementList']
 export type TestDesign = Schemas['TestDesign']
@@ -44,6 +45,12 @@ export type TestRunSummary = Schemas['TestRunSummary']
 export type TestRunItem = Schemas['TestRunItem']
 export type TestResult = Schemas['TestResult']
 export type RunSelection = Schemas['RunSelection']
+// Stories backlog (3.4)
+export type Story = Schemas['Story']
+export type StoryCreate = Schemas['StoryCreate']
+export type StoryUpdate = Schemas['StoryUpdate']
+export type StoryPriority = Schemas['StoryPriority']
+export type StoryStatus = Schemas['StoryStatus']
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {

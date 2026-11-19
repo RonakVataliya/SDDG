@@ -12,6 +12,8 @@ import {
   type ResultStatus,
   type RunMode,
   type Schemas,
+  type StoryCreate,
+  type StoryUpdate,
   type TestCaseCreate,
   type TestCaseUpdate,
 } from './client'
@@ -25,6 +27,7 @@ export const keys = {
   itemPage: (id: string, category: ItemCategory | undefined, page: number) =>
     ['projects', id, 'items', category ?? 'all', page] as const,
   diagrams: (id: string) => ['projects', id, 'diagrams'] as const,
+  stories: (id: string) => ['projects', id, 'stories'] as const,
   diagram: (id: string) => ['diagrams', id] as const,
   diagramImage: (id: string) => ['diagrams', id, 'png'] as const,
   diagramStyle: (id: string) => ['diagrams', id, 'style'] as const,
@@ -40,6 +43,7 @@ export const keys = {
   testRuns: (id: string) => ['projects', id, 'tests', 'runs'] as const,
   testRun: (id: string, runId: string) => ['projects', id, 'tests', 'runs', runId] as const,
   runSelection: (id: string) => ['projects', id, 'tests', 'selection'] as const,
+  flags: (id: string) => ['projects', id, 'flags'] as const,
 }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
@@ -64,8 +68,43 @@ export function useProject(projectId: string) {
 export function useCreateProject() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => unwrap(api.POST('/projects', { body: { name } })),
+    mutationFn: (body: Schemas['ProjectCreate']) => unwrap(api.POST('/projects', { body })),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.projects }),
+  })
+}
+
+/* ---------- stories backlog (3.4) ---------- */
+
+export function useStories(projectId: string) {
+  return useQuery({
+    queryKey: keys.stories(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/stories', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+export function useCreateStory(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: StoryCreate) => unwrap(api.POST('/projects/{project_id}/stories', { params: { path: { project_id: projectId } }, body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.stories(projectId) }),
+  })
+}
+
+export function useUpdateStory(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ storyId, body }: { storyId: string; body: StoryUpdate }) =>
+      unwrap(api.PATCH('/projects/{project_id}/stories/{story_id}', { params: { path: { project_id: projectId, story_id: storyId } }, body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.stories(projectId) }),
+  })
+}
+
+export function useDeleteStory(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (storyId: string) =>
+      unwrap(api.DELETE('/projects/{project_id}/stories/{story_id}', { params: { path: { project_id: projectId, story_id: storyId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.stories(projectId) }),
   })
 }
 
@@ -122,6 +161,7 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
     mutationFn: fn,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
       void qc.invalidateQueries({ queryKey: keys.items(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
       void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
@@ -186,6 +226,46 @@ export function useConfirmExtraction(projectId: string) {
     mutationFn: () =>
       unwrap(api.POST('/projects/{project_id}/confirmation', { params: { path: { project_id: projectId } } })),
     onSuccess: (project) => qc.setQueryData(keys.project(projectId), project),
+  })
+}
+
+/* ---------- requirement flags (issue #34): advisory, never block anything ---------- */
+
+export function useFlags(projectId: string) {
+  return useQuery({
+    queryKey: keys.flags(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/flags', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+export function useFlagSummary(projectId: string) {
+  return useQuery({
+    queryKey: [...keys.flags(projectId), 'summary'],
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/flags/summary', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+type FlagAction = { flagId: string } & ({ kind: 'answer'; answer: string } | { kind: 'resolve' | 'reopen' | 'apply-fix' })
+
+export function useFlagAction(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (a: FlagAction) => {
+      const params = { path: { project_id: projectId, flag_id: a.flagId } }
+      if (a.kind === 'answer') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/answer', { params, body: { answer: a.answer } }))
+      if (a.kind === 'resolve') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/resolve', { params }))
+      if (a.kind === 'reopen') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/reopen', { params }))
+      return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/apply-fix', { params }))
+    },
+    onSuccess: (_flag, a) => {
+      void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
+      // Apply fix rewrites the requirement (and can close the related conflict flag): refetch statements too.
+      if (a.kind === 'apply-fix') {
+        void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.items(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      }
+    },
   })
 }
 

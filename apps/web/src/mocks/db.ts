@@ -1,9 +1,10 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
-import type { Diagram, ExtractedItem, Job, RequirementStatement } from '@/api/client'
+import type { Diagram, ExtractedItem, Job, RequirementStatement, Story } from '@/api/client'
 import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
-import { buildUseCaseModel, renderUseCase, type UseCaseModel } from './render'
+import { detectFlags, type FlagRow } from './flags'
+import { buildUseCaseModel, renderPlaceholder, renderUseCase, type UseCaseModel } from './render'
 
 type ProjectRow = {
   id: string
@@ -14,6 +15,11 @@ type ProjectRow = {
   confirmed_at: string | null
   /** Extraction nodes already run on the confirmed requirements (requirements-first workflow). */
   extracted_nodes?: string[]
+  // Project settings (Feature 3.1); optional so projects stored before it still load.
+  client_name?: string | null
+  contact_email?: string | null
+  archived_at?: string | null
+  archived_by?: string | null
 }
 export type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
 /** The server keeps the model and drawing; the API only exposes the summary fields and the PNG. */
@@ -26,6 +32,9 @@ export type DiagramRow = Diagram & {
   /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
   style?: DiagramStyle
 }
+
+/** Stories backlog (3.4); the assignee's email is looked up on read, like the API's join. */
+export type StoryRow = Omit<Story, 'assignee_email'> & { project_id: string }
 
 /** Tests feature (stream 6) rows; shapes live in ./testing.ts. */
 export type TestsState = {
@@ -53,10 +62,13 @@ export type MockDb = {
   jobs: JobRow[]
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
+  stories: StoryRow[]
+  nextStory: Record<string, number>
+  flags: Record<string, FlagRow[]>
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {} })
+const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {} })
 
 let db: MockDb = load()
 
@@ -88,7 +100,6 @@ const now = () => new Date().toISOString()
 const QUEUE_DEFAULT_MS = 1200
 const STEP_DEFAULT_MS = 1600
 const EXTRACTION_STEPS = ['Splitting the text into requirements', 'Checking requirement quality', 'Requirements ready to review']
-const GENERATION_STEPS = ['Extracting building blocks', 'Rendering the diagram', 'Checking notation']
 
 /** Extra job kinds (the Tests feature registers test_criteria and test_steps) with their steps and result. */
 type JobKindPlugin = { steps: string[]; queueMs: number; stepMs: number; apply: (job: JobRow) => void }
@@ -100,7 +111,12 @@ export function registerJobKind(kind: string, plugin: JobKindPlugin) {
 export function advance(job: JobRow): JobRow {
   if (job.status === 'succeeded' || job.status === 'failed') return job
   const plugin = plugins[job.kind]
-  const steps = plugin?.steps ?? (job.kind === 'extraction' ? EXTRACTION_STEPS : GENERATION_STEPS)
+  // Mirrors the API: generation is "extract building blocks" + one step per diagram type.
+  const steps =
+    plugin?.steps ??
+    (job.kind === 'extraction'
+      ? EXTRACTION_STEPS
+      : ['Extracting building blocks', ...(job.diagram_types ?? []).map((t) => `Generating and rendering ${TYPE_LABEL[t]} diagram`)])
   const QUEUE_MS = plugin?.queueMs ?? QUEUE_DEFAULT_MS
   const STEP_MS = plugin?.stepMs ?? STEP_DEFAULT_MS
   const elapsed = Date.now() - new Date(job.created_at!).getTime()
@@ -115,8 +131,7 @@ export function advance(job: JobRow): JobRow {
   const step = Math.floor((elapsed - QUEUE_MS) / STEP_MS)
   if (step < steps.length) {
     job.status = 'running'
-    const prefix = job.kind === 'generation' ? 'Generating diagram 1 of 1: ' : ''
-    job.progress = { step: step + 1, total: steps.length, label: prefix + steps[step] }
+    job.progress = { step: step + 1, total: steps.length, label: steps[step] }
     return job
   }
   job.status = 'succeeded'
@@ -143,6 +158,7 @@ function applyExtraction(job: JobRow) {
   }))
   db.nextStatement[pid] = start + statements.length
   db.statements[pid] = [...(db.statements[pid] ?? []), ...statements]
+  db.flags[pid] = [...(db.flags[pid] ?? []), ...detectFlags(statements, db.statements[pid], uid)]
 
   resetModel(pid) // requirements-first: building blocks are extracted later, for the chosen diagrams
 }
@@ -177,24 +193,30 @@ function extractBuildingBlocks(pid: string) {
   p.extracted_nodes = ['actors', 'dataflows', 'entities', 'interactions', 'processes', 'relationships']
 }
 
+const TYPE_LABEL: Record<string, string> = { use_case: 'Use Case', class: 'Class', activity: 'Activity', sequence: 'Sequence', dfd: 'Data Flow', component: 'Component', package: 'Package' }
+
 function applyGeneration(job: JobRow) {
   const pid = job.project_id
   const project = db.projects.find((p) => p.id === pid)!
   extractBuildingBlocks(pid)
-  const model = buildUseCaseModel(db.items[pid] ?? [], project.name)
-  const diagram: DiagramRow = {
-    id: uid('dg'),
-    project_id: pid,
-    type: 'use_case',
-    title: `${project.name} · Use Case`,
-    created_at: now(),
-    parent_id: null,
-    instruction: null,
-    model,
-    svg: renderUseCase(model),
+  const ids: string[] = []
+  for (const type of job.diagram_types?.length ? job.diagram_types : ['use_case' as const]) {
+    const model = type === 'use_case' ? buildUseCaseModel(db.items[pid] ?? [], project.name) : undefined
+    const diagram: DiagramRow = {
+      id: uid('dg'),
+      project_id: pid,
+      type,
+      title: `${project.name} · ${TYPE_LABEL[type]}`,
+      created_at: now(),
+      parent_id: null,
+      instruction: null,
+      model,
+      svg: model ? renderUseCase(model) : renderPlaceholder(TYPE_LABEL[type], db.items[pid] ?? []),
+    }
+    db.diagrams.push(diagram)
+    ids.push(diagram.id)
   }
-  db.diagrams.push(diagram)
-  job.diagram_ids = [diagram.id]
+  job.diagram_ids = ids
   touch(pid)
 }
 
@@ -240,7 +262,7 @@ export function styleFor(d: DiagramRow): DiagramStyle {
   return DEFAULT_STYLE
 }
 
-export function diagramView(d: DiagramRow): Diagram & { elements: { label: string }[] } {
+export function diagramView(d: DiagramRow): Diagram {
   return {
     id: d.id,
     type: d.type,
@@ -248,8 +270,20 @@ export function diagramView(d: DiagramRow): Diagram & { elements: { label: strin
     created_at: d.created_at,
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
-    elements: [...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => ({ label: e.name })),
+    svg: d.svg,
+    elements: elementsOf(d),
+    statements: db.statements[d.project_id] ?? [],
   }
+}
+
+/** Traceability for the viewer: each drawn actor / use case with the requirements behind it. */
+function elementsOf(d: DiagramRow) {
+  if (!d.model) return []
+  const items = new Map((db.items[d.project_id] ?? []).map((i) => [i.id, i]))
+  return [
+    ...d.model.actors.map((a) => ({ element_id: a.id, model_item_id: a.id, kind: 'actor', label: a.name, statement_ids: items.get(a.id)?.statement_ids ?? [] })),
+    ...d.model.cases.map((c) => ({ element_id: c.id, model_item_id: c.assumed ? null : c.id, kind: 'use_case', label: c.name, statement_ids: items.get(c.id)?.statement_ids ?? [] })),
+  ]
 }
 
 export function projectView(p: ProjectRow): components['schemas']['Project'] {
@@ -258,6 +292,11 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     id: p.id,
     name: p.name,
     role: 'owner',
+    is_owner: true, // the mock has no other members: only the owner can see a project
+    archived_at: p.archived_at ?? null,
+    archived_by: p.archived_by ?? null,
+    client_name: p.client_name ?? null,
+    contact_email: p.contact_email ?? null,
     created_at: p.created_at,
     updated_at: p.updated_at,
     statement_count: db.statements[p.id]?.length ?? 0,
@@ -266,6 +305,7 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     confirmed: p.confirmed_at !== null,
     confirmed_at: p.confirmed_at,
     diagram_count: db.diagrams.filter((d) => d.project_id === p.id).length,
+    open_flag_count: (db.flags[p.id] ?? []).filter((f) => f.status === 'open' && db.statements[p.id]?.some((s) => s.id === f.statement_id)).length,
     extracted_nodes: p.extracted_nodes ?? [],
   }
 }

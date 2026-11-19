@@ -21,6 +21,7 @@ JSON_COLS = (
     "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
     "preconditions", "steps",
     "case_ids",
+    "confirmations",  # stories (3.4)
 )
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
@@ -39,6 +40,7 @@ SECRET = {
     "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
     "test_runs": ("name",),
     "test_results": ("note",),
+    "stories": ("role_text", "goal_text", "reason_text", "confirmations"),  # 3.4
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
