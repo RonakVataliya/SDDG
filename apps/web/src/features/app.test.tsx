@@ -7,7 +7,7 @@ import { seedDiagram, seedProject } from '@/test/seed'
 describe('NFR4a login required', () => {
   it('redirects a signed-out visitor to login', async () => {
     renderApp('/projects', { signedIn: false })
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
   })
 })
 
@@ -53,10 +53,27 @@ describe('FR3c / FR3a projects', () => {
     seedProject()
     const user = userEvent.setup()
     renderApp('/projects')
-    await user.click(await screen.findByRole('button', { name: /new project/i }))
+    await user.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
     await user.type(screen.getByLabelText('Project name'), 'library system')
     await user.click(screen.getByRole('button', { name: 'Create project' }))
     expect(await screen.findByText(/already have a project called/i)).toBeInTheDocument()
+  })
+
+  it('lists archived projects apart, under Archived, and shows the client', async () => {
+    seedProject()
+    const at = new Date().toISOString()
+    getDb().projects.push({
+      id: 'pr_2', name: 'Old catalogue', owner: 'dev@sddg.test', created_at: at, updated_at: at, confirmed_at: null,
+      client_name: 'Acme Libraries', archived_at: at, archived_by: 'dev@sddg.test',
+    })
+    renderApp('/projects')
+    const archived = await screen.findByRole('region', { name: 'Archived' })
+    expect(within(archived).getByText('Old catalogue')).toBeInTheDocument()
+    expect(within(archived).getByText('Archived', { selector: 'span' })).toBeInTheDocument()
+    expect(within(archived).getByText(/Acme Libraries/)).toBeInTheDocument()
+    const active = screen.getByRole('list', { name: 'Active projects' })
+    expect(within(active).getByText('Library system')).toBeInTheDocument()
+    expect(within(active).queryByText('Old catalogue')).not.toBeInTheDocument()
   })
 })
 
@@ -81,8 +98,8 @@ describe('NFR5d AI consent before first submission', () => {
     await user.click(within(again).getByRole('button', { name: 'Agree and extract' }))
 
     await waitFor(() => expect(getDb().jobs.filter((j) => j.payload)).toHaveLength(1))
-    expect(getDb().consent['dev@sddg.test'].version).toBe('2026-09-01')
-    expect(await screen.findByText('Finding your requirements')).toBeInTheDocument()
+    expect(getDb().consent['dev@sddg.test'].version).toBe('2026-11-16')
+    expect(await screen.findByRole('heading', { name: /Queued|Finding your requirements/ })).toBeInTheDocument()
   })
 })
 
@@ -91,7 +108,7 @@ describe('requirements-first review', () => {
     seedProject({ confirmed: true })
     const user = userEvent.setup()
     renderApp('/projects/pr_1/review')
-    expect(await screen.findByRole('button', { name: 'Continue to Generate' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Choose diagrams/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Edit R-001' }))
     const box = screen.getByLabelText('Requirement text')
     await user.clear(box)
@@ -100,7 +117,7 @@ describe('requirements-first review', () => {
     await user.type(box, 'The librarian shall lend a book to a member.')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('The librarian shall lend a book to a member.')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Confirm 1 requirement' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Confirm 1 requirement/ })).toBeInTheDocument()
     expect(getDb().items.pr_1).toHaveLength(0)
     expect(getDb().projects[0].confirmed_at).toBeNull()
   })
@@ -116,7 +133,7 @@ describe('requirements-first review', () => {
     await user.click(screen.getByRole('button', { name: 'Delete R-002' }))
     await user.click(screen.getByRole('button', { name: 'Delete R-002' }))
     await waitFor(() => expect(getDb().statements.pr_1).toHaveLength(1))
-    await user.click(await screen.findByRole('button', { name: 'Confirm 1 requirement' }))
+    await user.click(await screen.findByRole('button', { name: /Confirm 1 requirement/ }))
     await waitFor(() => expect(getDb().projects[0].confirmed_at).not.toBeNull())
   })
 
@@ -130,7 +147,7 @@ describe('requirements-first review', () => {
     expect(res.status).toBe(409)
   })
 
-  it('shows Generate as locked until confirmed', async () => {
+  it('shows Choose diagrams as locked until confirmed', async () => {
     seedProject()
     renderApp('/projects/pr_1/generate')
     expect(await screen.findByText('Confirm the requirements first')).toBeInTheDocument()
@@ -149,6 +166,7 @@ describe('requirements-first review', () => {
     expect(screen.getByText('Edited by you')).toBeInTheDocument()
     expect(getDb().items.pr_1[0].origin).toBe('user-edited')
     expect(getDb().projects[0].confirmed_at).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Redraw 1 diagram/ })).toBeInTheDocument()
   })
 })
 
@@ -180,5 +198,32 @@ describe('diagram edits by chat', () => {
     expect(await screen.findByText(/didn.t understand that change/)).toBeInTheDocument()
     expect(box).toHaveValue('make it prettier')
     expect(getDb().diagrams).toHaveLength(1)
+  })
+})
+
+describe('requirement flags (issue #34)', () => {
+  it('apply fix rewrites the requirement and resolves the flag', async () => {
+    seedProject({ flagged: true })
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('button', { name: /1 open flags on R-002/ }))
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByText('quickly')).toBeInTheDocument() // trigger_text is highlighted
+    await user.click(within(drawer).getByRole('button', { name: 'Apply fix' }))
+    await waitFor(() => expect(getDb().statements.pr_1[1].text).toBe('The system shall respond within 2 seconds.'))
+    expect(getDb().flags.pr_1[0].status).toBe('resolved')
+    expect(await within(drawer).findByText('No open flags. Nice and clear.')).toBeInTheDocument()
+  })
+
+  it('an answer resolves the flag without changing the text', async () => {
+    seedProject({ flagged: true })
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('button', { name: /Go through flags/ }))
+    const drawer = await screen.findByRole('dialog')
+    await user.type(await within(drawer).findByLabelText('Your answer'), 'Under 2 seconds')
+    await user.click(within(drawer).getByRole('button', { name: /Save answer/ }))
+    await waitFor(() => expect(getDb().flags.pr_1[0]).toMatchObject({ status: 'resolved', answer: 'Under 2 seconds' }))
+    expect(getDb().statements.pr_1[1].text).toBe('The system should respond quickly.')
   })
 })

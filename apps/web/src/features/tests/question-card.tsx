@@ -23,7 +23,7 @@ export function QuestionCard({ projectId, design, canEdit }: { projectId: string
 
   if (applied) return null
   return (
-    <section className="rounded-lg border-2 border-violet/30 bg-surface p-4" aria-label="Testability question">
+    <section className="rounded-xl border-2 border-violet/30 bg-field p-4" aria-label="Testability question">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="amber">
           <CircleHelpIcon className="size-3" /> Not testable yet

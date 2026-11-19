@@ -182,7 +182,7 @@ export function LayoutCanvas({
             tabIndex={editable ? 0 : undefined}
             aria-label={editable ? `${el.label} (${el.kind.replace(/_/g, ' ')})` : undefined}
             aria-pressed={editable ? isSelected : undefined}
-            className={cn(editable && 'cursor-grab focus:outline-none [&:focus-visible_.shape-edge]:stroke-teal', drag && 'cursor-grabbing')}
+            className={cn(editable && 'cursor-grab focus:outline-none [&:focus-visible_.shape-edge]:stroke-accent', drag && 'cursor-grabbing')}
             onPointerDown={editable ? (e) => onElementPointerDown(e, el.id) : undefined}
             onKeyDown={editable ? (e) => onElementKeyDown(e, el.id) : undefined}
           >
@@ -197,12 +197,12 @@ export function LayoutCanvas({
 
 function ElementShape({ box, selected }: { box: Box; selected: boolean }) {
   const { w, h } = box
-  const cls = cn('shape-edge', selected ? 'fill-teal-wash stroke-teal' : 'fill-surface stroke-ink')
+  const cls = cn('shape-edge', selected ? 'fill-accent-wash stroke-accent' : 'fill-surface stroke-ink')
   const sw = selected ? 2.4 : 1.4
   switch (box.shape) {
     case 'actor':
       return (
-        <g className={cn('fill-none', selected ? 'stroke-teal' : 'stroke-ink')} strokeWidth={sw} strokeLinecap="round">
+        <g className={cn('fill-none', selected ? 'stroke-accent' : 'stroke-ink')} strokeWidth={sw} strokeLinecap="round">
           <rect x={-w / 2} y={-h / 2} width={w} height={h} className="shape-edge fill-transparent stroke-transparent" />
           <circle cy={-h / 2 + 8} r="8" />
           <path d={`M0 ${-h / 2 + 16}v18M-12 ${-h / 2 + 24}h24M0 ${-h / 2 + 34}l-10 ${h / 2 - 8}M0 ${-h / 2 + 34}l10 ${h / 2 - 8}`} />
@@ -213,19 +213,19 @@ function ElementShape({ box, selected }: { box: Box; selected: boolean }) {
     case 'diamond':
       return <path d={`M0 ${-h / 2}L${w / 2} 0L0 ${h / 2}L${-w / 2} 0Z`} className={cls} strokeWidth={sw} />
     case 'start':
-      return <circle r={w / 2} className={cn('shape-edge', selected ? 'fill-teal stroke-teal' : 'fill-ink stroke-ink')} strokeWidth={sw} />
+      return <circle r={w / 2} className={cn('shape-edge', selected ? 'fill-accent stroke-accent' : 'fill-ink stroke-ink')} strokeWidth={sw} />
     case 'end':
       return (
         <g>
           <circle r={w / 2} className={cls} strokeWidth={sw} />
-          <circle r={w / 2 - 5} className={selected ? 'fill-teal' : 'fill-ink'} />
+          <circle r={w / 2 - 5} className={selected ? 'fill-accent' : 'fill-ink'} />
         </g>
       )
     case 'store':
       return (
         <g>
           <rect x={-w / 2} y={-h / 2} width={w} height={h} className={cn(cls, 'stroke-transparent')} />
-          <path d={`M${w / 2} ${-h / 2}H${-w / 2}V${h / 2}H${w / 2}`} fill="none" className={cn('shape-edge', selected ? 'stroke-teal' : 'stroke-ink')} strokeWidth={sw} />
+          <path d={`M${w / 2} ${-h / 2}H${-w / 2}V${h / 2}H${w / 2}`} fill="none" className={cn('shape-edge', selected ? 'stroke-accent' : 'stroke-ink')} strokeWidth={sw} />
         </g>
       )
     default:

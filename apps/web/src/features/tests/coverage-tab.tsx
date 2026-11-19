@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils'
 import { computeCoverage, type CoverageStatus, type ResultCounts } from './coverage'
 import { RESULT } from './labels'
 
-const STATUS: Record<CoverageStatus, { label: string; tone: 'neutral' | 'teal' | 'amber' }> = {
+const STATUS: Record<CoverageStatus, { label: string; tone: 'neutral' | 'accent' | 'amber' }> = {
   no_tests: { label: 'No tests', tone: 'neutral' },
-  covered: { label: 'Covered', tone: 'teal' },
+  covered: { label: 'Covered', tone: 'accent' },
   out_of_date: { label: 'Out of date', tone: 'amber' },
 }
 
@@ -37,7 +37,7 @@ export function CoverageTab({ projectId }: { projectId: string }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Requirements with tests" value={cov.requirementsWithTests} suffix={`of ${cov.requirementCount}`} />
         <Stat label="Test cases" value={cov.readyCases} suffix={`ready · ${cov.draftCases} draft`} />
-        <div className="rounded-lg border border-rule bg-surface px-4 py-3">
+        <div className="rounded-xl border border-rule bg-field px-4 py-3">
           <p className="text-xs text-slate">Last run</p>
           {last ? (
             <p className="mt-0.5 text-lg font-semibold tabular-nums">
@@ -52,10 +52,10 @@ export function CoverageTab({ projectId }: { projectId: string }) {
         <Stat label="Boundary points covered" value={cov.boundaryCovered} suffix={`of ${cov.boundaryTotal}`} />
       </div>
 
-      <section aria-label="Coverage by requirement" className="overflow-hidden rounded-lg border border-rule bg-surface">
+      <section aria-label="Coverage by requirement" className="overflow-hidden rounded-xl border border-rule bg-field">
         <header className="flex flex-wrap items-center gap-2 border-b border-rule px-4 py-2.5">
           <h3 className="text-sm font-semibold">Coverage by requirement</h3>
-          <Badge tone="teal" className="ml-auto">
+          <Badge tone="accent" className="ml-auto">
             <CpuIcon className="size-3" /> Computed from stored data · no AI
           </Badge>
         </header>
@@ -103,7 +103,7 @@ export function CoverageTab({ projectId }: { projectId: string }) {
 
 function Stat({ label, value, suffix }: { label: string; value: number; suffix: string }) {
   return (
-    <div className="rounded-lg border border-rule bg-surface px-4 py-3">
+    <div className="rounded-xl border border-rule bg-field px-4 py-3">
       <p className="text-xs text-slate">{label}</p>
       <p className="mt-0.5 text-lg font-semibold tabular-nums">
         {value} <span className="text-sm font-normal text-slate">{suffix}</span>

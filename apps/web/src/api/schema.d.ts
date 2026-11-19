@@ -410,6 +410,212 @@ export interface paths {
         };
         trace?: never;
     };
+    "/projects/{project_id}/flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Requirement quality flags (issue */
+        get: {
+            parameters: {
+                query?: {
+                    status?: "open" | "resolved";
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Flag"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/flags/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Per requirement flag counts, for the flag icon next to each statement */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FlagSummary"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/flags/{flag_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    flag_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Flag"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/flags/{flag_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    flag_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Flag"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/flags/{flag_id}/apply-fix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace the requirement text with the suggestion and resolve the flag; 409 if there is no suggestion */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    flag_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Flag"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/items": {
         parameters: {
             query?: never;
@@ -1855,6 +2061,14 @@ export interface components {
             id: string;
             name: string;
             role: components["schemas"]["Role"];
+            /** @description Only the owner may rename */
+            is_owner: boolean;
+            /** Format: date-time */
+            archived_at: string | null;
+            /** @description E-mail of the user who archived it */
+            archived_by: string | null;
+            client_name: string | null;
+            contact_email: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -1868,10 +2082,16 @@ export interface components {
             /** Format: date-time */
             confirmed_at?: string | null;
             diagram_count: number;
+            open_flag_count?: number;
             /** @description Extraction nodes already run on the confirmed requirements (actors, entities, ...) */
             extracted_nodes: string[];
         };
         ProjectCreate: {
+            name: string;
+            client_name?: string | null;
+            contact_email?: string | null;
+        };
+        ProjectRename: {
             name: string;
         };
         InputCreate: {
@@ -1895,6 +2115,13 @@ export interface components {
             text?: string;
             /** @enum {string|null} */
             label?: "functional" | "non_functional" | "user_story" | "constraint" | "unknown" | null;
+        };
+        FlagSummary: {
+            statement_id: string;
+            statement_ref: string;
+            total: number;
+            open: number;
+            types: components["schemas"]["FlagType"][];
         };
         /** @enum {string} */
         ItemCategory: "actor" | "entity" | "process" | "data_flow" | "data_store" | "interaction" | "relationship";
@@ -1931,8 +2158,11 @@ export interface components {
             name?: string;
             description?: string | null;
         };
-        /** @enum {string} */
-        DiagramType: "use_case" | "class" | "activity" | "sequence" | "dfd" | "component";
+        /**
+         * @description package = drawn from the confirmed subsystem decomposition (Design step), never generated
+         * @enum {string}
+         */
+        DiagramType: "use_case" | "class" | "activity" | "sequence" | "dfd" | "component" | "package";
         GenerationCreate: {
             diagram_types: components["schemas"]["DiagramType"][];
         };
@@ -1974,7 +2204,21 @@ export interface components {
             /** @description The edit request that produced this version; null for a fresh generation */
             instruction: string | null;
         };
-        Diagram: components["schemas"]["DiagramSummary"];
+        DiagramElement: {
+            /** @description Matches data-element-id in the SVG */
+            element_id: string;
+            model_item_id?: string | null;
+            kind: string;
+            label: string;
+            statement_ids: string[];
+        };
+        Diagram: components["schemas"]["DiagramSummary"] & {
+            /** @description Rendered SVG; elements are wrapped in g with data-element-id */
+            svg?: string | null;
+            elements?: components["schemas"]["DiagramElement"][];
+            /** @description Requirements this diagram traces to */
+            statements?: components["schemas"]["RequirementStatement"][];
+        };
         RevisionCreate: {
             instruction: string;
         };
@@ -2047,8 +2291,10 @@ export interface components {
             statement_id: string;
             statement_ref: string;
             type: components["schemas"]["FlagType"];
+            statement_text?: string;
             reason: string;
             trigger_text?: string | null;
+            related_statement_id?: string | null;
             question?: string | null;
             answer?: string | null;
             has_suggestion: boolean;
@@ -2057,6 +2303,8 @@ export interface components {
             /** @enum {string} */
             status: "open" | "resolved";
             resolved_by?: string | null;
+            /** Format: date-time */
+            resolved_at?: string | null;
         };
         FlagAnswer: {
             answer: string;

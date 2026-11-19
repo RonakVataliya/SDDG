@@ -47,7 +47,7 @@ export function CasesTab({ projectId }: { projectId: string }) {
 
   return (
     <div className={cn('grid min-h-0 flex-1 gap-4', open && 'xl:grid-cols-[minmax(0,1fr)_24rem]')}>
-      <section aria-label="Test cases" className="flex min-h-0 min-w-0 flex-col rounded-lg border border-rule bg-surface">
+      <section aria-label="Test cases" className="flex min-h-0 min-w-0 flex-col rounded-xl border border-rule bg-field">
         <header className="flex flex-wrap items-center gap-2 border-b border-rule px-4 py-2.5">
           <h3 className="text-sm font-semibold">
             Test cases <span className="font-normal text-slate tabular-nums">{all.length}</span>
@@ -59,7 +59,7 @@ export function CasesTab({ projectId }: { projectId: string }) {
                 type="button"
                 aria-pressed={filter === f}
                 onClick={() => setFilter(f)}
-                className={cn('rounded-sm px-2 py-0.5 text-xs capitalize', filter === f ? 'bg-ink text-white' : 'text-slate hover:text-ink')}
+                className={cn('rounded-sm px-2 py-0.5 text-xs capitalize', filter === f ? 'bg-ink text-on-ink' : 'text-slate hover:text-ink')}
               >
                 {f} {count(f)}
               </button>
@@ -81,7 +81,7 @@ export function CasesTab({ projectId }: { projectId: string }) {
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 border-b border-rule bg-surface text-xs text-slate">
+              <thead className="sticky top-0 border-b border-rule bg-field text-xs text-slate">
                 <tr>
                   {['Case', 'Title', 'Technique', 'Kind', 'Priority', 'Req', 'Status', 'Freshness', 'Last result'].map((h) => (
                     <th key={h} scope="col" className="px-3 py-2 font-medium whitespace-nowrap">
@@ -120,7 +120,7 @@ function CaseRow({ c, active, onOpen }: { c: TestCase; active: boolean; onOpen: 
     <tr
       onClick={onOpen}
       aria-selected={active}
-      className={cn('cursor-pointer align-top hover:bg-paper/70', active && 'bg-teal-wash/60', !c.kept && 'text-slate')}
+      className={cn('cursor-pointer align-top hover:bg-paper/70', active && 'bg-accent-wash/60', !c.kept && 'text-slate')}
     >
       <td className="px-3 py-2">
         <button type="button" className="focus-visible:outline-2" onClick={(e) => {
@@ -140,7 +140,7 @@ function CaseRow({ c, active, onOpen }: { c: TestCase; active: boolean; onOpen: 
       <td className="px-3 py-2">{PRIORITY[c.priority]}</td>
       <td className="px-3 py-2 font-mono text-xs">{c.statement_ref}</td>
       <td className="px-3 py-2">
-        <Badge tone={c.status === 'ready' ? 'teal' : 'neutral'}>{c.status === 'ready' ? 'Ready' : c.kept ? 'Draft' : 'Discarded'}</Badge>
+        <Badge tone={c.status === 'ready' ? 'accent' : 'neutral'}>{c.status === 'ready' ? 'Ready' : c.kept ? 'Draft' : 'Discarded'}</Badge>
       </td>
       <td className="px-3 py-2 whitespace-nowrap">
         {c.freshness === 'out_of_date' ? <Badge tone="amber">Out of date · {c.statement_ref} changed</Badge> : <span className="text-slate">Current</span>}

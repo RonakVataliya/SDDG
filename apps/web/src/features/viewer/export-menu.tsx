@@ -30,7 +30,7 @@ type ZipVersions = 'latest' | 'all'
 type Busy = ExportFormat | `zip-${ZipVersions}` | null
 
 const itemClass =
-  'flex cursor-pointer flex-col items-start rounded-sm px-3 py-2 text-sm outline-none data-[highlighted]:bg-teal-wash'
+  'flex cursor-pointer flex-col items-start rounded-sm px-3 py-2 text-sm outline-none data-[highlighted]:bg-accent-wash'
 
 /** FR18: Export ▾ menu. One diagram version in any EXPORT_FORMATS format, or every diagram of the project as a ZIP.
  *  Errors show under the button; the page keeps working. */

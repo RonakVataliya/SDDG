@@ -20,6 +20,7 @@ export type Point = Schemas['Point']
 // Tests (Sprint 3, stream 6)
 export type Flag = Schemas['Flag']
 export type FlagType = Schemas['FlagType']
+export type FlagSummary = Schemas['FlagSummary']
 export type TestRequirementSummary = Schemas['TestRequirementSummary']
 export type TestRequirementList = Schemas['TestRequirementList']
 export type TestDesign = Schemas['TestDesign']

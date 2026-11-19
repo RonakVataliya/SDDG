@@ -53,7 +53,7 @@ AI_HEADERS = {"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")}
 AI_TIMEOUT = 300
 REVISION_BUSY_WAIT = 60  # a revision runs inside the request: wait at most this long for AI capacity
 KROKI_URL = os.getenv("KROKI_URL", "http://127.0.0.1:8080")
-POLICY_VERSION = os.getenv("AI_POLICY_VERSION", "2026-09-01")
+POLICY_VERSION = os.getenv("AI_POLICY_VERSION", "2026-11-16")
 NOT_FOUND = "Not found, or you do not have access to it."
 
 # use_case keeps its original code path below; every other type is driven by

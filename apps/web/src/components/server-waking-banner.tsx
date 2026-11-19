@@ -1,8 +1,8 @@
+import { ServerIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Spinner } from '@/components/ui/spinner'
 import { serverStatus, useServerWaking } from '@/lib/server-status'
 
-/** FR30c. Shown while requests fail because the free-tier API is asleep; retries happen automatically. */
+/** FR30c. Shown only while requests fail because the free-tier API is asleep (502/503/504 or no answer). */
 export function ServerWakingBanner() {
   const waking = useServerWaking()
   const [seconds, setSeconds] = useState(0)
@@ -18,15 +18,13 @@ export function ServerWakingBanner() {
   if (!waking) return null
   return (
     <div role="status" aria-live="polite" className="border-t border-amber/30 bg-amber-wash">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 text-sm text-ink sm:px-6">
-        <Spinner className="text-amber" label="Waiting for the server" />
+      <div className="flex items-center gap-3 px-5 py-2 text-[13px] text-amber">
+        <ServerIcon className="size-4 shrink-0" aria-hidden />
         <p>
-          <span className="font-medium">The server is starting.</span>{' '}
-          <span className="text-ink/75">
-            This takes up to a minute after a quiet period. We&rsquo;ll retry automatically
-            {seconds >= 5 ? ` (${seconds}s)` : ''}.
-          </span>
+          <span className="font-semibold">The server is waking up.</span>{' '}
+          <span className="text-ink/75">Free hosting sleeps when idle; this takes about a minute. Nothing is lost, and the page fills in by itself.</span>
         </p>
+        {seconds >= 5 && <span className="ml-auto font-mono text-[11.5px]">retrying · {seconds}s</span>}
       </div>
     </div>
   )
