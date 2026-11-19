@@ -187,7 +187,8 @@ export const handlers = [
         if (formData) {
           file = (formData.get('file') as File) || null
           if (file) {
-            name = (formData.get('filename') as string) || file.name || name
+            // The multipart part can lose its name (jsdom/undici turns it into "blob"), so the x-filename header wins.
+            if (!headerName) name = (formData.get('filename') as string) || file.name || name
             size = file.size || size
             const text = await Promise.race([
               file.text(),

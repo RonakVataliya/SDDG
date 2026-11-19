@@ -426,13 +426,11 @@ describe('FR1 and FR2 requirements input and document management', () => {
     const reviewApp = renderApp('/projects/pr_1/review')
 
     // Wait for Review page to finish loading and display Confirm button
-    expect(await screen.findByRole('button', { name: 'Confirm extracted items' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Confirm \d+ requirements?/ })).toBeInTheDocument()
     // Check that extracted items are present
     expect((await screen.findAllByText(/Student/i)).length).toBeGreaterThanOrEqual(1)
 
-    // Expand the Requirement Statements accordion
-    const accordionBtn = await screen.findByRole('button', { name: /requirement statements/i })
-    await user.click(accordionBtn)
+    // The redesigned Review page lists the statements directly (no accordion)
     // Check that FR/NFR source tags and structured user stories are displayed
     expect((await screen.findAllByText('FR-001')).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('NFR-001').length).toBeGreaterThanOrEqual(1)
@@ -444,8 +442,6 @@ describe('FR1 and FR2 requirements input and document management', () => {
 
     expect(screen.queryByText('Nothing to review yet')).not.toBeInTheDocument()
     expect((await screen.findAllByText(/Student/i)).length).toBeGreaterThanOrEqual(1)
-    const reloadedAccordion = await screen.findByRole('button', { name: /requirement statements/i })
-    await user.click(reloadedAccordion)
     expect((await screen.findAllByText('FR-001')).length).toBeGreaterThanOrEqual(1)
   })
 

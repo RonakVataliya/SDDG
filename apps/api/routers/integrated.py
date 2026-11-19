@@ -701,11 +701,13 @@ async def upload_document(
     project_id: str,
     bg: BackgroundTasks,
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),  # optional here so require_project answers 404 before a missing file answers 422
     user: User = Depends(get_current_user),
 ):
     """Uploads and validates a PDF or DOCX document (FR1b/c, FR2) and queues extraction."""
     project = require_project(project_id, user)
+    if file is None:
+        raise HTTPException(status_code=422, detail="No file was uploaded. Send a PDF or DOCX in the 'file' form field.")
 
     consent = db.consent(user.id)
     if not consent or consent["policy_version"] != POLICY_VERSION:
