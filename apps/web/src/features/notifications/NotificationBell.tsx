@@ -14,26 +14,26 @@ function timeAgo(ts: number): string {
 function NotificationItem({ n, onRead }: { n: AppNotification; onRead: (id: string) => void }) {
   const isSuccess = n.kind === 'success'
   return (
-    <li className={`flex gap-2 px-4 py-3 border-b border-gray-100 last:border-0 ${!n.read ? 'bg-blue-50' : ''}`}>
-      <span className={`mt-1 shrink-0 w-2 h-2 rounded-full ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`} aria-hidden="true" />
+    <li className={`flex gap-2 px-4 py-3 border-b border-rule last:border-0 ${!n.read ? 'bg-accent-wash' : ''}`}>
+      <span className={`mt-1 shrink-0 w-2 h-2 rounded-full ${isSuccess ? 'bg-success' : 'bg-danger'}`} aria-hidden="true" />
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium leading-snug ${isSuccess ? 'text-green-800' : 'text-red-700'}`}>{n.title}</p>
-        <p className="text-xs text-gray-600 mt-0.5 break-words">{n.message}</p>
+        <p className={`text-sm font-medium leading-snug ${isSuccess ? 'text-success' : 'text-danger'}`}>{n.title}</p>
+        <p className="text-xs text-ink-2 mt-0.5 break-words">{n.message}</p>
         <div className="flex items-center gap-3 mt-1">
-          <span className="text-[11px] text-gray-400">{timeAgo(n.createdAt)}</span>
+          <span className="text-[11px] text-slate">{timeAgo(n.createdAt)}</span>
           {isSuccess && n.diagramId ? (
-            <Link to={`/projects/${n.projectId}/diagrams/${n.diagramId}`} className="text-[11px] text-blue-600 hover:underline" onClick={() => onRead(n.id)}>
+            <Link to={`/projects/${n.projectId}/diagrams/${n.diagramId}`} className="text-[11px] text-accent hover:underline" onClick={() => onRead(n.id)}>
               View diagram →
             </Link>
           ) : !isSuccess ? (
-            <Link to={`/projects/${n.projectId}/generate`} className="text-[11px] text-blue-600 hover:underline" onClick={() => onRead(n.id)}>
+            <Link to={`/projects/${n.projectId}/generate`} className="text-[11px] text-accent hover:underline" onClick={() => onRead(n.id)}>
               Retry →
             </Link>
           ) : null}
         </div>
       </div>
       {!n.read && (
-        <button className="shrink-0 self-start text-[11px] text-gray-400 hover:text-gray-700 px-1 pt-0.5" onClick={() => onRead(n.id)} aria-label="Mark as read">
+        <button className="shrink-0 self-start text-[11px] text-slate hover:text-ink px-1 pt-0.5" onClick={() => onRead(n.id)} aria-label="Mark as read">
           ✓
         </button>
       )}
@@ -80,26 +80,26 @@ export function NotificationBell() {
       <button
         ref={buttonRef}
         onClick={() => setOpen(v => !v)}
-        className="relative p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="relative p-2 rounded-full hover:bg-ink/5 focus:outline-none focus:ring-2 focus:ring-accent"
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <Bell className="w-5 h-5 text-gray-600" aria-hidden="true" />
+        <Bell className="w-5 h-5 text-ink-2" aria-hidden="true" />
         {unreadCount > 0 && (
-          <span className="absolute top-0.5 right-0.5 flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-red-500 rounded-full" aria-hidden="true">
+          <span className="absolute top-0.5 right-0.5 flex items-center justify-center w-4 h-4 text-[10px] font-bold text-on-ink bg-danger rounded-full" aria-hidden="true">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
       {open && (
-        <div ref={panelRef} role="dialog" aria-label="Notifications" className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-200 z-50 flex flex-col max-h-[480px]">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
-            <h2 className="text-sm font-semibold text-gray-900">Notifications</h2>
-            {unreadCount > 0 && <button onClick={markAllRead} className="text-xs text-blue-600 hover:underline">Mark all read</button>}
+        <div ref={panelRef} role="dialog" aria-label="Notifications" className="absolute right-0 mt-2 w-80 bg-surface rounded-xl shadow-lg border border-rule z-50 flex flex-col max-h-[480px]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-rule shrink-0">
+            <h2 className="text-sm font-semibold text-ink">Notifications</h2>
+            {unreadCount > 0 && <button onClick={markAllRead} className="text-xs text-accent hover:underline">Mark all read</button>}
           </div>
           {notifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400 select-none">
+            <div className="flex flex-col items-center justify-center py-12 text-slate select-none">
               <Bell className="w-8 h-8 mb-2 opacity-40" aria-hidden="true" />
               <p className="text-sm">No notifications yet</p>
             </div>

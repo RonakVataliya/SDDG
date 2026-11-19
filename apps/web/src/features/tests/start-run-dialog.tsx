@@ -68,10 +68,10 @@ export function StartRunDialog({
                   key={m}
                   className={cn(
                     'flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2',
-                    mode === m ? 'border-teal bg-teal-wash/50' : 'border-rule hover:border-rule-strong',
+                    mode === m ? 'border-accent bg-accent-wash/50' : 'border-rule hover:border-rule-strong',
                   )}
                 >
-                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-1 accent-teal" />
+                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-1 accent-[var(--accent)]" />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium">{RUN_MODE[m].label}</span>
                     <span className="block text-xs text-slate">

@@ -14,6 +14,11 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     globals: true,
-    env: { VITE_API_URL: 'http://localhost/api/v1', VITE_USE_MOCKS: 'true' },
+    env: {
+      VITE_API_URL: 'http://localhost/api/v1',
+      VITE_USE_MOCKS: 'true',
+      VITE_SUPABASE_URL: '',
+      VITE_SUPABASE_ANON_KEY: '',
+    },
   },
 })

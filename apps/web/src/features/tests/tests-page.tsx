@@ -77,7 +77,7 @@ export function TestsPage() {
             onClick={() => setParams(t.id === 'design' ? {} : { tab: t.id }, { replace: true })}
             className={cn(
               '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
-              tab === t.id ? 'border-teal text-teal-deep' : 'border-transparent text-slate hover:text-ink',
+              tab === t.id ? 'border-accent text-accent-deep' : 'border-transparent text-slate hover:text-ink',
             )}
           >
             {t.label}

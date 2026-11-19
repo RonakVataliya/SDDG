@@ -1,7 +1,7 @@
 import { ChevronDownIcon, DownloadIcon } from 'lucide-react'
 import { DropdownMenu as M } from 'radix-ui'
 import { useState } from 'react'
-import { errorMessage } from '@/api/errors'
+import { ApiError, errorMessage } from '@/api/errors'
 import { fetchDiagramExport, fetchProjectDiagramsZip, saveBlob } from '@/api/queries'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -30,7 +30,7 @@ type ZipVersions = 'latest' | 'all'
 type Busy = ExportFormat | `zip-${ZipVersions}` | null
 
 const itemClass =
-  'flex cursor-pointer flex-col items-start rounded-sm px-3 py-2 text-sm outline-none data-[highlighted]:bg-teal-wash'
+  'flex cursor-pointer flex-col items-start rounded-md px-3 py-2 text-[13px] outline-none data-[highlighted]:bg-ink/5'
 
 /** FR18: Export ▾ menu. One diagram version in any EXPORT_FORMATS format, or every diagram of the project as a ZIP.
  *  Errors show under the button; the page keeps working. */
@@ -45,7 +45,12 @@ export function ExportMenu({ diagramId, title, versionIndex, png, projectId, pro
       await task()
     } catch (e) {
       const name = what.startsWith('zip') ? 'ZIP' : what === 'source' ? 'source' : what.toUpperCase()
-      setError(errorMessage(e, `The ${name} export did not work. Try again.`))
+      // 424: the diagram renderer (Kroki) is down. That is never the "server waking" state.
+      setError(
+        e instanceof ApiError && e.status === 424
+          ? 'Diagram renderer unavailable, try again in a minute.'
+          : errorMessage(e, `The ${name} export did not work. Try again.`),
+      )
     } finally {
       setBusy(null)
     }
@@ -82,7 +87,7 @@ export function ExportMenu({ diagramId, title, versionIndex, png, projectId, pro
           <M.Content
             align="end"
             sideOffset={6}
-            className="z-50 min-w-64 rounded-md border border-rule bg-surface p-1 shadow-[0_12px_32px_-12px_rgb(26_34_51/0.3)]"
+            className="z-50 min-w-64 rounded-xl border border-rule bg-surface p-1.5 shadow-[var(--shadow)]"
           >
             <M.Label className="px-3 pt-1.5 pb-1 text-xs font-medium text-slate">This version</M.Label>
             {EXPORT_FORMATS.map((f) => (

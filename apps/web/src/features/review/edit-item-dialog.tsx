@@ -66,7 +66,7 @@ function EditForm({ projectId, item, confirmed, onClose }: { projectId: string; 
           Cancel
         </Button>
         <Button type="submit" disabled={!changed || !name.trim() || update.isPending}>
-          {update.isPending && <Spinner className="text-white" label="Saving" />}
+          {update.isPending && <Spinner className="text-on-ink" label="Saving" />}
           Save changes
         </Button>
       </DialogFooter>

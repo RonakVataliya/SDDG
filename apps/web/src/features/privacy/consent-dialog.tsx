@@ -1,3 +1,4 @@
+import { ShieldCheckIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { errorMessage } from '@/api/errors'
@@ -38,22 +39,25 @@ export function ConsentDialog({
       }}
     >
       <DialogContent className="max-w-xl">
-        <DialogTitle>{renewal ? 'Our AI processing terms changed' : 'Before we process your requirements'}</DialogTitle>
+        <span className="mb-4 grid size-12 place-items-center rounded-xl bg-accent-wash text-accent">
+          <ShieldCheckIcon className="size-5" />
+        </span>
+        <DialogTitle>{renewal ? 'Our AI processing terms changed' : 'Before we send your text to the AI'}</DialogTitle>
         <DialogDescription>
           Privacy Policy v{POLICY_VERSION}, {formatDate(POLICY_DATE)}. Nothing is sent until you agree.
         </DialogDescription>
-        <div className="mt-5 space-y-3 rounded-md border border-rule bg-paper p-4 text-sm leading-6 text-ink/85">
+        <div className="mt-5 space-y-3 rounded-xl border border-rule bg-paper p-4 text-[13px] leading-6 text-ink-2">
           {aiSection.body.map((p, i) => (
             <p key={i}>{p}</p>
           ))}
-          <Link to="/privacy" target="_blank" className="inline-block font-medium text-teal hover:underline">
+          <Link to="/privacy" target="_blank" className="inline-block font-medium text-accent hover:underline">
             Read the full Privacy Policy
           </Link>
         </div>
-        <label className="mt-5 flex items-start gap-3 text-sm">
+        <label className="mt-5 flex items-start gap-3 text-[13px]">
           <Checkbox checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} className="mt-0.5" />
           <span>
-            I agree that my requirement text is sent to Groq and diagram descriptions are sent to Kroki, as
+            I agree that my requirement text is sent to Groq or Google Gemini and diagram descriptions are sent to Kroki, as
             described above.
           </span>
         </label>
@@ -76,7 +80,7 @@ export function ConsentDialog({
               onConsented()
             }}
           >
-            {give.isPending && <Spinner className="text-white" label="Saving" />}
+            {give.isPending && <Spinner className="text-on-ink" label="Saving" />}
             Agree and extract
           </Button>
         </DialogFooter>

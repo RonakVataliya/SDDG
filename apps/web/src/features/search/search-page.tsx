@@ -15,7 +15,7 @@ import { useWorkspace } from '@/routes/workspace-layout'
 import { getExportedIds } from './exported'
 import { buildResults, filterResults, findById, looksLikeId, STATUSES, toggle, type Status } from './search'
 
-const statusTone = { flagged: 'amber', unresolved: 'danger', exported: 'teal' } as const
+const statusTone = { flagged: 'amber', unresolved: 'danger', exported: 'accent' } as const
 
 export function SearchPage() {
   const { project } = useWorkspace()
@@ -114,7 +114,7 @@ export function SearchPage() {
       ) : results.length === 0 ? (
         <EmptyState types={types} />
       ) : (
-        <ul className="divide-y divide-rule rounded-lg border border-rule bg-surface">
+        <ul className="divide-y divide-rule rounded-xl border border-rule bg-field">
           {results.map((r) => (
             <li key={`${r.kind}-${r.id}`}>
               <Link to={r.to} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 hover:bg-paper/60">
@@ -139,7 +139,7 @@ export function SearchPage() {
 
 function EmptyState({ types }: { types: DiagramType[] }) {
   return (
-    <div className="rounded-lg border border-rule bg-surface px-5 py-8 text-center">
+    <div className="rounded-xl border border-rule bg-field px-5 py-8 text-center">
       <p className="font-medium">No results</p>
       <p className="mt-1 text-slate">
         {types.length > 0
