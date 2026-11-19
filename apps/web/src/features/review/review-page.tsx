@@ -171,9 +171,25 @@ function Row({
     >
       <RefTag className="mt-0.5 shrink-0">{s.ref}</RefTag>
       <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] text-slate">{shortLabel(s.label)}</span>
-      <p className="min-w-0 flex-1 text-[13.5px] leading-[22px]">
-        <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
-      </p>
+      {/* FR1/FR2: the requirement's own ID from the input (FR-001, NFR-2, …) */}
+      {s.source_label && (
+        <Badge tone="neutral" className="mt-0.5 h-fit shrink-0 font-mono text-[11px]">
+          {s.source_label}
+        </Badge>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] leading-[22px]">
+          <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
+        </p>
+        {/* FR1: structured user story (As a <role>, I want <goal>, so that <reason>) */}
+        {Boolean(s.metadata?.structured && s.metadata.role) && (
+          <p className="mt-0.5 text-xs text-slate">
+            Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
+            <span className="text-ink">{String(s.metadata?.goal)}</span>
+            {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
+          </p>
+        )}
+      </div>
       <FlagPill summary={summary} openTypes={openTypes} onClick={onFlags} />
       {canEdit &&
         (confirming ? (

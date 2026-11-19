@@ -14,30 +14,40 @@ import asyncio
 import html
 import io
 import logging
+import math
 import os
 import re
 import zipfile
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 
 from core import db
 from core.auth import User, get_current_user
 from core.ai_client import AIBusyTimeout, AIJob
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
+from core.input_processing import (
+    enrich_extracted_statements,
+    extract_fallback_statements_and_items,
+    parse_input_requirements,
+    read_and_extract_upload,
+)
 from core.styling import apply_style, export_style
 from core.quality import detect
 from core.reporting import diagram_versions, slugify
 from schemas.api import (
     ConsentCreate,
+    DocumentResponse,
     GenerationCreate,
     InputCreate,
     ItemCategory,
     ItemUpdate,
+    MAX_INPUT_CHARS,
     ProjectCreate,
     RevisionCreate,
 )
+
 
 # ============================================================================
 # Router & Configuration
@@ -116,6 +126,8 @@ def project_view(p, user):
         "confirmed": p["confirmed_at"] is not None,
         "confirmed_at": p["confirmed_at"],
         "diagram_count": counts["diagram_count"],
+        "document_count": counts.get("document_count", 0),
+        "document_page_count": counts.get("document_page_count", 0),
         "open_flag_count": counts["open_flag_count"],
         "extracted_nodes": p.get("extracted_nodes") or [],
     }
@@ -344,9 +356,22 @@ def fail_job(job_id, message):
     )
 
 
-async def extraction_worker(job_id, project_id, text, project_name):
+async def extraction_worker(
+    job_id,
+    project_id,
+    text,
+    project_name,
+    document_id=None,
+    source_document="pasted requirements",
+    skipped_pages=None,
+    parsed_metadata=None,
+):
     """Requirements-first: the AI service only splits the text into numbered requirements here (fast).
-    Building blocks (actors, entities, …) are extracted later, for the diagrams the user picks."""
+    Building blocks (actors, entities, …) are extracted later, for the diagrams the user picks.
+
+    FR1/FR2: the text may come from pasted input or an uploaded document (document_id). Original FR/NFR IDs and
+    user-story fields are attached to the split statements; if the AI service is unavailable or finds nothing,
+    a local rule-based splitter is used instead."""
     try:
         db.update_job(
             job_id,
@@ -357,13 +382,37 @@ async def extraction_worker(job_id, project_id, text, project_name):
             progress_total=3,
             progress_label="Splitting the text into requirements",
         )
-        async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
-            ai = AIJob(client, project_id, job_id)
-            await ai.start(est_tokens=len(text) // 3 + 3000)
-            result = await ai.post("/extraction/split", {"text": text, "project_name": project_name})
+        if document_id:
+            try:
+                db.update_document(document_id, status="processing")
+            except Exception:
+                pass
+
+        result = None
+        try:
+            async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
+                ai = AIJob(client, project_id, job_id)
+                await ai.start(est_tokens=len(text) // 3 + 3000)
+                result = await ai.post("/extraction/split", {"text": text, "project_name": project_name})
+        except AIBusyTimeout:
+            raise  # the provider is rate-limited: fail with the "busy" message (NFR9a), don't fall back
+        except Exception as ai_err:
+            logger.warning("AI split call failed (%s); attempting local rule-based extraction fallback", ai_err)
+
+        raw = (result or {}).get("requirements", [])
+        is_fallback = False
+        if raw:
+            raw = enrich_extracted_statements(raw, text, parsed_metadata=parsed_metadata)
+        else:
+            # Building blocks are extracted later (requirements-first), so only the statements are used here.
+            raw, _ = extract_fallback_statements_and_items(text, project_name)
+            is_fallback = bool(raw)
+
+        if not raw:
+            raise ValueError("No requirements could be extracted from this document.")
 
         db.update_job(job_id, progress_step=2, progress_label="Checking requirement quality")
-        db.insert_statements(project_id, result.get("requirements", []))
+        db.insert_statements(project_id, raw, document=source_document)
         db.reset_model(project_id)  # new requirements: confirm again, building blocks are extracted afresh
         await asyncio.to_thread(detect, project_id)  # quality flags, off the event loop; never fails the job
         db.update_job(
@@ -372,12 +421,33 @@ async def extraction_worker(job_id, project_id, text, project_name):
             queue_position=None,
             progress_step=3,
             progress_total=3,
-            progress_label="Requirements ready to review",
+            progress_label=(
+                "Requirements ready to review (rule-based parsing; AI service unavailable)"
+                if is_fallback
+                else "Requirements ready to review"
+            ),
             finished_at=db.now(),
         )
+        if document_id:
+            try:
+                if is_fallback:
+                    fallback_msg = "Extracted using rule-based parsing (AI service unavailable)"
+                    doc_record = db.get_document(project_id, document_id)
+                    existing_warn = (doc_record or {}).get("warning") or ""
+                    new_warn = f"{existing_warn}; {fallback_msg}" if existing_warn else fallback_msg
+                    db.update_document(document_id, status="processed", warning=new_warn)
+                else:
+                    db.update_document(document_id, status="processed")
+            except Exception:
+                pass
     except Exception as e:
         logger.exception("extraction job %s failed", job_id)
         fail_job(job_id, f"Finding requirements failed: {ai_error_detail(e)}")
+        if document_id:
+            try:
+                db.update_document(document_id, status="failed", warning=f"Finding requirements failed: {ai_error_detail(e)}")
+            except Exception:
+                pass
 
 
 async def extract_building_blocks(ai, project, diagram_types):
@@ -410,6 +480,8 @@ async def extract_building_blocks(ai, project, diagram_types):
 
 def ai_error_detail(exc):
     """Short user-facing reason for a failed AI service call."""
+    if isinstance(exc, ValueError):
+        return str(exc)
     if isinstance(exc, httpx.HTTPStatusError):
         try:
             detail = exc.response.json().get("detail")
@@ -601,6 +673,222 @@ def get_project(project_id: str, user: User = Depends(get_current_user)):
 # API Routes: Requirements Submission & Items Review
 # ============================================================================
 
+async def _delete_storage(storage_path: str, token: str | None = None) -> bool:
+    supabase_url = os.environ.get("SUPABASE_URL")
+    if not supabase_url or not storage_path:
+        return True
+    bucket = os.environ.get("SUPABASE_STORAGE_BUCKET", "project-documents")
+    supabase_anon_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
+    storage_url = f"{supabase_url}/storage/v1/object/{bucket}/{storage_path}"
+    headers = {
+        "apikey": supabase_anon_key,
+        "Authorization": f"Bearer {token or ''}",
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            res = await client.delete(storage_url, headers=headers)
+            if res.status_code in (200, 204, 404):
+                return True
+            logger.warning("Supabase storage delete returned %s: %s", res.status_code, res.text)
+            return False
+        except Exception as e:
+            logger.warning("Supabase storage delete error: %s", e)
+            return False
+
+
+@router.post("/projects/{project_id}/documents", status_code=202)
+async def upload_document(
+    project_id: str,
+    bg: BackgroundTasks,
+    request: Request,
+    file: UploadFile | None = File(None),  # optional here so require_project answers 404 before a missing file answers 422
+    user: User = Depends(get_current_user),
+):
+    """Uploads and validates a PDF or DOCX document (FR1b/c, FR2) and queues extraction."""
+    project = require_project(project_id, user)
+    if file is None:
+        raise HTTPException(status_code=422, detail="No file was uploaded. Send a PDF or DOCX in the 'file' form field.")
+
+    consent = db.consent(user.id)
+    if not consent or consent["policy_version"] != POLICY_VERSION:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Agree to AI processing before submitting requirements.", "code": "consent_required"},
+        )
+
+    extracted = await read_and_extract_upload(file)
+    filename = extracted["filename"]
+    page_count = extracted["page_count"]
+    size_bytes = extracted["size_bytes"]
+    content_type = file.content_type or (
+        "application/pdf"
+        if extracted["extension"] == ".pdf"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    warning = extracted["warning"]
+    skipped_pages = extracted["skipped_pages"]
+    text = extracted["text"]
+    data = extracted["data"]
+
+    # Pre-check project limits
+    totals = db.project_document_totals(project_id)
+    if totals["document_count"] >= db.MAX_DOCUMENTS_PER_PROJECT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A project can contain at most {db.MAX_DOCUMENTS_PER_PROJECT} documents.",
+        )
+    if totals["total_pages"] + page_count > db.MAX_PAGES_PER_PROJECT:
+        raise HTTPException(
+            status_code=413,
+            detail=f"This document has {page_count} pages, which exceeds the remaining project limit of {db.MAX_PAGES_PER_PROJECT - totals['total_pages']} pages (100 pages maximum).",
+        )
+
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+
+    supabase_url = os.environ.get("SUPABASE_URL")
+    if not supabase_url:
+        logger.error("SUPABASE_URL is not configured; cannot store document.")
+        raise HTTPException(
+            status_code=503,
+            detail="Storage service is not configured or unavailable. Please configure Supabase Storage.",
+        )
+
+    if not token or token.startswith("mock-token:"):
+        raise HTTPException(
+            status_code=403,
+            detail="Valid authenticated token required for storage operations. Mock or anonymous tokens cannot be used.",
+        )
+
+    doc_uid = db.uid("doc")
+    storage_path = f"{project_id}/{doc_uid}/{filename}"
+    bucket = os.environ.get("SUPABASE_STORAGE_BUCKET", "project-documents")
+    supabase_anon_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
+    storage_url = f"{supabase_url}/storage/v1/object/{bucket}/{storage_path}"
+    headers = {
+        "apikey": supabase_anon_key,
+        "Authorization": f"Bearer {token}",
+        "Content-Type": content_type,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.post(storage_url, content=data, headers=headers)
+            if res.status_code not in (200, 201):
+                logger.error("Supabase storage upload failed: %s %s", res.status_code, res.text)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to store document in storage: {res.text}",
+                )
+    except httpx.RequestError as e:
+        logger.error("Supabase storage connection error: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Supabase Storage is unreachable: {e}",
+        )
+
+    try:
+        doc = db.create_document(
+            project_id,
+            filename=filename,
+            storage_path=storage_path,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            page_count=page_count,
+            warning=warning,
+            skipped_pages=skipped_pages,
+        )
+    except ValueError as e:
+        await _delete_storage(storage_path, token)
+        msg = str(e)
+        status_code = 413 if "pages" in msg else 400
+        raise HTTPException(status_code=status_code, detail=msg)
+    except Exception:
+        logger.exception("Failed to insert document record for %s", filename)
+        await _delete_storage(storage_path, token)
+        raise HTTPException(status_code=500, detail="Failed to save document record in database.")
+
+    try:
+        job = db.create_job(project_id, "extraction", 3, "Queued", document_id=doc["id"])
+        db.update_document(doc["id"], status="processing", job_id=job["id"])
+        db.touch_project(project_id, clear_confirmation=True)
+    except Exception:
+        logger.exception("Failed to create extraction job for document %s", doc["id"])
+        db.delete_document(project_id, doc["id"])
+        await _delete_storage(storage_path, token)
+        raise HTTPException(status_code=500, detail="Failed to initialize extraction job.")
+
+    # Parse user stories or FR/NFR in extracted document text
+    text_for_ai, parsed_meta, format_warnings = parse_input_requirements(text)
+    if format_warnings and not doc.get("warning"):
+        doc["warning"] = "; ".join(format_warnings)
+        try:
+            db.update_document(doc["id"], warning=doc["warning"])
+        except Exception:
+            pass
+
+    bg.add_task(
+        queued,
+        extraction_worker,
+        job["id"],
+        project_id,
+        text_for_ai,
+        project["name"],
+        doc["id"],
+        filename,
+        skipped_pages,
+        parsed_meta,
+    )
+
+    return {"document": doc, "job": job}
+
+
+@router.get("/projects/{project_id}/documents")
+def list_documents(project_id: str, user: User = Depends(get_current_user)):
+    """Lists documents uploaded to a project."""
+    require_project(project_id, user)
+    return db.list_documents(project_id)
+
+
+@router.get("/projects/{project_id}/documents/{document_id}")
+def get_document(project_id: str, document_id: str, user: User = Depends(get_current_user)):
+    """Gets metadata for one project document."""
+    require_project(project_id, user)
+    doc = db.get_document(project_id, document_id)
+    if not doc:
+        raise HTTPException(404, "Document not found.")
+    return doc
+
+
+@router.delete("/projects/{project_id}/documents/{document_id}")
+async def delete_document(
+    project_id: str,
+    document_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Deletes an uploaded document, its stored storage object and record."""
+    require_project(project_id, user)
+    doc = db.get_document(project_id, document_id)
+    if not doc:
+        raise HTTPException(404, "Document not found.")
+
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+
+    storage_path = doc.get("storage_path")
+    if storage_path:
+        await _delete_storage(storage_path, token)
+
+    db.delete_document(project_id, document_id)
+    db.touch_project(project_id, clear_confirmation=True)
+    return {"deleted": True, "id": document_id}
+
+
 @router.post("/projects/{project_id}/inputs", status_code=202)
 def submit_input(
     project_id: str,
@@ -610,8 +898,24 @@ def submit_input(
 ):
     """Submits raw requirements text to trigger background AI extraction."""
     project = require_project(project_id, user)
-    if not payload.text.strip():
+    text = payload.text
+    if not text or not text.strip():
         raise HTTPException(422, "Enter some requirements text.")
+
+    pages = math.ceil(len(text) / 3000)
+    if len(text) > MAX_INPUT_CHARS:
+        raise HTTPException(
+            413,
+            f"Input is {len(text):,} characters ({pages} pages); the maximum allowed is 100 pages ({MAX_INPUT_CHARS:,} characters).",
+        )
+
+    totals = db.project_document_totals(project_id)
+    if totals["total_pages"] + pages > db.MAX_PAGES_PER_PROJECT:
+        raise HTTPException(
+            413,
+            f"This input counts as {pages} pages, which exceeds the remaining project capacity ({db.MAX_PAGES_PER_PROJECT - totals['total_pages']} pages available out of {db.MAX_PAGES_PER_PROJECT}).",
+        )
+
     consent = db.consent(user.id)
     if not consent or consent["policy_version"] != POLICY_VERSION:
         # The web app opens the consent dialog when it sees this code.
@@ -619,10 +923,15 @@ def submit_input(
             status_code=403,
             content={"detail": "Agree to AI processing before submitting requirements.", "code": "consent_required"},
         )
+
+    # Parse user stories and FR/NFRs
+    text_for_ai, parsed_meta, _ = parse_input_requirements(text)
+
     job = db.create_job(project_id, "extraction", 3, "Queued")
     db.touch_project(project_id, clear_confirmation=True)
-    bg.add_task(queued, extraction_worker, job["id"], project_id, payload.text, project["name"])
+    bg.add_task(queued, extraction_worker, job["id"], project_id, text_for_ai, project["name"], None, "pasted requirements", None, parsed_meta)
     return job
+
 
 
 @router.get("/projects/{project_id}/statements")

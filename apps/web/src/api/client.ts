@@ -45,6 +45,9 @@ export type TestRunSummary = Schemas['TestRunSummary']
 export type TestRunItem = Schemas['TestRunItem']
 export type TestResult = Schemas['TestResult']
 export type RunSelection = Schemas['RunSelection']
+export type ProjectDocument = Schemas['ProjectDocument']
+export type DocumentUploadResponse = Schemas['DocumentUploadResponse']
+
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {
