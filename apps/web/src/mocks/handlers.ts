@@ -7,10 +7,12 @@ import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { designHandlers } from './design'
 import { detectFlags } from './flags'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
+import { storiesHandlers } from './stories'
 import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
@@ -62,6 +64,10 @@ export const handlers = [
   ...flagHandlers(),
   // Tests feature (stream 6): src/mocks/testing.ts
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Stories backlog (3.4): src/mocks/stories.ts
+  ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
+  // System design (Feature 4): src/mocks/design.ts
+  ...designHandlers({ u, authed, ownedProject, fail, notFound }),
 
   http.get(
     u('/me/consent'),

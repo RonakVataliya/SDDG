@@ -45,6 +45,17 @@ export type TestRunSummary = Schemas['TestRunSummary']
 export type TestRunItem = Schemas['TestRunItem']
 export type TestResult = Schemas['TestResult']
 export type RunSelection = Schemas['RunSelection']
+// Stories backlog (3.4)
+export type Story = Schemas['Story']
+export type StoryCreate = Schemas['StoryCreate']
+export type StoryUpdate = Schemas['StoryUpdate']
+export type StoryPriority = Schemas['StoryPriority']
+export type StoryStatus = Schemas['StoryStatus']
+// System Design (Feature 4)
+export type DesignKind = Schemas['DesignKind']
+export type DesignSection = Schemas['DesignSection']
+export type DesignGoals = Schemas['DesignGoals']
+export type DesignGoalsDerived = Schemas['DesignGoalsDerived']
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {

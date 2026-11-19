@@ -158,6 +158,67 @@ paths:
       responses:
         '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
         '409': { description: Extraction not confirmed (FR5e), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/stories:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Every story (by S-number) and the project's members, for the assignee picker (any member)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/StoryList' } } } }
+    post:
+      summary: Add a story; 422 with a readable detail, e.g. "A story must link to at least one requirement."
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StoryCreate' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Story' } } } }
+        '422': { description: Refused, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/stories/{story_id}:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { name: story_id, in: path, required: true, schema: { type: string } }]
+    patch:
+      summary: Change any of a story's fields; a field left out is unchanged
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StoryUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Story' } } } }
+        '422': { description: Refused, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      summary: Delete a story; its S-number is not reused
+      responses:
+        '204': { description: Deleted }
+  /projects/{project_id}/design:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Every system design section, in order (a section unlocks when the one before it is confirmed)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DesignSectionList' } } } }
+  /projects/{project_id}/design/{kind}/draft-jobs:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { $ref: '#/components/parameters/DesignKind' }]
+    post:
+      summary: AI draft of the section from the confirmed requirements; on success it replaces the content as a draft
+      responses:
+        '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        '403': { description: No AI consent recorded (X8), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: 'Requirements not confirmed, section locked, or a draft already running', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/design/{kind}:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { $ref: '#/components/parameters/DesignKind' }]
+    put:
+      summary: Save the section's content as a draft (a confirmed section goes back to draft); 422 with a readable detail
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DesignSectionUpdate' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DesignSection' } } } }
+        '409': { description: Section locked, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Refused, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/design/{kind}/confirm:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { $ref: '#/components/parameters/DesignKind' }]
+    post:
+      summary: Confirm the section; 422 when it is empty, out of date or incomplete for its kind
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DesignSection' } } } }
+        '409': { description: Section locked, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Refused, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /projects/{project_id}/diagrams:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:
@@ -408,6 +469,7 @@ components:
     StatementId: { name: statement_id, in: path, required: true, schema: { type: string } }
     CaseId: { name: case_id, in: path, required: true, schema: { type: string } }
     RunId: { name: run_id, in: path, required: true, schema: { type: string } }
+    DesignKind: { name: kind, in: path, required: true, schema: { $ref: '#/components/schemas/DesignKind' } }
   schemas:
     Error:
       type: object
@@ -551,7 +613,7 @@ components:
       required: [id, kind, status, progress]
       properties:
         id: { type: string }
-        kind: { type: string, enum: [extraction, generation, test_criteria, test_steps] }
+        kind: { type: string, enum: [extraction, generation, test_criteria, test_steps, design_goals] }
         status: { $ref: '#/components/schemas/JobStatus' }
         queue_position: { type: [integer, 'null'] }
         progress:
@@ -652,6 +714,115 @@ components:
       required: [positions]
       properties:
         positions: { type: object, description: Only the elements that moved, by element id, additionalProperties: { $ref: '#/components/schemas/Point' } }
+    DesignKind: { type: string, enum: [goals], description: Section kinds in order; only implemented kinds exist }
+    DesignSection:
+      type: object
+      required: [kind, title, status, version, content, derived, stale, locked, job, updated_at]
+      properties:
+        kind: { $ref: '#/components/schemas/DesignKind' }
+        title: { type: string }
+        status: { type: string, enum: [empty, draft, confirmed] }
+        version: { type: integer, description: 0 when empty }
+        content: { type: [object, 'null'], additionalProperties: true, description: 'Per kind: goals -> DesignGoals' }
+        derived: { type: [object, 'null'], additionalProperties: true, description: 'Computed from the saved content. Per kind: goals -> DesignGoalsDerived' }
+        stale: { type: boolean, description: A requirement it cites changed or was deleted since it was last written }
+        locked: { type: boolean, description: The previous section is not confirmed yet }
+        job: { oneOf: [{ $ref: '#/components/schemas/Job' }, { type: 'null' }], description: The latest AI draft job of this section }
+        updated_at: { type: [string, 'null'], format: date-time }
+    DesignSectionList:
+      type: object
+      required: [sections]
+      properties: { sections: { type: array, items: { $ref: '#/components/schemas/DesignSection' } } }
+    DesignSectionUpdate:
+      type: object
+      required: [content]
+      properties: { content: { type: object, additionalProperties: true } }
+    DesignGoals:
+      type: object
+      required: [goals]
+      properties:
+        goals:
+          type: array
+          description: Array order is the ranking (first = most important)
+          items:
+            type: object
+            required: [name, reason, statement_ids]
+            properties:
+              name: { type: string, description: One of the 28 lecture 24 design goals }
+              reason: { type: string, maxLength: 300 }
+              statement_ids: { type: array, items: { type: string } }
+    DesignGoalsDerived:
+      type: object
+      required: [groups, conflicts]
+      properties:
+        groups:
+          type: object
+          required: [client, end_user, developer, other]
+          properties:
+            client: { type: array, items: { type: string } }
+            end_user: { type: array, items: { type: string } }
+            developer: { type: array, items: { type: string } }
+            other: { type: array, items: { type: string } }
+        conflicts:
+          type: array
+          items:
+            type: object
+            required: [a, b, pair]
+            properties: { a: { type: string }, b: { type: string }, pair: { type: string } }
+    StoryPriority: { type: string, enum: [must, should, could, wont] }
+    StoryStatus: { type: string, enum: [todo, in_progress, done] }
+    Story:
+      type: object
+      required: [id, ref, role, goal, reason, priority, estimate, status, assignee_id, assignee_email, confirmations, statement_ids, created_at, updated_at]
+      properties:
+        id: { type: string }
+        ref: { type: string, description: 'Project-unique, never reused, e.g. S-001' }
+        role: { type: string }
+        goal: { type: string }
+        reason: { type: string }
+        priority: { $ref: '#/components/schemas/StoryPriority' }
+        estimate: { type: [integer, 'null'], description: Story points }
+        status: { $ref: '#/components/schemas/StoryStatus' }
+        assignee_id: { type: [string, 'null'] }
+        assignee_email: { type: [string, 'null'] }
+        confirmations: { type: array, items: { type: string }, description: Acceptance criteria }
+        statement_ids: { type: array, items: { type: string }, description: Empty once its requirements were deleted }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    StoryCreate:
+      type: object
+      required: [role, goal, reason, statement_ids]
+      properties:
+        role: { type: string, minLength: 1, maxLength: 300 }
+        goal: { type: string, minLength: 1, maxLength: 300 }
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        priority: { $ref: '#/components/schemas/StoryPriority' }
+        estimate: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        status: { $ref: '#/components/schemas/StoryStatus' }
+        assignee_id: { type: [string, 'null'] }
+        confirmations: { type: array, items: { type: string }, maxItems: 20 }
+        statement_ids: { type: array, items: { type: string }, minItems: 1 }
+    StoryUpdate:
+      type: object
+      description: A field left out is unchanged; null clears estimate or assignee_id
+      properties:
+        role: { type: string, minLength: 1, maxLength: 300 }
+        goal: { type: string, minLength: 1, maxLength: 300 }
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        priority: { $ref: '#/components/schemas/StoryPriority' }
+        estimate: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        status: { $ref: '#/components/schemas/StoryStatus' }
+        assignee_id: { type: [string, 'null'] }
+        confirmations: { type: array, items: { type: string }, maxItems: 20 }
+        statement_ids: { type: array, items: { type: string }, minItems: 1 }
+    StoryList:
+      type: object
+      required: [stories, members]
+      properties:
+        stories: { type: array, items: { $ref: '#/components/schemas/Story' } }
+        members:
+          type: array
+          items: { type: object, required: [id, email], properties: { id: { type: string }, email: { type: string } } }
     FlagType: { type: string, enum: [ambiguous, incomplete, conflict, untestable] }
     Flag:
       type: object

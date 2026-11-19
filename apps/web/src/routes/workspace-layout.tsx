@@ -37,7 +37,7 @@ function Pipeline({ steps }: { steps: Step[] }) {
                 className={cn(
                   'grid size-7 shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-[11px] font-semibold',
                   current
-                    ? 'border-accent bg-accent text-on-ink shadow-[0_0_0_4px_var(--accent-wash)]'
+                    ? 'border-accent bg-accent text-white shadow-[0_0_0_4px_var(--accent-wash)]'
                     : s.state === 'done'
                       ? 'border-ink text-ink'
                       : locked
@@ -46,7 +46,7 @@ function Pipeline({ steps }: { steps: Step[] }) {
                 )}
               >
                 {s.state === 'working' ? (
-                  <Spinner className={cn('size-3.5', current && 'text-on-ink')} label="In progress" />
+                  <Spinner className={cn('size-3.5', current && 'text-white')} label="In progress" />
                 ) : s.state === 'done' && !current ? (
                   <CheckIcon className="size-3.5" strokeWidth={3} aria-label="Done" />
                 ) : locked && !current ? (
@@ -96,6 +96,8 @@ function buildAreas(project: Project): Area[] {
   const areas: Area[] = [
     // Tests work straight from the requirements, so they do not wait for diagrams.
     { to: 'tests', label: 'Tests', locked: project.statement_count && stage !== 'extracting' ? undefined : 'Locked until requirements exist' },
+    { to: 'design', label: 'Design', locked: project.confirmed ? undefined : 'Locked until you confirm' },
+    { to: 'backlog', label: 'Backlog' },
     { to: 'items', label: 'Building blocks', locked: project.item_count > 0 ? undefined : 'Nothing extracted yet' },
     { to: 'search', label: 'Search' },
   ]

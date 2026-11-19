@@ -799,6 +799,381 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/stories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Every story (by S-number) and the project's members, for the assignee picker (any member) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoryList"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Add a story; 422 with a readable detail, e.g. "A story must link to at least one requirement." */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StoryCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Story"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/stories/{story_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a story; its S-number is not reused */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    story_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change any of a story's fields; a field left out is unchanged */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    story_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StoryUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Story"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Every system design section, in order (a section unlocks when the one before it is confirmed) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DesignSectionList"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/design/{kind}/draft-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                kind: components["parameters"]["DesignKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** AI draft of the section from the confirmed requirements; on success it replaces the content as a draft */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    kind: components["parameters"]["DesignKind"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Job"];
+                    };
+                };
+                /** @description No AI consent recorded (X8) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Requirements not confirmed, section locked, or a draft already running */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/design/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                kind: components["parameters"]["DesignKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Save the section's content as a draft (a confirmed section goes back to draft); 422 with a readable detail */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    kind: components["parameters"]["DesignKind"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DesignSectionUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DesignSection"];
+                    };
+                };
+                /** @description Section locked */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/design/{kind}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                kind: components["parameters"]["DesignKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm the section; 422 when it is empty, out of date or incomplete for its kind */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    kind: components["parameters"]["DesignKind"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DesignSection"];
+                    };
+                };
+                /** @description Section locked */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/diagrams": {
         parameters: {
             query?: never;
@@ -2174,7 +2549,7 @@ export interface components {
         Job: {
             id: string;
             /** @enum {string} */
-            kind: "extraction" | "generation" | "test_criteria" | "test_steps";
+            kind: "extraction" | "generation" | "test_criteria" | "test_steps" | "design_goals";
             status: components["schemas"]["JobStatus"];
             queue_position?: number | null;
             progress: {
@@ -2283,6 +2658,121 @@ export interface components {
             positions: {
                 [key: string]: components["schemas"]["Point"];
             };
+        };
+        /**
+         * @description Section kinds in order; only implemented kinds exist
+         * @enum {string}
+         */
+        DesignKind: "goals";
+        DesignSection: {
+            kind: components["schemas"]["DesignKind"];
+            title: string;
+            /** @enum {string} */
+            status: "empty" | "draft" | "confirmed";
+            /** @description 0 when empty */
+            version: number;
+            /** @description Per kind: goals -> DesignGoals */
+            content: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Computed from the saved content. Per kind: goals -> DesignGoalsDerived */
+            derived: {
+                [key: string]: unknown;
+            } | null;
+            /** @description A requirement it cites changed or was deleted since it was last written */
+            stale: boolean;
+            /** @description The previous section is not confirmed yet */
+            locked: boolean;
+            /** @description The latest AI draft job of this section */
+            job: components["schemas"]["Job"] | null;
+            /** Format: date-time */
+            updated_at: string | null;
+        };
+        DesignSectionList: {
+            sections: components["schemas"]["DesignSection"][];
+        };
+        DesignSectionUpdate: {
+            content: {
+                [key: string]: unknown;
+            };
+        };
+        DesignGoals: {
+            /** @description Array order is the ranking (first = most important) */
+            goals: {
+                /** @description One of the 28 lecture 24 design goals */
+                name: string;
+                reason: string;
+                statement_ids: string[];
+            }[];
+        };
+        DesignGoalsDerived: {
+            groups: {
+                client: string[];
+                end_user: string[];
+                developer: string[];
+                other: string[];
+            };
+            conflicts: {
+                a: string;
+                b: string;
+                pair: string;
+            }[];
+        };
+        /** @enum {string} */
+        StoryPriority: "must" | "should" | "could" | "wont";
+        /** @enum {string} */
+        StoryStatus: "todo" | "in_progress" | "done";
+        Story: {
+            id: string;
+            /** @description Project-unique, never reused, e.g. S-001 */
+            ref: string;
+            role: string;
+            goal: string;
+            reason: string;
+            priority: components["schemas"]["StoryPriority"];
+            /** @description Story points */
+            estimate: number | null;
+            status: components["schemas"]["StoryStatus"];
+            assignee_id: string | null;
+            assignee_email: string | null;
+            /** @description Acceptance criteria */
+            confirmations: string[];
+            /** @description Empty once its requirements were deleted */
+            statement_ids: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        StoryCreate: {
+            role: string;
+            goal: string;
+            reason: string;
+            priority?: components["schemas"]["StoryPriority"];
+            estimate?: number | null;
+            status?: components["schemas"]["StoryStatus"];
+            assignee_id?: string | null;
+            confirmations?: string[];
+            statement_ids: string[];
+        };
+        /** @description A field left out is unchanged; null clears estimate or assignee_id */
+        StoryUpdate: {
+            role?: string;
+            goal?: string;
+            reason?: string;
+            priority?: components["schemas"]["StoryPriority"];
+            estimate?: number | null;
+            status?: components["schemas"]["StoryStatus"];
+            assignee_id?: string | null;
+            confirmations?: string[];
+            statement_ids?: string[];
+        };
+        StoryList: {
+            stories: components["schemas"]["Story"][];
+            members: {
+                id: string;
+                email: string;
+            }[];
         };
         /** @enum {string} */
         FlagType: "ambiguous" | "incomplete" | "conflict" | "untestable";
@@ -2558,6 +3048,7 @@ export interface components {
         StatementId: string;
         CaseId: string;
         RunId: string;
+        DesignKind: components["schemas"]["DesignKind"];
     };
     requestBodies: never;
     headers: never;

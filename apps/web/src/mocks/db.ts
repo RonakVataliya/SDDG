@@ -1,5 +1,5 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
-import type { Diagram, ExtractedItem, Job, RequirementStatement } from '@/api/client'
+import type { Diagram, ExtractedItem, Job, RequirementStatement, Story } from '@/api/client'
 import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
@@ -33,6 +33,9 @@ export type DiagramRow = Diagram & {
   style?: DiagramStyle
 }
 
+/** Stories backlog (3.4); the assignee's email is looked up on read, like the API's join. */
+export type StoryRow = Omit<Story, 'assignee_email'> & { project_id: string }
+
 /** Tests feature (stream 6) rows; shapes live in ./testing.ts. */
 export type TestsState = {
   designs: Record<string, unknown>
@@ -50,8 +53,12 @@ export const emptyTests = (): TestsState => ({
   designs: {}, criteria: [], conditions: [], flows: [], targets: {}, cases: [], runs: [], results: [], flags: [], nextCase: {},
 })
 
+/** System design sections (Feature 4) per project and kind; shapes live in ./design.ts. */
+export type DesignState = Record<string, Record<string, unknown>>
+
 export type MockDb = {
   tests: TestsState
+  design: DesignState
   consent: Record<string, { version: string; at: string }>
   projects: ProjectRow[]
   statements: Record<string, RequirementStatement[]>
@@ -59,11 +66,13 @@ export type MockDb = {
   jobs: JobRow[]
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
+  stories: StoryRow[]
+  nextStory: Record<string, number>
   flags: Record<string, FlagRow[]>
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, flags: {} })
+const empty = (): MockDb => ({ tests: emptyTests(), design: {}, consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {} })
 
 let db: MockDb = load()
 

@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from 'react-router'
 import { LoginPage } from '@/features/auth/login-page'
 import { SignupPage } from '@/features/auth/signup-page'
 import { VerifyEmailPage } from '@/features/auth/verify-email-page'
+import { BacklogPage } from '@/features/backlog/backlog-page'
+import { DesignPage } from '@/features/design/design-page'
 import { GeneratePage } from '@/features/generate/generate-page'
 import { InputPage } from '@/features/input/input-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
@@ -39,7 +41,9 @@ export const routes = [
               { path: 'items', element: <ItemsPage /> },
               { path: 'generate', element: <GeneratePage /> },
               { path: 'search', element: <SearchPage /> },
+              { path: 'backlog', element: <BacklogPage /> },
               { path: 'tests', element: <TestsPage /> },
+              { path: 'design', element: <DesignPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },
             ],
           },
