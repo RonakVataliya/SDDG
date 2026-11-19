@@ -8,6 +8,7 @@ import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { designHandlers } from './design'
 import { detectFlags } from './flags'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
@@ -66,6 +67,8 @@ export const handlers = [
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
   // Stories backlog (3.4): src/mocks/stories.ts
   ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
+  // System design (Feature 4): src/mocks/design.ts
+  ...designHandlers({ u, authed, ownedProject, fail, notFound }),
 
   http.get(
     u('/me/consent'),
@@ -541,6 +544,7 @@ export const handlers = [
       const text = (instruction ?? '').trim()
       if (!text) return fail(422, 'Describe the change you want.')
       if (text.length > 500) return fail(422, 'Keep the change under 500 characters.')
+      if (d.type === 'package') return fail(422, 'Editing is not available for this diagram type.')
       if (!d.model) return fail(422, 'This diagram was made before editing was available. Generate it again, then edit.')
       await delay(import.meta.env.MODE === 'test' ? 0 : 900) // an LLM edit takes a moment
       const result = applyInstruction(d.model, text)
@@ -566,6 +570,8 @@ export const handlers = [
     authed(({ email, params }) => {
       const d = getDb().diagrams.find((x) => x.id === params.diagram_id)
       if (!d || !ownedProject(email, d.project_id)) return notFound()
+      if (d.type === 'package')
+        return fail(422, 'Arranging is not available for package diagrams. Change the subsystem decomposition in the Design step.')
       return HttpResponse.json(layoutView(d))
     }),
   ),
@@ -605,6 +611,7 @@ export const handlers = [
       if (format === 'svg') return new HttpResponse(svg, { headers: { 'Content-Type': 'image/svg+xml' } })
       if (format === 'pdf') return new HttpResponse(await svgToPdf(svg), { headers: { 'Content-Type': 'application/pdf' } })
       if (format === 'png') return png(await svgToPng(svg))
+      if (format === 'source' && d.source) return new HttpResponse(d.source, { headers: { 'Content-Type': 'text/x-plantuml; charset=utf-8' } })
       if (format === 'source') {
         if (!d.model) return fail(409, 'This diagram has no stored diagram source. Regenerate the diagram before exporting SOURCE.')
         return new HttpResponse(useCaseSource(d.model), { headers: { 'Content-Type': 'text/x-plantuml; charset=utf-8' } })

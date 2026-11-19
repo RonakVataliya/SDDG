@@ -5,6 +5,7 @@ import {
   unwrap,
   type ConditionUpdate,
   type Diagram,
+  type DesignKind,
   type DiagramType,
   type ItemCategory,
   type Job,
@@ -29,6 +30,7 @@ export const keys = {
   diagrams: (id: string) => ['projects', id, 'diagrams'] as const,
   requirementCoverage: (id: string) => ['projects', id, 'coverage'] as const,
   stories: (id: string) => ['projects', id, 'stories'] as const,
+  design: (id: string) => ['projects', id, 'design'] as const,
   diagram: (id: string) => ['diagrams', id] as const,
   diagramImage: (id: string) => ['diagrams', id, 'png'] as const,
   diagramStyle: (id: string) => ['diagrams', id, 'style'] as const,
@@ -163,6 +165,59 @@ export function useDeleteStory(projectId: string) {
   })
 }
 
+/* ---------- system design (Feature 4) ---------- */
+
+const sectionPath = (projectId: string, kind: DesignKind) => ({ params: { path: { project_id: projectId, kind } } })
+
+export function useDesign(projectId: string) {
+  return useQuery({
+    queryKey: keys.design(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/design', projectPath(projectId))),
+  })
+}
+
+/** Polls a section's draft job and refreshes the sections once it finishes, so the draft shows up. */
+export function useDesignJob(projectId: string, jobId: string | null | undefined) {
+  const qc = useQueryClient()
+  const job = useJob(jobId)
+  const done = job.data && !isActive(job.data)
+  useEffect(() => {
+    if (done) void qc.invalidateQueries({ queryKey: keys.design(projectId) })
+  }, [done, projectId, qc])
+  return job
+}
+
+export function useStartDesignDraft(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (kind: DesignKind) => unwrap(api.POST('/projects/{project_id}/design/{kind}/draft-jobs', sectionPath(projectId, kind))),
+    onSuccess: (job) => {
+      qc.setQueryData(keys.job(job.id), job)
+      void qc.invalidateQueries({ queryKey: keys.design(projectId) })
+    },
+  })
+}
+
+export function useSaveDesignSection(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ kind, content }: { kind: DesignKind; content: Record<string, unknown> }) =>
+      unwrap(api.PUT('/projects/{project_id}/design/{kind}', { ...sectionPath(projectId, kind), body: { content } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.design(projectId) }),
+  })
+}
+
+export function useConfirmDesignSection(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (kind: DesignKind) => unwrap(api.POST('/projects/{project_id}/design/{kind}/confirm', sectionPath(projectId, kind))),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) }) // confirming the decomposition stores its package diagram
+      return qc.invalidateQueries({ queryKey: keys.design(projectId) })
+    },
+  })
+}
+
 /* ---------- consent (NFR5d) ---------- */
 
 export function useConsent() {
@@ -275,6 +330,7 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
       void qc.invalidateQueries({ queryKey: keys.items(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
       void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
+      void qc.invalidateQueries({ queryKey: keys.design(projectId) }) // design sections citing it may be Out of date
     },
   })
 }
