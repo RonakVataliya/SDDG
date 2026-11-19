@@ -32,9 +32,10 @@ export function Highlighted({ text, trigger, type }: { text: string; trigger?: s
 }
 
 /** The pill beside a requirement: its first open flag type (+count), or "Resolved" once none are open. */
-export function FlagPill({ summary, onClick }: { summary?: FlagSummary; onClick?: () => void }) {
+export function FlagPill({ summary, openTypes, onClick }: { summary?: FlagSummary; openTypes?: FlagType[]; onClick?: () => void }) {
   if (!summary) return null
-  const type = summary.types[0]
+  // summary.types also lists the types of resolved flags, so the open ones come from the flags list.
+  const type = openTypes?.[0] ?? summary.types[0]
   const body =
     summary.open > 0 ? (
       <Badge tone={FLAG_TONE[type]}>
@@ -62,12 +63,14 @@ export function FlagsDrawer({
   onOpenChange,
   focusStatementId,
   statements,
+  canEdit,
 }: {
   projectId: string
   open: boolean
   onOpenChange: (o: boolean) => void
   focusStatementId?: string | null
   statements: RequirementStatement[]
+  canEdit: boolean
 }) {
   const flags = useFlags(projectId)
   const [tab, setTab] = useState<'open' | 'resolved'>('open')
@@ -121,6 +124,7 @@ export function FlagsDrawer({
                   <FlagCard
                     key={f.id}
                     projectId={projectId}
+                    canEdit={canEdit}
                     flag={f}
                     text={f.statement_text ?? byId.get(f.statement_id)?.text ?? ''}
                     related={f.related_statement_id ? byId.get(f.related_statement_id) : undefined}
@@ -147,7 +151,7 @@ export function FlagsDrawer({
   )
 }
 
-function FlagCard({ projectId, flag: f, text, related }: { projectId: string; flag: Flag; text: string; related?: RequirementStatement }) {
+function FlagCard({ projectId, canEdit, flag: f, text, related }: { projectId: string; canEdit: boolean; flag: Flag; text: string; related?: RequirementStatement }) {
   const [answer, setAnswer] = useState('')
   const act = useFlagAction(projectId)
   const pending = act.isPending ? act.variables?.kind : null
@@ -202,10 +206,21 @@ function FlagCard({ projectId, flag: f, text, related }: { projectId: string; fl
               {f.resolved_by ?? 'Resolved'}
               {f.resolved_at && ` · ${formatRelative(f.resolved_at)}`}
             </span>
-            <Button variant="link" size="sm" disabled={!!pending} onClick={() => act.mutate({ kind: 'reopen', flagId: f.id })}>
-              <RotateCcwIcon className="size-3.5" /> Reopen
-            </Button>
+            {canEdit && (
+              <Button variant="link" size="sm" disabled={!!pending} onClick={() => act.mutate({ kind: 'reopen', flagId: f.id })}>
+                <RotateCcwIcon className="size-3.5" /> Reopen
+              </Button>
+            )}
           </div>
+        </>
+      ) : !canEdit ? (
+        <>
+          {f.has_suggestion && (
+            <p className="mt-4 rounded-[10px] bg-accent-wash p-3.5 text-[13px]">
+              <b>Suggested rewrite:</b> {f.suggestion}
+            </p>
+          )}
+          <p className="mt-4 text-[12px] text-slate">Only editors can answer or resolve flags.</p>
         </>
       ) : (
         <>

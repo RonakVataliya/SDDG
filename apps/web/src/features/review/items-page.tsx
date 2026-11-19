@@ -2,7 +2,7 @@ import type * as React from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import type { ExtractedItem, ItemCategory, RequirementStatement } from '@/api/client'
+import type { ExtractedItem, FlagType, ItemCategory, RequirementStatement } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { ITEMS_PAGE_SIZE, useDiagrams, useFlags, useFlagSummary, useItems, useStartGeneration, useStatements } from '@/api/queries'
 import { Badge, RefTag } from '@/components/ui/badge'
@@ -35,6 +35,16 @@ export function ItemsPage() {
   const openFlagByStatement = useMemo(() => {
     const m = new Map<string, NonNullable<typeof flags.data>[number]>()
     for (const f of flags.data ?? []) if (f.status === 'open' && !m.has(f.statement_id)) m.set(f.statement_id, f)
+    return m
+  }, [flags.data])
+  // The summary's `types` also lists resolved flags' types, so the pill takes them from open flags only.
+  const openTypes = useMemo(() => {
+    const m = new Map<string, FlagType[]>()
+    for (const f of flags.data ?? []) {
+      if (f.status !== 'open') continue
+      const have = m.get(f.statement_id) ?? []
+      if (!have.includes(f.type)) m.set(f.statement_id, [...have, f.type])
+    }
     return m
   }, [flags.data])
 
@@ -84,7 +94,7 @@ export function ItemsPage() {
                       <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
                     </span>
                   </button>
-                  <FlagPill summary={summaryById.get(s.id)} onClick={() => setDrawer({ open: true, focus: s.id })} />
+                  <FlagPill summary={summaryById.get(s.id)} openTypes={openTypes.get(s.id)} onClick={() => setDrawer({ open: true, focus: s.id })} />
                 </li>
               )
             })}
@@ -154,6 +164,7 @@ export function ItemsPage() {
         onOpenChange={(open) => setDrawer((d) => ({ ...d, open }))}
         focusStatementId={drawer.focus}
         statements={statements.data ?? []}
+        canEdit={canEdit}
       />
     </div>
   )

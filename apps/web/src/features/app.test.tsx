@@ -226,4 +226,14 @@ describe('requirement flags (issue #34)', () => {
     await waitFor(() => expect(getDb().flags.pr_1[0]).toMatchObject({ status: 'resolved', answer: 'Under 2 seconds' }))
     expect(getDb().statements.pr_1[1].text).toBe('The system should respond quickly.')
   })
+
+  it('the pill shows the open flag type, not the type of a resolved one', async () => {
+    seedProject({ flagged: true })
+    const db = getDb()
+    db.flags.pr_1.unshift({ ...db.flags.pr_1[0], id: 'fl_0', type: 'conflict', status: 'resolved', resolved_by: 'dev@sddg.test', resolved_at: new Date().toISOString() })
+    renderApp('/projects/pr_1/review')
+    const pill = await screen.findByRole('button', { name: /1 open flags on R-002/ })
+    await waitFor(() => expect(pill).toHaveTextContent('Ambiguous'))
+    expect(pill).not.toHaveTextContent('Conflict')
+  })
 })
