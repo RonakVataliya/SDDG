@@ -54,13 +54,17 @@ def test_retry_logs_no_model_output(monkeypatch, caplog):
     error = groq.BadRequestError(f"Error code: 400 - {body}", response=response, body=body)
 
     class Llm:
-        def with_structured_output(self, schema):
+        def with_structured_output(self, schema, **kwargs):
             return self
 
         def invoke(self, messages):
             raise error
 
-    monkeypatch.setattr(ai_service, "_get_llm", lambda: Llm())
+    from app.llm.gateway import Gateway
+
+    monkeypatch.setattr(ai_service, "_get_llm", lambda **kwargs: Llm())
+    keyed = Gateway(ai_service.get_settings().model_copy(update={"GROQ_API_KEY": "test", "LLM_PROVIDER": "groq"}))
+    monkeypatch.setattr(ai_service, "get_gateway", lambda: keyed)
     monkeypatch.setattr("time.sleep", lambda seconds: None)
     service = ai_service.AIService()
     service.settings = service.settings.model_copy(update={"MAX_RETRIES": 2})

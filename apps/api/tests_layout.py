@@ -57,7 +57,7 @@ def main():
     integrated.httpx.AsyncClient = FakeClient
     try:
         with TestClient(app) as c:
-            c.post("/api/v1/me/consent", headers=H, json={"policy_version": "2026-09-01"})
+            c.post("/api/v1/me/consent", headers=H, json={"policy_version": "2026-11-16"})
             pid = c.post("/api/v1/projects", headers=H, json={"name": "Diagrams"}).json()["id"]
             c.post(f"/api/v1/projects/{pid}/inputs", headers=H, json={"text": "x"})
             c.post(f"/api/v1/projects/{pid}/confirmation", headers=H)

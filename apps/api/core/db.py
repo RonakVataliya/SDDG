@@ -1,6 +1,7 @@
-"""Supabase Postgres access. Schema: apps/api/schema.sql (apply it by hand; see README)."""
+"""Supabase Postgres access. Schema: apps/api/migrations/ (python -m core.migrate, or AUTO_MIGRATE=true; see README)."""
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -15,25 +16,37 @@ pool = ConnectionPool(
     os.environ["DATABASE_URL"], min_size=1, max_size=5, open=False,
     kwargs={"row_factory": dict_row, "prepare_threshold": None},
 )
-
 JSON_COLS = (
-    "qualifiers", "statement_ids", "diagram_types", "diagram_ids",
-    "elements", "spec", "layout", "skipped_pages", "metadata",
+    "qualifiers", "statement_ids", "diagram_types", "diagram_ids", "elements", "spec", "layout", "extracted_nodes",
+    # Tests feature (stream 6)
+    "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
+    "preconditions", "steps",
+    "case_ids",
+    # Uploaded documents and statement metadata (FR1/FR2)
+    "skipped_pages", "metadata",
 )
-
-# Columns holding user content; stored encrypted and decrypted when read.
+# Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
-    "projects": ("name",),
+    "projects": ("name", "client_name"),
     "statements": ("text", "source_excerpt", "metadata"),
     "items": ("name", "description"),
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
     "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
-    "jobs": ("error",),
+    "jobs": ("error",),  # a failure message can repeat part of the requirements
+    # Tests feature (stream 6): everything derived from requirement text.
+    "test_designs": ("performance_targets",),
+    "test_criteria": ("given_text", "when_text", "then_text"),
+    "test_conditions": ("name", "description", "unit", "limits", "set_values", "invalid_values", "classes",
+                        "boundaries"),
+    "test_flows": ("flow_text",),
+    "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
+    "test_runs": ("name",),
+    "test_results": ("note",),
     "documents": ("filename",),
 }
+SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
-SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}
-
+# FR1b/FR2/FR3 project limits for uploaded documents.
 MAX_DOCUMENTS_PER_PROJECT = 15
 MAX_PAGES_PER_PROJECT = 100
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
@@ -88,8 +101,8 @@ def _check_schema_once():
 
 
 def init_db():
-    fernet()
-    pool.open(wait=True)
+    fernet()  # fail fast if DATA_ENCRYPTION_KEY is missing
+    pool.open(wait=True)  # fail fast if the database is unreachable
     _check_schema_once()
 
 
@@ -97,7 +110,7 @@ def _decode(r):
     for k in SECRET_COLS:
         if isinstance(r.get(k), str):
             r[k] = decrypt(r[k])
-    for k in JSON_COLS:
+    for k in JSON_COLS:  # JSON is stored as text; tolerate jsonb columns too
         if isinstance(r.get(k), str):
             r[k] = json.loads(r[k])
     return r
@@ -133,8 +146,7 @@ def get_project(pid):
 
 def member_project(pid, user_id):
     return one(
-        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id "
-        "WHERE p.id=%s AND m.user_id=%s",
+        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
         pid, user_id,
     )
 
@@ -149,22 +161,18 @@ def project_rows(user_id):
 
 def project_counts(pid):
     _check_schema_once()
-    if _DOCUMENTS_TABLE_EXISTS:
-        return one(
-            "SELECT (SELECT count(*) FROM statements WHERE project_id=%s) AS statement_count, "
-            "(SELECT count(*) FROM items WHERE project_id=%s) AS item_count, "
-            "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count, "
-            "(SELECT count(*) FROM documents WHERE project_id=%s) AS document_count, "
-            "(SELECT COALESCE(sum(page_count), 0) FROM documents WHERE project_id=%s) AS document_page_count",
-            pid, pid, pid, pid, pid,
-        )
+    documents = (
+        "(SELECT count(*) FROM documents WHERE project_id=%s) AS document_count, "
+        "(SELECT COALESCE(sum(page_count), 0) FROM documents WHERE project_id=%s) AS document_page_count"
+        if _DOCUMENTS_TABLE_EXISTS
+        else "0 AS document_count, 0 AS document_page_count"
+    )
     return one(
         "SELECT (SELECT count(*) FROM statements WHERE project_id=%s) AS statement_count, "
         "(SELECT count(*) FROM items WHERE project_id=%s) AS item_count, "
         "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count, "
-        "0 AS document_count, "
-        "0 AS document_page_count",
-        pid, pid, pid,
+        "(SELECT count(*) FROM flags WHERE project_id=%s AND status='open') AS open_flag_count, " + documents,
+        *([pid] * (6 if _DOCUMENTS_TABLE_EXISTS else 4)),
     )
 
 
@@ -180,32 +188,46 @@ def project_document_totals(pid):
     return row or {"document_count": 0, "total_pages": 0}
 
 
-
-def create_project(user_id, name):
+def create_project(user_id, name, client_name=None, contact_email=None):
     t = now()
-    return one(
-        "WITH p AS (INSERT INTO projects(id, owner_id, name, created_at, updated_at) "
-        "VALUES (%s,%s,%s,%s,%s) RETURNING *), "
-        "m AS (INSERT INTO project_members(project_id, user_id) "
-        "SELECT id, owner_id FROM p) SELECT * FROM p",
-        uid("pr"), user_id, encrypt(name), t, t,
+    return one(  # the creator is the first member
+        "WITH p AS (INSERT INTO projects(id, owner_id, name, client_name, contact_email, created_at, updated_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *), "
+        "m AS (INSERT INTO project_members(project_id, user_id) SELECT id, owner_id FROM p) SELECT * FROM p",
+        uid("pr"), user_id, encrypt(name), encrypt(client_name), contact_email, t, t,
     )
+
+
+def set_client(pid, client_name, contact_email):
+    return one("UPDATE projects SET client_name=%s, contact_email=%s, updated_at=%s WHERE id=%s RETURNING *",
+               encrypt(client_name), contact_email, now(), pid)
+
+
+def rename_project(pid, name):
+    return one("UPDATE projects SET name=%s, updated_at=%s WHERE id=%s RETURNING *", encrypt(name), now(), pid)
+
+
+def delete_project(pid):
+    run("DELETE FROM projects WHERE id=%s", pid)  # every child table cascades
+
+
+def set_archived(pid, by):
+    """by = the archiving user's email; None reopens."""
+    t = now()
+    return one("UPDATE projects SET archived_at=%s, archived_by=%s, updated_at=%s WHERE id=%s RETURNING *",
+               t if by else None, by, t, pid)
 
 
 def touch_project(pid, clear_confirmation=False):
     run(
-        "UPDATE projects SET updated_at=%s, "
-        "confirmed_at=CASE WHEN %s THEN NULL ELSE confirmed_at END WHERE id=%s",
+        "UPDATE projects SET updated_at=%s, confirmed_at=CASE WHEN %s THEN NULL ELSE confirmed_at END WHERE id=%s",
         now(), clear_confirmation, pid,
     )
 
 
 def set_confirmed(pid):
     t = now()
-    return one(
-        "UPDATE projects SET confirmed_at=%s, updated_at=%s WHERE id=%s RETURNING *",
-        t, t, pid,
-    )
+    return one("UPDATE projects SET confirmed_at=%s, updated_at=%s WHERE id=%s RETURNING *", t, t, pid)
 
 
 def consent(user_id):
@@ -221,86 +243,72 @@ def set_consent(user_id, version):
     )
 
 
-def insert_statements(pid, statements, source_document="pasted requirements"):
-    """Store extracted statements; returns their new ids in order."""
+def insert_statements(pid, statements, document="pasted requirements"):
+    """Store statements (from the splitter, an uploaded document or typed by the user); returns their new ids in order."""
     _check_schema_once()
+    extra_cols = _HAS_STATEMENT_SOURCE_LABEL and _HAS_STATEMENT_METADATA
     with pool.connection() as c:
+        # Lock the project row so two extractions finishing together cannot both pick the next R-number;
+        # numbering continues from the highest ref, so a ref is never reused.
         c.execute("SELECT 1 FROM projects WHERE id=%s FOR UPDATE", (pid,))
         n = c.execute(
-            "SELECT COALESCE(max(substring(ref from 3)::int), 0) AS n "
-            "FROM statements WHERE project_id=%s",
-            (pid,),
+            "SELECT COALESCE(max(substring(ref from 3)::int), 0) AS n FROM statements WHERE project_id=%s",
+            (pid,)
         ).fetchone()["n"]
 
         rows = []
 
-        if _HAS_STATEMENT_SOURCE_LABEL and _HAS_STATEMENT_METADATA:
-            for i, s in enumerate(statements):
-                src = s.get("source_location") or {}
+        for i, s in enumerate(statements):
+            src = s.get("source_location") or {}
+            excerpt = src.get("excerpt")
+            row = [
+                uid("st"),
+                pid,
+                f"R-{n + i + 1:03d}",
+                encrypt(s["text"]),
+                (s.get("labels") or ["unknown"])[0],
+                document,
+                src.get("page"),
+                src.get("paragraph"),
+                src.get("line_start"),
+                src.get("line_end"),
+            ]
+            if extra_cols:
                 metadata = s.get("metadata")
-                rows.append((
-                    uid("st"),
-                    pid,
-                    f"R-{n + i + 1:03d}",
-                    encrypt(s["text"]),
-                    (s.get("labels") or ["unknown"])[0],
-                    source_document,
-                    src.get("page"),
-                    src.get("paragraph"),
-                    src.get("line_start"),
-                    src.get("line_end"),
-                    encrypt(src.get("excerpt")),
+                row += [
+                    encrypt(excerpt),
                     s.get("source_label"),
                     encrypt(json.dumps(metadata)) if metadata is not None else None,
-                ))
+                ]
+            else:
+                # Before the migration: keep the original FR/NFR ID visible in the excerpt.
+                excerpt = excerpt or ""
+                if s.get("source_label") and not excerpt.startswith(s["source_label"]):
+                    excerpt = f"{s['source_label']}: {excerpt}".strip(": ")
+                row.append(encrypt(excerpt or None))
+            rows.append(tuple(row))
 
-            with c.cursor() as cur:
-                cur.executemany(
-                    "INSERT INTO statements("
-                    "id, project_id, ref, text, label, source_document, "
-                    "source_page, source_paragraph, source_line_start, "
-                    "source_line_end, source_excerpt, source_label, metadata"
-                    ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    rows,
-                )
-        else:
-            for i, s in enumerate(statements):
-                src = s.get("source_location") or {}
-                excerpt = src.get("excerpt") or ""
-                if s.get("source_label") and not excerpt.startswith(s.get("source_label")):
-                    excerpt = f"{s.get('source_label')}: {excerpt}".strip(": ")
-                rows.append((
-                    uid("st"),
-                    pid,
-                    f"R-{n + i + 1:03d}",
-                    encrypt(s["text"]),
-                    (s.get("labels") or ["unknown"])[0],
-                    source_document,
-                    src.get("page"),
-                    src.get("paragraph"),
-                    src.get("line_start"),
-                    src.get("line_end"),
-                    encrypt(excerpt),
-                ))
-
-            with c.cursor() as cur:
-                cur.executemany(
-                    "INSERT INTO statements("
-                    "id, project_id, ref, text, label, source_document, "
-                    "source_page, source_paragraph, source_line_start, "
-                    "source_line_end, source_excerpt"
-                    ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    rows,
-                )
+        # IMPORTANT: execute only once, after all rows are prepared
+        with c.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO statements("
+                "id, project_id, ref, text, label, source_document, "
+                "source_page, source_paragraph, source_line_start, "
+                "source_line_end, source_excerpt"
+                + (", source_label, metadata) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                   if extra_cols else ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"),
+                rows,
+            )
 
     return [r[0] for r in rows]
 
 
 def get_statements(pid):
-    from core.input_processing import USER_STORY_RE, FR_NFR_RE
-    import re
+    from core.input_processing import FR_NFR_RE, USER_STORY_RE
+
     results = []
     for r in many("SELECT * FROM statements WHERE project_id=%s ORDER BY seq", pid):
+        # Rows stored before source_label/metadata existed: derive them from the text.
         meta = r.get("metadata")
         if meta is None and r.get("text"):
             m = USER_STORY_RE.match(r["text"])
@@ -320,19 +328,13 @@ def get_statements(pid):
                         source_label = re.sub(r"[\s_]+", "-", m.group(1)).upper()
                         break
         results.append({
-            "id": r["id"],
-            "ref": r["ref"],
-            "text": r["text"],
-            "label": r["label"],
+            "id": r["id"], "ref": r["ref"], "text": r["text"], "label": r["label"],
             "source_label": source_label,
             "metadata": meta,
             "source": {
-                "document": r["source_document"],
-                "page": r["source_page"],
-                "paragraph": r["source_paragraph"],
-                "line_start": r["source_line_start"],
-                "line_end": r["source_line_end"],
-                "excerpt": r["source_excerpt"],
+                "document": r["source_document"], "page": r["source_page"],
+                "paragraph": r["source_paragraph"], "line_start": r["source_line_start"],
+                "line_end": r["source_line_end"], "excerpt": r["source_excerpt"],
             },
         })
     return results
@@ -341,77 +343,45 @@ def get_statements(pid):
 def _item_key(i):
     """Same category and name (case-insensitive); a relation also needs the same ends."""
     key = (i["category"], (i["name"] or "").strip().lower())
-    return (
-        key + (i["source_item_id"], i["target_item_id"])
-        if i.get("source_item_id") or i.get("target_item_id")
-        else key
-    )
+    return key + (i["source_item_id"], i["target_item_id"]) if i.get("source_item_id") or i.get("target_item_id") else key
 
 
-def add_system_items(pid, items):
-    """Add extracted items; merge duplicates and their statement references."""
+def add_system_items(pid, items, model_used=None):
+    """Adds one submission's extracted items to the project; items from earlier submissions stay.
+
+    An item the project already has (see _item_key) is not added again: it gains the new statement refs, and
+    relations that pointed at the duplicate point at the existing item instead."""
     with pool.connection() as c:
-        existing = {
-            _item_key(_decode(r)): r
-            for r in c.execute(
-                "SELECT id, category, name, statement_ids, source_item_id, "
-                "target_item_id FROM items WHERE project_id=%s",
-                (pid,),
-            ).fetchall()
-        }
-
-        same, new = {}, []
-
-        for i in sorted(
-            items,
-            key=lambda i: bool(i.get("source_item_id") or i.get("target_item_id")),
-        ):
-            i = {
-                **i,
-                "statement_ids": list(i.get("statement_ids", [])),
-                "source_item_id": same.get(
-                    i.get("source_item_id"), i.get("source_item_id")
-                ),
-                "target_item_id": same.get(
-                    i.get("target_item_id"), i.get("target_item_id")
-                ),
-            }
-
+        existing = {_item_key(_decode(r)): r for r in c.execute(
+            "SELECT id, category, name, statement_ids, source_item_id, target_item_id FROM items WHERE project_id=%s",
+            (pid,),
+        ).fetchall()}
+        same, new = {}, []  # same: new item id -> existing item id
+        # Plain items before relations, so a relation's ends are already mapped to existing items.
+        for i in sorted(items, key=lambda i: bool(i.get("source_item_id") or i.get("target_item_id"))):
+            i = {**i, "statement_ids": list(i.get("statement_ids", [])),
+                 "source_item_id": same.get(i.get("source_item_id"), i.get("source_item_id")),
+                 "target_item_id": same.get(i.get("target_item_id"), i.get("target_item_id"))}
             old = existing.get(_item_key(i))
-
             if old is None:
                 existing[_item_key(i)] = i
                 new.append(i)
                 continue
-
             same[i["id"]] = old["id"]
             refs = list(dict.fromkeys(old["statement_ids"] + i["statement_ids"]))
-
             if refs != old["statement_ids"]:
-                old["statement_ids"] = refs
-                c.execute(
-                    "UPDATE items SET statement_ids=%s WHERE id=%s",
-                    (json.dumps(refs), old["id"]),
-                )
-
+                old["statement_ids"] = refs  # a duplicate within this batch is inserted below with these refs
+                c.execute("UPDATE items SET statement_ids=%s WHERE id=%s", (json.dumps(refs), old["id"]))
         with c.cursor() as cur:
             cur.executemany(
-                "INSERT INTO items(id, project_id, category, name, description, origin, "
-                "qualifiers, statement_ids, source_item_id, target_item_id, relation_type) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "INSERT INTO items(id, project_id, category, name, description, origin, qualifiers, "
+                "statement_ids, source_item_id, target_item_id, relation_type, model_used) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 [
                     (
-                        i["id"],
-                        pid,
-                        i["category"],
-                        encrypt(i["name"]),
-                        encrypt(i.get("description")),
-                        "system-extracted",
-                        json.dumps(i.get("qualifiers", [])),
-                        json.dumps(i.get("statement_ids", [])),
-                        i.get("source_item_id"),
-                        i.get("target_item_id"),
-                        i.get("relation_type"),
+                        i["id"], pid, i["category"], encrypt(i["name"]), encrypt(i.get("description")), "system-extracted",
+                        json.dumps(i.get("qualifiers", [])), json.dumps(i.get("statement_ids", [])),
+                        i.get("source_item_id"), i.get("target_item_id"), i.get("relation_type"), model_used,
                     )
                     for i in new
                 ],
@@ -429,7 +399,7 @@ def get_items(pid):
 
 
 def update_item(pid, iid, name, description):
-    """Edit an item; name=None keeps the name."""
+    """Edit an item; a system-extracted item becomes user-edited. name=None keeps the name."""
     r = one(
         "UPDATE items SET name=COALESCE(%s, name), description=%s, "
         "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END "
@@ -441,70 +411,57 @@ def update_item(pid, iid, name, description):
 
 def _job(r):
     if r:
-        if r["status"] == "queued":
+        if r["status"] == "queued":  # place in the line of jobs waiting for a free slot (NFR9a)
             r["queue_position"] = one(
-                "SELECT count(*) AS n FROM jobs "
-                "WHERE status='queued' AND created_at <= %s",
-                r["created_at"],
+                "SELECT count(*) AS n FROM jobs WHERE status='queued' AND created_at <= %s", r["created_at"]
             )["n"]
-
-        r["progress"] = {
-            "step": r.pop("progress_step"),
-            "total": r.pop("progress_total"),
-            "label": r.pop("progress_label"),
-        }
+        r["progress"] = {"step": r.pop("progress_step"), "total": r.pop("progress_total"), "label": r.pop("progress_label")}
         r.pop("project_id")
-
     return r
 
 
 def create_job(pid, kind, total, label, diagram_types=(), document_id=None):
     """Create a job, optionally linked to an uploaded source document."""
     _check_schema_once()
-    if document_id is None or not _HAS_JOB_DOCUMENT_ID:
+    if document_id is not None and _HAS_JOB_DOCUMENT_ID:
         return _job(one(
-            "INSERT INTO jobs(id, project_id, kind, status, queue_position, "
-            "progress_step, progress_total, progress_label, diagram_types, "
-            "diagram_ids, created_at) "
-            "VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s) RETURNING *",
-            uid("job"), pid, kind, total, label,
-            json.dumps(list(diagram_types)), now(),
+            "INSERT INTO jobs(id, project_id, kind, status, queue_position, progress_step, progress_total, "
+            "progress_label, diagram_types, diagram_ids, document_id, created_at) "
+            "VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s,%s) RETURNING *",
+            uid("job"), pid, kind, total, label, json.dumps(list(diagram_types)), document_id, now(),
         ))
-
     return _job(one(
-        "INSERT INTO jobs(id, project_id, kind, status, queue_position, "
-        "progress_step, progress_total, progress_label, diagram_types, "
-        "diagram_ids, document_id, created_at) "
-        "VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s,%s) RETURNING *",
-        uid("job"), pid, kind, total, label,
-        json.dumps(list(diagram_types)), document_id, now(),
+        "INSERT INTO jobs(id, project_id, kind, status, queue_position, progress_step, progress_total, "
+        "progress_label, diagram_types, diagram_ids, created_at) VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s) RETURNING *",
+        uid("job"), pid, kind, total, label, json.dumps(list(diagram_types)), now(),
     ))
 
 
 def fail_interrupted_jobs():
-    """Fail queued or running jobs left behind by a server restart."""
+    """Jobs run inside the API process, so one still queued or running at startup died with the previous process.
+    Fail it so the user can try again instead of watching a spinner forever. (During a zero-downtime deploy the
+    old process may still finish such a job; its final update then overwrites this.)"""
     run(
-        "UPDATE jobs SET status='failed', queue_position=NULL, error=%s, "
-        "progress_label='Interrupted', finished_at=%s "
-        "WHERE status IN ('queued', 'running')",
-        "Interrupted by a server restart. Try again.",
-        now(),
+        "UPDATE jobs SET status='failed', queue_position=NULL, error=%s, progress_label='Interrupted', finished_at=%s "
+        "WHERE status IN ('queued', 'running', 'waiting')",
+        "Interrupted by a server restart. Try again.", now(),
     )
 
 
 def member_job(jid, user_id):
     return _job(one(
-        "SELECT j.* FROM jobs j JOIN project_members m "
-        "ON m.project_id=j.project_id WHERE j.id=%s AND m.user_id=%s",
+        "SELECT j.* FROM jobs j JOIN project_members m ON m.project_id=j.project_id WHERE j.id=%s AND m.user_id=%s",
         jid, user_id,
     ))
 
 
+def get_job(jid):
+    return _job(one("SELECT * FROM jobs WHERE id=%s", jid))
+
+
 def get_latest_extraction_job(pid):
     return _job(one(
-        "SELECT * FROM jobs WHERE project_id=%s AND kind='extraction' "
-        "ORDER BY created_at DESC LIMIT 1",
-        pid,
+        "SELECT * FROM jobs WHERE project_id=%s AND kind='extraction' ORDER BY created_at DESC LIMIT 1", pid
     ))
 
 
@@ -514,139 +471,171 @@ def update_job(jid, **fields):
         fields["diagram_ids"] = json.dumps(fields["diagram_ids"])
     if "error" in fields:
         fields["error"] = encrypt(fields["error"])
-
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE jobs SET {sets} WHERE id=%s", *fields.values(), jid)
 
 
-def create_diagram(
-    pid, dtype, title, svg, elements, statement_ids,
-    plantuml_source=None, parent_id=None, instruction=None, spec=None, layout=None,
-):
-    return one(
-        "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, "
-        "elements, statement_ids, plantuml_source, parent_id, instruction, "
-        "spec, layout) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg),
-        encrypt(json.dumps(elements)), json.dumps(statement_ids),
-        encrypt(plantuml_source), parent_id, encrypt(instruction),
-        encrypt(json.dumps(spec)) if spec is not None else None,
-        json.dumps(layout) if layout else None,
-    )
+def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
+    # One transaction: a new version never exists without the accepted warnings it carries over.
+    with pool.connection() as c:
+        d = c.execute(
+            "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
+            "plantuml_source, parent_id, instruction, spec, layout, model_used) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
+             json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
+             encrypt(json.dumps(spec)) if spec is not None else None,
+             json.dumps(layout) if layout else None, model_used),
+        ).fetchone()
+        if parent_id:  # accepted warnings stay accepted on versions made from this one
+            c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
+                      "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
+    return _decode(d)
+
+
+def accepted_warnings(did):
+    return {r["warning_id"]: r for r in many("SELECT * FROM accepted_warnings WHERE diagram_id=%s", did)}
+
+
+def accept_warning(did, warning_id, email):
+    run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
 
 
 def member_diagram(did, user_id):
     return one(
-        "SELECT d.* FROM diagrams d JOIN project_members m "
-        "ON m.project_id=d.project_id WHERE d.id=%s AND m.user_id=%s",
+        "SELECT d.* FROM diagrams d JOIN project_members m ON m.project_id=d.project_id WHERE d.id=%s AND m.user_id=%s",
         did, user_id,
     )
 
 
 def list_diagrams(pid):
     return many(
-        "SELECT id, type, title, created_at, parent_id, instruction "
-        "FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
+        "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
         pid,
     )
 
 
-def list_flags(pid, status=None):
-    sql = (
-        "SELECT f.*, s.ref AS statement_ref, s.text AS statement_text "
-        "FROM flags f JOIN statements s ON s.id = f.statement_id "
-        "WHERE f.project_id=%s"
-    )
+def diagram_rows(pid):
+    """Every diagram version without its drawing: what version grouping and coverage need."""
+    return many("SELECT id, type, title, created_at, statement_ids FROM diagrams WHERE project_id=%s", pid)
 
+
+def list_flags(pid, status=None):
+    sql = ("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
+           "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s")
     if status:
         return many(sql + " AND f.status=%s ORDER BY f.seq", pid, status)
-
     return many(sql + " ORDER BY f.seq", pid)
 
 
 def get_flag(pid, fid):
-    return one(
-        "SELECT f.*, s.ref AS statement_ref, s.text AS statement_text "
-        "FROM flags f JOIN statements s ON s.id = f.statement_id "
-        "WHERE f.project_id=%s AND f.id=%s",
-        pid, fid,
-    )
+    return one("SELECT f.*, s.ref AS statement_ref, s.text AS statement_text FROM flags f "
+               "JOIN statements s ON s.id = f.statement_id WHERE f.project_id=%s AND f.id=%s", pid, fid)
+
+
+CHECKER_FLAG_TYPES = ("ambiguous", "incomplete", "conflict")
 
 
 def save_flags(pid, flags, statement_ids):
-    """Store checker flags and reconcile them with previous analysis."""
+    """Stores the checker's flags for these statements, matched to earlier flags by (statement, type, reason).
+
+    - An open flag found again stays open (with its answer).
+    - A flag the user resolved is not added again, even though the checker still finds it.
+    - A flag closed by re-analysis that comes back is reopened instead of duplicated.
+    - An open flag that is no longer found is resolved by re-analysis.
+    """
     with pool.connection() as c:
-        old = [
-            _decode(r)
-            for r in c.execute(
-                "SELECT id, statement_id, type, reason, status, resolved_by "
-                "FROM flags WHERE project_id=%s AND statement_id = ANY(%s)",
-                (pid, list(statement_ids)),
-            ).fetchall()
-        ]
-
-        known = {
-            (f["statement_id"], f["type"], f["reason"]): f for f in old
-        }
+        # Only the checker's own types: flags raised elsewhere (the Tests feature's 'untestable' questions) must not be
+        # resolved as "no longer found" just because the checker never reports that type.
+        old = [_decode(r) for r in c.execute(
+            "SELECT id, statement_id, type, reason, status, resolved_by FROM flags "
+            "WHERE project_id=%s AND statement_id = ANY(%s) AND type = ANY(%s)",
+            (pid, list(statement_ids), list(CHECKER_FLAG_TYPES))).fetchall()]
+        known = {(f["statement_id"], f["type"], f["reason"]): f for f in old}
         found = set()
-
         for f in flags:
             key = (f["statement_id"], f["type"], f["reason"])
-
             if key in found:
                 continue
-
             found.add(key)
             prev = known.get(key)
-
             if prev is None:
-                c.execute(
-                    "INSERT INTO flags(id, project_id, statement_id, type, reason, "
-                    "trigger_text, related_statement_id, question, suggested_fix, created_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (
-                        uid("fl"), pid, f["statement_id"], f["type"],
-                        encrypt(f["reason"]), encrypt(f.get("trigger_text")),
-                        f.get("related_statement_id"), encrypt(f.get("question")),
-                        encrypt(f.get("suggested_fix")), now(),
-                    ),
-                )
-
+                c.execute("INSERT INTO flags(id, project_id, statement_id, type, reason, trigger_text, "
+                          "related_statement_id, question, suggested_fix, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                          (uid("fl"), pid, f["statement_id"], f["type"], encrypt(f["reason"]), encrypt(f.get("trigger_text")),
+                           f.get("related_statement_id"), encrypt(f.get("question")), encrypt(f.get("suggested_fix")), now()))
             elif prev["status"] == "resolved" and prev["resolved_by"] == "re-analysis":
-                c.execute(
-                    "UPDATE flags SET status='open', resolved_by=NULL, "
-                    "resolved_at=NULL WHERE id=%s",
-                    (prev["id"],),
-                )
-
-        gone = [
-            f["id"] for k, f in known.items()
-            if f["status"] == "open" and k not in found
-        ]
-
-        if gone:
-            c.execute(
-                "UPDATE flags SET status='resolved', resolved_by='re-analysis', "
-                "resolved_at=%s WHERE id = ANY(%s)",
-                (now(), gone),
-            )
+                c.execute("UPDATE flags SET status='open', resolved_by=NULL, resolved_at=NULL WHERE id=%s", (prev["id"],))
+        gone = [f["id"] for k, f in known.items() if f["status"] == "open" and k not in found]
+        if gone:  # no longer found -> fixed
+            c.execute("UPDATE flags SET status='resolved', resolved_by='re-analysis', resolved_at=%s WHERE id = ANY(%s)",
+                      (now(), gone))
 
 
 def update_flag(pid, fid, **fields):
-    fields = {
-        k: encrypt(v) if k in SECRET_COLS else v
-        for k, v in fields.items()
-    }
+    fields = {k: encrypt(v) if k in SECRET_COLS else v for k, v in fields.items()}
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
 
 
 def set_statement_text(pid, sid, text):
-    run(
-        "UPDATE statements SET text=%s WHERE id=%s AND project_id=%s",
-        encrypt(text), sid, pid,
-    )
+    run("UPDATE statements SET text=%s WHERE id=%s AND project_id=%s", encrypt(text), sid, pid)
 
+
+def get_statement(pid, sid):
+    return next((s for s in get_statements(pid) if s["id"] == sid), None)
+
+
+def update_statement(pid, sid, text=None, label=None):
+    """text/label None keeps the current value."""
+    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label) WHERE id=%s AND project_id=%s",
+        encrypt(text), label, sid, pid)
+    return get_statement(pid, sid)
+
+
+def delete_statement(pid, sid):
+    """Its flags go with it (FK cascade); so do conflict flags on other requirements that pointed at it."""
+    with pool.connection() as c:
+        c.execute("DELETE FROM flags WHERE project_id=%s AND related_statement_id=%s", (pid, sid))
+        return c.execute("DELETE FROM statements WHERE id=%s AND project_id=%s", (sid, pid)).rowcount > 0
+
+
+def reset_model(pid):
+    """A requirement changed: drop the system-extracted building blocks and the confirmation, so the next generation
+    extracts again from the confirmed requirements. Items the user added or edited are kept (they are the user's
+    work); relations left with a missing end are dropped. Diagrams already drawn are kept.
+    shortcut: a kept user-edited item can be extracted again under its old name; Phase 4 (incremental extraction)
+    replaces this wipe-and-redo with re-extracting only the changed statements."""
+    with pool.connection() as c:
+        c.execute("DELETE FROM items WHERE project_id=%s AND origin='system-extracted'", (pid,))
+        c.execute("DELETE FROM items i WHERE project_id=%s AND ("
+                  "(source_item_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM items s WHERE s.id=i.source_item_id)) OR "
+                  "(target_item_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM items t WHERE t.id=i.target_item_id)))", (pid,))
+        c.execute("UPDATE projects SET extracted_nodes='[]', confirmed_at=NULL, updated_at=%s WHERE id=%s", (now(), pid))
+
+
+def set_extracted_nodes(pid, nodes):
+    run("UPDATE projects SET extracted_nodes=%s WHERE id=%s", json.dumps(sorted(set(nodes))), pid)
+
+
+def project_model(pid):
+    """The model that produced most of the project's system items (sticky provider choice), else None."""
+    r = one("SELECT model_used FROM items WHERE project_id=%s AND model_used IS NOT NULL "
+            "GROUP BY model_used ORDER BY count(*) DESC LIMIT 1", pid)
+    return r["model_used"] if r else None
+
+
+def add_llm_calls(job_id, pid, calls, mixed):
+    """Metadata only (the AI service's X-LLM-Usage): never prompt or output text."""
+    cols = ("node", "provider", "model", "input_tokens", "output_tokens", "wait_ms", "duration_ms", "attempts",
+            "rate_limited", "status")
+    with pool.connection() as c, c.cursor() as cur:
+        cur.executemany(
+            f"INSERT INTO llm_calls(job_id, project_id, {', '.join(cols)}, mixed_models) "
+            f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
+            [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
+        )
 
 # ---------------------------------------------------------------------------
 # Document management
@@ -672,7 +661,7 @@ def create_document(
     if not _DOCUMENTS_TABLE_EXISTS:
         raise RuntimeError(
             "The 'documents' table does not exist in Supabase database. "
-            "Please apply the migration in apps/api/schema.sql."
+            "Please apply apps/api/migrations/0008_documents.sql."
         )
 
     if not filename or not filename.strip():

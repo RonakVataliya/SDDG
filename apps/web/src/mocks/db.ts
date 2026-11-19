@@ -1,8 +1,10 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
 import type { Diagram, ExtractedItem, Job, ProjectDocument, RequirementStatement } from '@/api/client'
+import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
-import { buildUseCaseModel, renderUseCase, type UseCaseModel } from './render'
+import { detectFlags, type FlagRow } from './flags'
+import { buildUseCaseModel, renderPlaceholder, renderUseCase, type UseCaseModel } from './render'
 
 type ProjectRow = {
   id: string
@@ -11,8 +13,15 @@ type ProjectRow = {
   created_at: string
   updated_at: string
   confirmed_at: string | null
+  /** Extraction nodes already run on the confirmed requirements (requirements-first workflow). */
+  extracted_nodes?: string[]
+  // Project settings (Feature 3.1); optional so projects stored before it still load.
+  client_name?: string | null
+  contact_email?: string | null
+  archived_at?: string | null
+  archived_by?: string | null
 }
-type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
+export type JobRow = Job & { project_id: string; payload?: string; applied?: boolean }
 /** The server keeps the model and drawing; the API only exposes the summary fields and the PNG. */
 export type DiagramRow = Diagram & {
   project_id: string
@@ -20,9 +29,29 @@ export type DiagramRow = Diagram & {
   svg: string
   /** Positions moved by hand (#37), element id → centre [x, y]. Like the backend, the PNG export ignores them. */
   layout?: Record<string, [number, number]>
+  /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
+  style?: DiagramStyle
 }
 
+/** Tests feature (stream 6) rows; shapes live in ./testing.ts. */
+export type TestsState = {
+  designs: Record<string, unknown>
+  criteria: unknown[]
+  conditions: unknown[]
+  flows: unknown[]
+  targets: Record<string, unknown[]>
+  cases: unknown[]
+  runs: unknown[]
+  results: unknown[]
+  flags: unknown[]
+  nextCase: Record<string, number>
+}
+export const emptyTests = (): TestsState => ({
+  designs: {}, criteria: [], conditions: [], flows: [], targets: {}, cases: [], runs: [], results: [], flags: [], nextCase: {},
+})
+
 export type MockDb = {
+  tests: TestsState
   consent: Record<string, { version: string; at: string }>
   projects: ProjectRow[]
   statements: Record<string, RequirementStatement[]>
@@ -31,19 +60,11 @@ export type MockDb = {
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
   documents: Record<string, ProjectDocument[]>
+  flags: Record<string, FlagRow[]>
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({
-  consent: {},
-  projects: [],
-  statements: {},
-  items: {},
-  jobs: [],
-  diagrams: [],
-  nextStatement: {},
-  documents: {},
-})
+const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, flags: {}, documents: {} })
 
 let db: MockDb = load()
 
@@ -72,14 +93,28 @@ const now = () => new Date().toISOString()
 
 /* ---------- job timing: status is derived from elapsed time, so polling shows real progress ---------- */
 
-const QUEUE_MS = 1200
-const STEP_MS = 1600
-const EXTRACTION_STEPS = ['Splitting into requirement statements', 'Extracting modelling items', 'Merging and checking items']
-const GENERATION_STEPS = ['Building the diagram model', 'Rendering the diagram', 'Checking notation']
+const QUEUE_DEFAULT_MS = 1200
+const STEP_DEFAULT_MS = 1600
+const EXTRACTION_STEPS = ['Splitting the text into requirements', 'Checking requirement quality', 'Requirements ready to review']
+
+/** Extra job kinds (the Tests feature registers test_criteria and test_steps) with their steps and result. */
+type JobKindPlugin = { steps: string[]; queueMs: number; stepMs: number; apply: (job: JobRow) => void }
+const plugins: Record<string, JobKindPlugin> = {}
+export function registerJobKind(kind: string, plugin: JobKindPlugin) {
+  plugins[kind] = plugin
+}
 
 export function advance(job: JobRow, opts: { fast?: boolean } = {}): JobRow {
   if (job.status === 'succeeded' || job.status === 'failed') return job
-  const steps = job.kind === 'extraction' ? EXTRACTION_STEPS : GENERATION_STEPS
+  const plugin = plugins[job.kind]
+  // Mirrors the API: generation is "extract building blocks" + one step per diagram type.
+  const steps =
+    plugin?.steps ??
+    (job.kind === 'extraction'
+      ? EXTRACTION_STEPS
+      : ['Extracting building blocks', ...(job.diagram_types ?? []).map((t) => `Generating and rendering ${TYPE_LABEL[t]} diagram`)])
+  const QUEUE_MS = plugin?.queueMs ?? QUEUE_DEFAULT_MS
+  const STEP_MS = plugin?.stepMs ?? STEP_DEFAULT_MS
   const elapsed = opts.fast ? 10000 : Date.now() - new Date(job.created_at!).getTime()
   if (elapsed < QUEUE_MS) {
     job.status = 'queued'
@@ -92,8 +127,7 @@ export function advance(job: JobRow, opts: { fast?: boolean } = {}): JobRow {
   const step = Math.floor((elapsed - QUEUE_MS) / STEP_MS)
   if (step < steps.length) {
     job.status = 'running'
-    const prefix = job.kind === 'generation' ? 'Generating diagram 1 of 1: ' : ''
-    job.progress = { step: step + 1, total: steps.length, label: prefix + steps[step] }
+    job.progress = { step: step + 1, total: steps.length, label: steps[step] }
     return job
   }
   if (job.kind === 'extraction' && splitStatements(job.payload ?? '').length === 0) {
@@ -117,7 +151,8 @@ export function advance(job: JobRow, opts: { fast?: boolean } = {}): JobRow {
   job.progress = { step: steps.length, total: steps.length, label: 'Done' }
   if (!job.applied) {
     job.applied = true
-    if (job.kind === 'extraction') applyExtraction(job)
+    if (plugin) plugin.apply(job)
+    else if (job.kind === 'extraction') applyExtraction(job)
     else applyGeneration(job)
   }
   save()
@@ -135,11 +170,32 @@ function applyExtraction(job: JobRow) {
   }))
   db.nextStatement[pid] = start + statements.length
   db.statements[pid] = [...(db.statements[pid] ?? []), ...statements]
+  db.flags[pid] = [...(db.flags[pid] ?? []), ...detectFlags(statements, db.statements[pid], uid)]
 
-  const drafts = extractItems(db.statements[pid])
+  // FR1b: the uploaded document this extraction came from is now processed.
+  for (const doc of db.documents?.[pid] ?? []) {
+    if (doc.job_id === job.id) doc.status = 'processed'
+  }
+
+  resetModel(pid) // requirements-first: building blocks are extracted later, for the chosen diagrams
+}
+
+/** A requirement changed: drop the building blocks and the confirmation (mirrors db.reset_model). */
+export function resetModel(pid: string) {
+  // Items the user added or edited are kept, like the API.
+  db.items[pid] = (db.items[pid] ?? []).filter((i) => i.origin !== 'system-extracted')
+  const p = db.projects.find((x) => x.id === pid)
+  if (p) p.extracted_nodes = []
+  touch(pid, { clearConfirmation: true })
+}
+
+/** Mirrors the API's extract_building_blocks: the mock extracts every node once, over the confirmed requirements. */
+function extractBuildingBlocks(pid: string) {
+  const p = db.projects.find((x) => x.id === pid)!
+  if (p.extracted_nodes?.length) return
+  const drafts = extractItems(db.statements[pid] ?? [])
   const idFor = new Map(drafts.map((d) => [d.key, uid('it')]))
-  // Keep user-added / user-edited items: they are never overwritten by re-extraction (A18).
-  const kept = (db.items[pid] ?? []).filter((i) => i.origin !== 'system-extracted')
+  const kept = db.items[pid] ?? []
   db.items[pid] = [
     ...kept,
     ...drafts
@@ -151,33 +207,33 @@ function applyExtraction(job: JobRow) {
         target_item_id: d.target_item_id ? (idFor.get(d.target_item_id) ?? null) : null,
       })),
   ]
-  if (db.documents?.[pid]) {
-    for (const doc of db.documents[pid]) {
-      if (doc.job_id === job.id || doc.status === 'processing' || doc.status === 'uploaded') {
-        doc.status = 'processed'
-      }
-    }
-  }
-  touch(pid, { clearConfirmation: true })
+  p.extracted_nodes = ['actors', 'dataflows', 'entities', 'interactions', 'processes', 'relationships']
 }
+
+const TYPE_LABEL: Record<string, string> = { use_case: 'Use Case', class: 'Class', activity: 'Activity', sequence: 'Sequence', dfd: 'Data Flow', component: 'Component', package: 'Package' }
 
 function applyGeneration(job: JobRow) {
   const pid = job.project_id
   const project = db.projects.find((p) => p.id === pid)!
-  const model = buildUseCaseModel(db.items[pid] ?? [], project.name)
-  const diagram: DiagramRow = {
-    id: uid('dg'),
-    project_id: pid,
-    type: 'use_case',
-    title: `${project.name} · Use Case`,
-    created_at: now(),
-    parent_id: null,
-    instruction: null,
-    model,
-    svg: renderUseCase(model),
+  extractBuildingBlocks(pid)
+  const ids: string[] = []
+  for (const type of job.diagram_types?.length ? job.diagram_types : ['use_case' as const]) {
+    const model = type === 'use_case' ? buildUseCaseModel(db.items[pid] ?? [], project.name) : undefined
+    const diagram: DiagramRow = {
+      id: uid('dg'),
+      project_id: pid,
+      type,
+      title: `${project.name} · ${TYPE_LABEL[type]}`,
+      created_at: now(),
+      parent_id: null,
+      instruction: null,
+      model,
+      svg: model ? renderUseCase(model) : renderPlaceholder(TYPE_LABEL[type], db.items[pid] ?? []),
+    }
+    db.diagrams.push(diagram)
+    ids.push(diagram.id)
   }
-  db.diagrams.push(diagram)
-  job.diagram_ids = [diagram.id]
+  job.diagram_ids = ids
   touch(pid)
 }
 
@@ -213,7 +269,17 @@ export function publicJob({ project_id: _p, payload: _t, applied: _a, ...job }: 
   return job
 }
 
-export function diagramView(d: DiagramRow): Diagram & { elements: { label: string }[] } {
+/** #38: a version's own style, else the nearest earlier version's, else the default. */
+export function styleFor(d: DiagramRow): DiagramStyle {
+  const seen = new Set<string>()
+  for (let v: DiagramRow | undefined = d; v && !seen.has(v.id); v = db.diagrams.find((x) => x.id === v!.parent_id)) {
+    if (v.style) return v.style
+    seen.add(v.id)
+  }
+  return DEFAULT_STYLE
+}
+
+export function diagramView(d: DiagramRow): Diagram {
   return {
     id: d.id,
     type: d.type,
@@ -221,8 +287,20 @@ export function diagramView(d: DiagramRow): Diagram & { elements: { label: strin
     created_at: d.created_at,
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
-    elements: [...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => ({ label: e.name })),
+    svg: d.svg,
+    elements: elementsOf(d),
+    statements: db.statements[d.project_id] ?? [],
   }
+}
+
+/** Traceability for the viewer: each drawn actor / use case with the requirements behind it. */
+function elementsOf(d: DiagramRow) {
+  if (!d.model) return []
+  const items = new Map((db.items[d.project_id] ?? []).map((i) => [i.id, i]))
+  return [
+    ...d.model.actors.map((a) => ({ element_id: a.id, model_item_id: a.id, kind: 'actor', label: a.name, statement_ids: items.get(a.id)?.statement_ids ?? [] })),
+    ...d.model.cases.map((c) => ({ element_id: c.id, model_item_id: c.assumed ? null : c.id, kind: 'use_case', label: c.name, statement_ids: items.get(c.id)?.statement_ids ?? [] })),
+  ]
 }
 
 export function projectView(p: ProjectRow): components['schemas']['Project'] {
@@ -231,6 +309,11 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     id: p.id,
     name: p.name,
     role: 'owner',
+    is_owner: true, // the mock has no other members: only the owner can see a project
+    archived_at: p.archived_at ?? null,
+    archived_by: p.archived_by ?? null,
+    client_name: p.client_name ?? null,
+    contact_email: p.contact_email ?? null,
     created_at: p.created_at,
     updated_at: p.updated_at,
     statement_count: db.statements[p.id]?.length ?? 0,
@@ -241,5 +324,7 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     diagram_count: db.diagrams.filter((d) => d.project_id === p.id).length,
     document_count: db.documents?.[p.id]?.length ?? 0,
     document_page_count: (db.documents?.[p.id] ?? []).reduce((sum, d) => sum + d.page_count, 0),
+    open_flag_count: (db.flags[p.id] ?? []).filter((f) => f.status === 'open' && db.statements[p.id]?.some((s) => s.id === f.statement_id)).length,
+    extracted_nodes: p.extracted_nodes ?? [],
   }
 }

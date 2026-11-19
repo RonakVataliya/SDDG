@@ -1,0 +1,100 @@
+{
+  "id": "parking",
+  "title": "Parking lot",
+  "style": "srs-shall",
+  "reviewed": false,
+  "requirement_count": 5,
+  "text": "The system shall let a driver find a free parking space on a map.\nThe system shall let a driver pay for parking by the hour.\nThe system shall let an attendant mark a space as occupied or free.\nThe system shall let the parking manager set the hourly rate.\nThe system shall issue a fine when a car stays longer than it paid for.\n",
+  "labels": {
+    "actors": [
+      [
+        "Driver"
+      ],
+      [
+        "Attendant",
+        "Parking attendant"
+      ],
+      [
+        "Parking manager",
+        "Manager"
+      ]
+    ],
+    "entities": [
+      [
+        "Parking space",
+        "Space",
+        "Spot"
+      ],
+      [
+        "Payment"
+      ],
+      [
+        "Rate",
+        "Hourly rate"
+      ],
+      [
+        "Fine"
+      ],
+      [
+        "Car",
+        "Vehicle"
+      ]
+    ],
+    "processes": [
+      [
+        "Find parking space",
+        "Find space",
+        "Search parking"
+      ],
+      [
+        "Pay for parking",
+        "Pay"
+      ],
+      [
+        "Update space status",
+        "Mark space occupied",
+        "Mark space"
+      ],
+      [
+        "Set hourly rate",
+        "Set rate"
+      ],
+      [
+        "Issue fine"
+      ]
+    ],
+    "interactions": [
+      [
+        "Driver",
+        "Find parking space"
+      ],
+      [
+        "Driver",
+        "Pay for parking"
+      ],
+      [
+        "Attendant",
+        "Update space status"
+      ],
+      [
+        "Parking manager",
+        "Set hourly rate"
+      ]
+    ],
+    "relationships": [
+      [
+        "Car",
+        "Parking space"
+      ],
+      [
+        "Payment",
+        "Parking space"
+      ],
+      [
+        "Fine",
+        "Car"
+      ]
+    ]
+  },
+  "forbidden": []
+}

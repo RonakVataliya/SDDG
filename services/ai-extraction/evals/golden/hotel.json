@@ -1,0 +1,139 @@
+{
+  "id": "hotel",
+  "title": "Hotel booking",
+  "style": "srs-numbered",
+  "reviewed": false,
+  "requirement_count": 8,
+  "text": "1. A guest shall search for rooms by city, dates and number of guests.\n2. A guest shall book a room and pay a deposit of 20% of the price.\n3. A guest shall cancel a booking free of charge up to 48 hours before check-in.\n4. The front desk shall check guests in and out.\n5. The front desk shall assign a room number at check-in.\n6. Housekeeping shall mark a room as clean after check-out.\n7. The hotel manager shall set room prices per season.\n8. The system shall send the guest a booking confirmation email.\n",
+  "labels": {
+    "actors": [
+      [
+        "Guest"
+      ],
+      [
+        "Front desk",
+        "Receptionist",
+        "Front desk staff"
+      ],
+      [
+        "Housekeeping"
+      ],
+      [
+        "Hotel manager",
+        "Manager"
+      ]
+    ],
+    "entities": [
+      [
+        "Room"
+      ],
+      [
+        "Booking",
+        "Reservation"
+      ],
+      [
+        "Guest"
+      ],
+      [
+        "Deposit",
+        "Payment"
+      ],
+      [
+        "Price",
+        "Room rate",
+        "Season price"
+      ]
+    ],
+    "processes": [
+      [
+        "Search rooms"
+      ],
+      [
+        "Book room",
+        "Make booking"
+      ],
+      [
+        "Pay deposit"
+      ],
+      [
+        "Cancel booking"
+      ],
+      [
+        "Check in guest",
+        "Check in"
+      ],
+      [
+        "Check out guest",
+        "Check out"
+      ],
+      [
+        "Assign room"
+      ],
+      [
+        "Mark room clean",
+        "Update room status"
+      ],
+      [
+        "Set room prices",
+        "Set prices"
+      ],
+      [
+        "Send confirmation",
+        "Send booking confirmation"
+      ]
+    ],
+    "interactions": [
+      [
+        "Guest",
+        "Search rooms"
+      ],
+      [
+        "Guest",
+        "Book room"
+      ],
+      [
+        "Guest",
+        "Cancel booking"
+      ],
+      [
+        "Front desk",
+        "Check in guest"
+      ],
+      [
+        "Front desk",
+        "Check out guest"
+      ],
+      [
+        "Front desk",
+        "Assign room"
+      ],
+      [
+        "Housekeeping",
+        "Mark room clean"
+      ],
+      [
+        "Hotel manager",
+        "Set room prices"
+      ]
+    ],
+    "relationships": [
+      [
+        "Guest",
+        "Booking"
+      ],
+      [
+        "Booking",
+        "Room"
+      ],
+      [
+        "Booking",
+        "Deposit"
+      ],
+      [
+        "Room",
+        "Price"
+      ]
+    ]
+  },
+  "forbidden": []
+}

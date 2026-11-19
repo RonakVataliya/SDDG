@@ -1,0 +1,168 @@
+{
+  "id": "student_portal",
+  "title": "University student portal",
+  "style": "user-stories",
+  "reviewed": false,
+  "requirement_count": 10,
+  "text": "As a student, I want to register for courses each semester.\nAs a student, I want to drop a course before the deadline.\nAs a student, I want to view my grades and my GPA.\nAs a student, I want to pay the semester fee online.\nAs a student, I want to download my transcript.\nAs a faculty member, I want to upload the grades for my course.\nAs a faculty member, I want to see the list of students in my course.\nAs the registrar, I want to publish the course timetable.\nAs the registrar, I want to approve transcript requests.\nAs the accounts office, I want to see which students have not paid the fee.\n",
+  "labels": {
+    "actors": [
+      [
+        "Student"
+      ],
+      [
+        "Faculty member",
+        "Faculty",
+        "Instructor"
+      ],
+      [
+        "Registrar"
+      ],
+      [
+        "Accounts office",
+        "Accounts"
+      ]
+    ],
+    "entities": [
+      [
+        "Student"
+      ],
+      [
+        "Course"
+      ],
+      [
+        "Enrollment",
+        "Registration",
+        "Course registration"
+      ],
+      [
+        "Grade"
+      ],
+      [
+        "Fee",
+        "Fee payment",
+        "Payment"
+      ],
+      [
+        "Transcript"
+      ],
+      [
+        "Timetable"
+      ],
+      [
+        "Semester"
+      ]
+    ],
+    "processes": [
+      [
+        "Register for course",
+        "Enroll in course"
+      ],
+      [
+        "Drop course"
+      ],
+      [
+        "View grades",
+        "View GPA"
+      ],
+      [
+        "Pay fee",
+        "Pay semester fee"
+      ],
+      [
+        "Download transcript",
+        "Request transcript"
+      ],
+      [
+        "Upload grades",
+        "Enter grades"
+      ],
+      [
+        "View class list",
+        "View enrolled students",
+        "View students"
+      ],
+      [
+        "Publish timetable"
+      ],
+      [
+        "Approve transcript request",
+        "Approve transcript"
+      ],
+      [
+        "View unpaid fees",
+        "View fee defaulters",
+        "Check fee status"
+      ]
+    ],
+    "interactions": [
+      [
+        "Student",
+        "Register for course"
+      ],
+      [
+        "Student",
+        "Drop course"
+      ],
+      [
+        "Student",
+        "View grades"
+      ],
+      [
+        "Student",
+        "Pay fee"
+      ],
+      [
+        "Student",
+        "Download transcript"
+      ],
+      [
+        "Faculty member",
+        "Upload grades"
+      ],
+      [
+        "Faculty member",
+        "View class list"
+      ],
+      [
+        "Registrar",
+        "Publish timetable"
+      ],
+      [
+        "Registrar",
+        "Approve transcript request"
+      ],
+      [
+        "Accounts office",
+        "View unpaid fees"
+      ]
+    ],
+    "relationships": [
+      [
+        "Student",
+        "Enrollment"
+      ],
+      [
+        "Enrollment",
+        "Course"
+      ],
+      [
+        "Enrollment",
+        "Grade"
+      ],
+      [
+        "Student",
+        "Fee"
+      ],
+      [
+        "Student",
+        "Transcript"
+      ],
+      [
+        "Course",
+        "Timetable"
+      ]
+    ]
+  },
+  "forbidden": []
+}

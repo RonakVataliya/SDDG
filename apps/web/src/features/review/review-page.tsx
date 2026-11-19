@@ -1,38 +1,62 @@
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, PencilIcon } from 'lucide-react'
+import { ArrowRightIcon, CheckIcon, FlagIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import type { ExtractedItem, ItemCategory, RequirementStatement } from '@/api/client'
+import type { RequirementStatement, Schemas } from '@/api/client'
 import { errorMessage } from '@/api/errors'
-import { ITEMS_PAGE_SIZE, useConfirmExtraction, useItems, useStatements } from '@/api/queries'
+import { useAddStatement, useConfirmExtraction, useDeleteStatement, useFlags, useFlagSummary, useStatements, useUpdateStatement } from '@/api/queries'
 import { Badge, RefTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { FieldError, Input, Textarea } from '@/components/ui/input'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
-import { StepHeading } from '@/features/input/input-page'
+import { FLAG_LABEL, FLAG_TONE, FlagPill, FlagsDrawer, Highlighted } from '@/features/flags/flags'
 import { useWorkspace } from '@/routes/workspace-layout'
-import { cn, formatRelative } from '@/lib/utils'
-import { EditItemDialog } from './edit-item-dialog'
-import { CATEGORIES, categoryLabel, QUALIFIERS } from './labels'
+import { cn, formatRelative, plural } from '@/lib/utils'
 
+type Label = NonNullable<Schemas['StatementWrite']['label']>
+const LABELS: { id: Label; short: string; long: string }[] = [
+  { id: 'functional', short: 'FR', long: 'Functional' },
+  { id: 'non_functional', short: 'NFR', long: 'Non-functional' },
+  { id: 'user_story', short: 'Story', long: 'User story' },
+]
+const shortLabel = (l: string | null | undefined) => LABELS.find((x) => x.id === l)?.short ?? (l && l !== 'unknown' ? l : '')
+const EMPTY = 'Requirement text can’t be empty.'
+
+/** Step 2: review the requirements the AI found, fix them, then confirm. Nothing is drawn before this. */
 export function ReviewPage() {
   const { project } = useWorkspace()
-  const [category, setCategory] = useState<ItemCategory | undefined>()
-  const [page, setPage] = useState(1)
-  const [editing, setEditing] = useState<ExtractedItem | null>(null)
-  const items = useItems(project.id, category, page)
   const statements = useStatements(project.id)
-  const highlight = useSearchParams()[0].get('requirement') // set by search: open and highlight this requirement
+  const summary = useFlagSummary(project.id)
+  const flags = useFlags(project.id)
+  const [onlyFlagged, setOnlyFlagged] = useState(false)
+  const [query, setQuery] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [drawer, setDrawer] = useState<{ open: boolean; focus?: string | null }>({ open: false })
+  const highlight = useSearchParams()[0].get('requirement') // set by search: show this requirement
   const canEdit = project.role !== 'viewer'
 
-  const byId = useMemo(
-    () => new Map((statements.data ?? []).map((s) => [s.id, s])),
-    [statements.data],
-  )
+  const summaryById = useMemo(() => new Map((summary.data ?? []).map((s) => [s.statement_id, s])), [summary.data])
+  // The summary's `types` also lists resolved flags' types, so the pill and counts take them from open flags only.
+  const openTypes = useMemo(() => {
+    const m = new Map<string, Schemas['FlagType'][]>()
+    for (const f of flags.data ?? []) {
+      if (f.status !== 'open') continue
+      const have = m.get(f.statement_id) ?? []
+      if (!have.includes(f.type)) m.set(f.statement_id, [...have, f.type])
+    }
+    return m
+  }, [flags.data])
+  const openFlagByStatement = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof flags.data>[number]>()
+    for (const f of flags.data ?? []) if (f.status === 'open' && !m.has(f.statement_id)) m.set(f.statement_id, f)
+    return m
+  }, [flags.data])
 
-  if (project.item_count === 0 && !items.data?.total && (statements.data?.length ?? 0) === 0) {
+  if (statements.isPending) return <PageLoading label="Loading requirements" />
+  if (project.statement_count === 0 && !statements.data?.length) {
     return (
-      <div className="space-y-4">
-        <StepHeading title="Review extracted items" />
+      <div className="p-7">
         <Notice title="Nothing to review yet">
           Add requirement text first.{' '}
           <Link to="../input" className="font-medium underline">
@@ -43,224 +67,323 @@ export function ReviewPage() {
     )
   }
 
-  const counts = items.data?.counts ?? {}
-  const total = Object.values(counts).reduce((a, b) => a + b, 0)
-  const pageCount = items.data ? Math.max(1, Math.ceil(items.data.total / ITEMS_PAGE_SIZE)) : 1
+  const all = statements.data ?? []
+  const flaggedCount = (summary.data ?? []).filter((s) => s.open > 0).length
+  const q = query.trim().toLowerCase()
+  const shown = all.filter((s) => (!onlyFlagged || (summaryById.get(s.id)?.open ?? 0) > 0) && (!q || `${s.ref} ${s.text}`.toLowerCase().includes(q)))
 
   return (
-    <div className="flex flex-1 flex-col space-y-5">
-      <StepHeading
-        title="Review extracted items"
-        description="Check what was pulled out of your requirements. Fix anything wrong, then confirm. Diagrams are generated only from confirmed items."
-      />
-
-      <div role="group" aria-label="Filter by category" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-        {[{ value: undefined, plural: 'All', count: total }, ...CATEGORIES.map((c) => ({ ...c, count: counts[c.value] ?? 0 }))].map(
-          (c) => {
-            const active = category === c.value
-            return (
+    <div className="mx-auto grid w-full max-w-[1400px] flex-1 gap-6 p-4 sm:p-7 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <section aria-label="Requirements" className="flex min-h-0 flex-col self-start overflow-hidden rounded-xl border border-rule bg-field">
+        <div className="flex flex-wrap items-center gap-3 border-b border-rule px-4 py-3">
+          <h2 className="font-sans text-[15px] font-semibold tracking-normal">
+            Requirements <span className="font-normal text-slate">{all.length}</span>
+          </h2>
+          <div role="group" aria-label="Show" className="flex rounded-[9px] bg-rule p-[3px] text-[12.5px] font-medium">
+            {[false, true].map((f) => (
               <button
-                key={c.plural}
+                key={String(f)}
                 type="button"
-                aria-pressed={active}
-                onClick={() => {
-                  setCategory(c.value)
-                  setPage(1)
-                }}
-                className={cn(
-                  'shrink-0 rounded-md border px-3 py-1.5 text-sm',
-                  active ? 'border-ink bg-ink text-white' : 'border-rule bg-surface text-ink hover:border-rule-strong',
-                )}
+                aria-pressed={onlyFlagged === f}
+                onClick={() => setOnlyFlagged(f)}
+                className={cn('rounded-[7px] px-3 py-1 text-ink-2', onlyFlagged === f && 'bg-field text-ink shadow-sm')}
               >
-                {c.plural} <span className={cn('tabular-nums', active ? 'text-white/70' : 'text-slate')}>{c.count}</span>
+                {f ? `Flagged ${flaggedCount}` : 'All'}
               </button>
-            )
-          },
+            ))}
+          </div>
+          <label className="relative ml-auto w-full max-w-56">
+            <span className="sr-only">Filter requirements</span>
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-slate" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter" className="h-8 pl-8 text-[13px]" />
+          </label>
+          {canEdit && (
+            <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>
+              <PlusIcon /> Add requirement
+            </Button>
+          )}
+        </div>
+
+        <ol>
+          {shown.map((s) =>
+            editing === s.id ? (
+              <EditRow key={s.id} projectId={project.id} statement={s} onDone={() => setEditing(null)} />
+            ) : (
+              <Row
+                key={s.id}
+                projectId={project.id}
+                statement={s}
+                flag={openFlagByStatement.get(s.id)}
+                summary={summaryById.get(s.id)}
+                openTypes={openTypes.get(s.id)}
+                highlighted={s.ref === highlight}
+                canEdit={canEdit}
+                onEdit={() => setEditing(s.id)}
+                onFlags={() => setDrawer({ open: true, focus: s.id })}
+              />
+            ),
+          )}
+          {shown.length === 0 && <li className="px-5 py-8 text-center text-[13px] text-slate">No requirements match.</li>}
+        </ol>
+        {adding && <AddRow projectId={project.id} nextRef={nextRef(all)} onDone={() => setAdding(false)} />}
+      </section>
+
+      <ConfirmPanel count={all.length} summary={summary.data ?? []} openTypes={openTypes} onFlags={() => setDrawer({ open: true })} />
+
+      <FlagsDrawer projectId={project.id} open={drawer.open} onOpenChange={(open) => setDrawer((d) => ({ ...d, open }))} focusStatementId={drawer.focus} statements={all} canEdit={canEdit} />
+    </div>
+  )
+}
+
+const nextRef = (all: RequirementStatement[]) => `R-${String(Math.max(0, ...all.map((s) => Number(s.ref.slice(2)) || 0)) + 1).padStart(3, '0')}`
+
+function Row({
+  projectId,
+  statement: s,
+  flag,
+  summary,
+  openTypes,
+  highlighted,
+  canEdit,
+  onEdit,
+  onFlags,
+}: {
+  projectId: string
+  statement: RequirementStatement
+  flag?: Schemas['Flag']
+  summary?: Schemas['FlagSummary']
+  openTypes?: Schemas['FlagType'][]
+  highlighted?: boolean
+  canEdit: boolean
+  onEdit: () => void
+  onFlags: () => void
+}) {
+  const remove = useDeleteStatement(projectId)
+  const [confirming, setConfirming] = useState(false)
+  return (
+    <li
+      ref={highlighted ? (el) => el?.scrollIntoView?.({ block: 'center' }) : undefined}
+      aria-current={highlighted || undefined}
+      className={cn(
+        'group flex items-start gap-3 border-b border-rule px-4 py-2.5 last:border-b-0',
+        highlighted && 'bg-accent-wash shadow-[inset_3px_0_0_var(--accent)]',
+      )}
+    >
+      <RefTag className="mt-0.5 shrink-0">{s.ref}</RefTag>
+      <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] text-slate">{shortLabel(s.label)}</span>
+      {/* FR1/FR2: the requirement's own ID from the input (FR-001, NFR-2, …) */}
+      {s.source_label && (
+        <Badge tone="neutral" className="mt-0.5 h-fit shrink-0 font-mono text-[11px]">
+          {s.source_label}
+        </Badge>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] leading-[22px]">
+          <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
+        </p>
+        {/* FR1: structured user story (As a <role>, I want <goal>, so that <reason>) */}
+        {Boolean(s.metadata?.structured && s.metadata.role) && (
+          <p className="mt-0.5 text-xs text-slate">
+            Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
+            <span className="text-ink">{String(s.metadata?.goal)}</span>
+            {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
+          </p>
         )}
       </div>
-
-      {items.isError ? (
-        <Notice tone="error" title="Couldn't load the items">
-          {errorMessage(items.error)}
-        </Notice>
-      ) : !items.data ? (
-        <PageLoading label="Loading items" />
-      ) : items.data.items.length === 0 ? (
-        <p className="rounded-lg border border-rule bg-surface px-5 py-8 text-center text-slate">
-          No {category ? categoryLabel[category].toLowerCase() : ''} items were extracted.
-        </p>
-      ) : (
-        <div className={cn('relative overflow-x-auto rounded-lg border border-rule bg-surface', items.isPlaceholderData && 'opacity-60')}>
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-rule text-slate">
-              <tr>
-                <th scope="col" className="px-4 py-2.5 font-medium">Item</th>
-                {!category && <th scope="col" className="px-4 py-2.5 font-medium">Category</th>}
-                <th scope="col" className="px-4 py-2.5 font-medium">Source</th>
-                <th scope="col" className="px-4 py-2.5 font-medium">Status</th>
-                {canEdit && <th scope="col" className="w-12 px-2 py-2.5"><span className="sr-only">Actions</span></th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-rule">
-              {items.data.items.map((item) => (
-                <tr key={item.id} className="align-top hover:bg-paper/60">
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{item.name}</p>
-                    {item.description && <p className="mt-0.5 max-w-md text-slate">{item.description}</p>}
-                  </td>
-                  {!category && <td className="px-4 py-3 whitespace-nowrap text-slate">{categoryLabel[item.category]}</td>}
-                  <td className="px-4 py-3">
-                    <SourceRefs ids={item.statement_ids} byId={byId} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {item.origin !== 'system-extracted' && (
-                        <Badge tone="violet">{item.origin === 'user-edited' ? 'Edited by you' : 'Added by you'}</Badge>
-                      )}
-                      {item.qualifiers.map((q) => (
-                        <Badge key={q} tone="amber" title={QUALIFIERS[q].hint}>
-                          {QUALIFIERS[q].label}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  {canEdit && (
-                    <td className="px-2 py-2">
-                      <Button variant="ghost" size="icon" aria-label={`Edit ${item.name}`} onClick={() => setEditing(item)}>
-                        <PencilIcon />
-                      </Button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {items.data && items.data.total > ITEMS_PAGE_SIZE && (
-        <nav aria-label="Pagination" className="flex items-center justify-end gap-2 text-sm">
-          <span className="mr-2 text-slate tabular-nums">
-            {(page - 1) * ITEMS_PAGE_SIZE + 1}–{Math.min(page * ITEMS_PAGE_SIZE, items.data.total)} of {items.data.total}
+      <FlagPill summary={summary} openTypes={openTypes} onClick={onFlags} />
+      {canEdit &&
+        (confirming ? (
+          <span className="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(s.id)}>
+              {remove.isPending && <Spinner className="text-on-ink" label="Deleting" />}
+              Delete {s.ref}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              Keep
+            </Button>
           </span>
-          <Button variant="secondary" size="icon" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            <ChevronLeftIcon />
-          </Button>
-          <Button variant="secondary" size="icon" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
-            <ChevronRightIcon />
-          </Button>
-        </nav>
-      )}
-
-      <StatementList statements={statements.data ?? []} highlight={highlight} />
-
-      <ConfirmBar />
-
-      <EditItemDialog projectId={project.id} item={editing} confirmed={project.confirmed} onClose={() => setEditing(null)} />
-    </div>
+        ) : (
+          <span className="flex shrink-0 gap-0.5 opacity-40 group-hover:opacity-100 focus-within:opacity-100">
+            <Button variant="ghost" size="icon" className="size-7" aria-label={`Edit ${s.ref}`} onClick={onEdit}>
+              <PencilIcon className="size-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="size-7" aria-label={`Delete ${s.ref}`} onClick={() => setConfirming(true)}>
+              <Trash2Icon className="size-3.5" />
+            </Button>
+          </span>
+        ))}
+      {remove.isError && <FieldError>{errorMessage(remove.error)}</FieldError>}
+    </li>
   )
 }
 
-function SourceRefs({ ids, byId }: { ids: string[]; byId: Map<string, RequirementStatement> }) {
-  if (ids.length === 0) return <span className="text-slate">None</span>
+function LabelPicker({ value, onChange }: { value: Label | null; onChange: (l: Label) => void }) {
   return (
-    <div className="flex flex-wrap gap-1">
-      {ids.map((id) => {
-        const st = byId.get(id)
-        return (
-          <RefTag key={id} title={st?.text}>
-            {st?.ref ?? '…'}
-          </RefTag>
-        )
-      })}
+    <div role="radiogroup" aria-label="Type" className="flex rounded-[8px] bg-rule p-0.5 text-[12px] font-medium">
+      {LABELS.map((l) => (
+        <button key={l.id} type="button" role="radio" aria-checked={value === l.id} onClick={() => onChange(l.id)} className={cn('rounded-[6px] px-2.5 py-1 text-ink-2', value === l.id && 'bg-field text-ink shadow-sm')}>
+          {l.long}
+        </button>
+      ))}
     </div>
   )
 }
 
-function StatementList({ statements, highlight }: { statements: RequirementStatement[]; highlight: string | null }) {
-  const [open, setOpen] = useState(highlight !== null)
-  if (statements.length === 0) return null
+function EditRow({ projectId, statement: s, onDone }: { projectId: string; statement: RequirementStatement; onDone: () => void }) {
+  const [text, setText] = useState(s.text)
+  const [label, setLabel] = useState<Label | null>(LABELS.some((l) => l.id === s.label) ? (s.label as Label) : null)
+  const update = useUpdateStatement(projectId)
+  const empty = !text.trim()
+  const changed = text.trim() !== s.text || (label !== null && label !== s.label)
   return (
-    <div className="rounded-lg border border-rule bg-surface">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium"
-      >
-        Requirement statements ({statements.length})
-        <ChevronDownIcon className={cn('size-4 text-slate transition-transform', open && 'rotate-180')} />
-      </button>
-      {open && (
-        <ol className="divide-y divide-rule border-t border-rule">
-          {statements.map((s) => (
-            <li
-              key={s.id}
-              ref={s.ref === highlight ? (el) => el?.scrollIntoView?.({ block: 'center' }) : undefined}
-              className={cn('flex items-start gap-3 px-4 py-2.5 text-sm', s.ref === highlight && 'bg-teal-wash')}
-            >
-              <RefTag className="h-fit shrink-0">{s.ref}</RefTag>
-              {s.source_label && (
-                <Badge tone="neutral" className="h-fit shrink-0 font-mono text-[11px]">
-                  {s.source_label}
-                </Badge>
-              )}
-              <div className="min-w-0 flex-1">
-                <p>
-                  {s.label && <span className="mr-1.5 text-slate">{s.label}</span>}
-                  {s.text}
-                </p>
-                {Boolean(s.metadata?.structured && s.metadata.role) && (
-                  <p className="mt-0.5 text-xs text-slate">
-                    Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
-                    <span className="text-ink">{String(s.metadata?.goal)}</span>
-                    {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
-                  </p>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+    <li className="border-b border-rule bg-accent-wash px-4 py-3.5 shadow-[inset_3px_0_0_var(--accent)]">
+      <div className="flex flex-wrap items-center gap-3">
+        <RefTag className="border-accent text-accent">{s.ref}</RefTag>
+        <LabelPicker value={label} onChange={setLabel} />
+      </div>
+      <label htmlFor={`edit-${s.id}`} className="sr-only">
+        Requirement text
+      </label>
+      <Textarea id={`edit-${s.id}`} autoFocus value={text} aria-invalid={empty} onChange={(e) => setText(e.target.value)} className="mt-2.5 min-h-16 text-[13.5px]" />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <FieldError>{empty ? EMPTY : update.isError ? errorMessage(update.error) : null}</FieldError>
+        <span className="text-[11.5px] text-slate">Editing a requirement asks you to confirm the list again.</span>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          disabled={empty || !changed || update.isPending}
+          onClick={async () => {
+            const ok = await update.mutateAsync({ id: s.id, text: text.trim(), ...(label ? { label } : {}) }).catch(() => null)
+            if (ok) onDone()
+          }}
+        >
+          {update.isPending && <Spinner className="text-on-ink" label="Saving" />}
+          Save
+        </Button>
+      </div>
+    </li>
+  )
+}
+
+function AddRow({ projectId, nextRef: ref, onDone }: { projectId: string; nextRef: string; onDone: () => void }) {
+  const [text, setText] = useState('')
+  const [label, setLabel] = useState<Label>('functional')
+  const add = useAddStatement(projectId)
+  async function save() {
+    if (!text.trim()) return
+    const ok = await add.mutateAsync({ text: text.trim(), label }).catch(() => null)
+    if (ok) {
+      setText('')
+      onDone()
+    }
+  }
+  return (
+    <div className="border-t border-rule bg-surface px-4 py-3.5">
+      <div className="flex flex-wrap items-center gap-3">
+        <RefTag>{ref}</RefTag>
+        <span className="text-[11.5px] text-slate">new</span>
+        <LabelPicker value={label} onChange={setLabel} />
+      </div>
+      <label htmlFor="new-requirement" className="sr-only">
+        New requirement
+      </label>
+      <Input
+        id="new-requirement"
+        autoFocus
+        value={text}
+        placeholder="The librarian shall …"
+        className="mt-2.5"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void save()
+          if (e.key === 'Escape') onDone()
+        }}
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <FieldError>{add.isError ? errorMessage(add.error) : null}</FieldError>
+        <span className="text-[11.5px] text-slate">Enter to save · Esc to cancel</span>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={!text.trim() || add.isPending} onClick={save}>
+          {add.isPending && <Spinner className="text-on-ink" label="Adding" />}
+          Add
+        </Button>
+      </div>
     </div>
   )
 }
 
-/** FR5e: the gate. Generation stays locked until the current extraction is confirmed; any edit clears it. */
-function ConfirmBar() {
+/** The gate: diagrams are drawn only from confirmed requirements. Flags are advice and never block it. */
+function ConfirmPanel({ count, summary, openTypes, onFlags }: { count: number; summary: Schemas['FlagSummary'][]; openTypes: Map<string, Schemas['FlagType'][]>; onFlags: () => void }) {
   const { project } = useWorkspace()
   const confirm = useConfirmExtraction(project.id)
   const navigate = useNavigate()
-  const canEdit = project.role !== 'viewer'
+  const open = summary.reduce((n, s) => n + s.open, 0)
+  const byType = new Map<Schemas['FlagType'], number>()
+  for (const types of openTypes.values()) for (const t of types) byType.set(t, (byType.get(t) ?? 0) + 1)
 
   return (
-    <div className="sticky bottom-0 z-20 -mx-5 mt-auto -mb-5 rounded-b-xl border-t border-rule bg-surface/95 backdrop-blur">
-      <div className="flex flex-wrap items-center gap-3 px-5 py-3">
-        <p className="min-w-0 flex-1 text-sm">
-          {project.confirmed ? (
-            <>
-              <span className="font-medium text-teal-deep">Confirmed</span>
-              <span className="text-slate">
-                {project.confirmed_at && ` ${formatRelative(project.confirmed_at)}`}. Editing any item clears this.
-              </span>
-            </>
-          ) : confirm.isError ? (
-            <span className="text-danger">{errorMessage(confirm.error)}</span>
-          ) : (
-            <span className="text-slate">Generating is locked until you confirm these items.</span>
-          )}
-        </p>
+    <aside className="space-y-4 self-start">
+      <div className="ticks rounded-xl border border-rule bg-field p-5">
         {project.confirmed ? (
-          <Button onClick={() => navigate('../generate')}>Continue to Generate</Button>
-        ) : (
-          canEdit && (
-            <Button disabled={confirm.isPending} onClick={() => confirm.mutate()}>
-              {confirm.isPending && <Spinner className="text-white" label="Confirming" />}
-              Confirm extracted items
+          <>
+            <p className="flex items-center gap-2 text-[15px] font-semibold text-success">
+              <CheckIcon className="size-4" /> {plural(count, 'requirement')} confirmed
+            </p>
+            <p className="mt-1 text-[13px] text-slate">
+              {project.confirmed_at && `Confirmed ${formatRelative(project.confirmed_at)}. `}Editing a requirement asks you to confirm again.
+            </p>
+            <Button size="lg" className="mt-5 w-full" onClick={() => navigate('../generate')}>
+              Choose diagrams <ArrowRightIcon />
             </Button>
-          )
+          </>
+        ) : (
+          <>
+            <p className="text-[15px] font-semibold">Ready to confirm?</p>
+            <p className="mt-1 text-[13px] text-slate">Check the list reads right. You can still edit afterwards; that just asks you to confirm again.</p>
+            <dl className="mt-4 space-y-1.5 text-[13px]">
+              <div className="flex justify-between">
+                <dt>Requirements</dt>
+                <dd className="font-semibold">{count}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Open flags</dt>
+                <dd className={cn('font-semibold', open && 'text-amber')}>{open}</dd>
+              </div>
+            </dl>
+            {byType.size > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {[...byType].map(([t, n]) => (
+                  <Badge key={t} tone={FLAG_TONE[t]}>
+                    {n} {FLAG_LABEL[t].toLowerCase()}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {open > 0 && (
+              <Button variant="link" size="sm" className="mt-3" onClick={onFlags}>
+                <FlagIcon className="size-3.5" /> Go through flags
+              </Button>
+            )}
+            {confirm.isError && <p role="alert" className="mt-3 text-[12.5px] text-danger">{errorMessage(confirm.error)}</p>}
+            {project.role !== 'viewer' && (
+              <Button size="lg" className="mt-5 w-full" disabled={confirm.isPending || count === 0} onClick={() => confirm.mutate()}>
+                {confirm.isPending && <Spinner className="text-on-ink" label="Confirming" />}
+                Confirm {plural(count, 'requirement')}
+                <ArrowRightIcon />
+              </Button>
+            )}
+            <p className="mt-2 text-center text-[11.5px] text-slate">Flags are advice. They never block you.</p>
+          </>
         )}
       </div>
-    </div>
+      <div className="rounded-xl border border-rule bg-surface p-5">
+        <p className="font-mono text-[11px] tracking-[0.08em] text-slate uppercase">Next</p>
+        <p className="mt-1.5 text-[13px]">Choose the diagrams you want. Only then does the AI extract actors, entities and the rest, and only what those diagrams need.</p>
+      </div>
+    </aside>
   )
 }

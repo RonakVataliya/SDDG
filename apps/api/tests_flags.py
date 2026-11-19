@@ -31,7 +31,7 @@ EXTRACTION = {"requirements": [
 
 class FakeAI(FakeAIClient):
     async def post(self, url, **kwargs):
-        return FakeResponse(EXTRACTION) if url.endswith("/extract") else await super().post(url, **kwargs)
+        return FakeResponse(EXTRACTION) if url.endswith(("/extract", "/split")) else await super().post(url, **kwargs)
 
 
 CALLS_ON_EVENT_LOOP = []
@@ -73,7 +73,7 @@ def main():
     quality.httpx.post = fake_checker
     try:
         with TestClient(app) as c:
-            c.post("/api/v1/me/consent", headers=H, json={"policy_version": "2026-09-01"})
+            c.post("/api/v1/me/consent", headers=H, json={"policy_version": "2026-11-16"})
             pid = c.post("/api/v1/projects", headers=H, json={"name": "Flags"}).json()["id"]
             c.post(f"/api/v1/projects/{pid}/inputs", headers=H, json={"text": "x"})
             url = f"/api/v1/projects/{pid}/flags"

@@ -52,18 +52,8 @@ export function SignupPage() {
   }
 
   return (
-    <AuthLayout
-      title="Create your account"
-      subtitle={
-        <>
-          Already have one?{' '}
-          <Link to="/login" className="font-medium text-teal hover:underline">
-            Log in
-          </Link>
-        </>
-      }
-    >
-      <form onSubmit={onSubmit} className="space-y-5" noValidate>
+    <AuthLayout title="Create your account" subtitle="It takes less than a minute." tab="signup">
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
         {error && <Notice tone="error" title={error} />}
         <div className="space-y-1.5">
           <Label htmlFor="email">Email</Label>
@@ -90,15 +80,18 @@ export function SignupPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
           <FieldError>{passwordError}</FieldError>
-          <ul id="password-hint" aria-label="Password rules" className="space-y-0.5 pt-0.5">
+          <ul id="password-hint" aria-label="Password rules" className="flex flex-wrap gap-1.5 pt-1">
             {PASSWORD_RULES.map((r) => {
               const met = r.test(password)
               return (
                 <li
                   key={r.id}
-                  className={cn('flex items-center gap-1.5 text-xs', met ? 'text-teal-deep' : touched ? 'text-danger' : 'text-slate')}
+                  className={cn(
+                    'inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-[11.5px] font-medium',
+                    met ? 'bg-success-wash text-success' : touched ? 'bg-danger-wash text-danger' : 'bg-rule text-ink-2',
+                  )}
                 >
-                  {met ? <CheckIcon className="size-3.5" strokeWidth={3} aria-hidden /> : <XIcon className="size-3.5" aria-hidden />}
+                  {met ? <CheckIcon className="size-3" strokeWidth={3} aria-hidden /> : <XIcon className="size-3" aria-hidden />}
                   {r.label}
                   <span className="sr-only">{met ? '(done)' : '(not yet)'}</span>
                 </li>
@@ -118,7 +111,7 @@ export function SignupPage() {
             onChange={(e) => setConfirm(e.target.value)}
           />
           {matches ? (
-            <p id="confirm-error" className="flex items-center gap-1.5 text-xs text-teal-deep">
+            <p id="confirm-error" className="flex items-center gap-1.5 text-xs text-success">
               <CheckIcon className="size-3.5" strokeWidth={3} aria-hidden /> Passwords match
             </p>
           ) : (
@@ -126,7 +119,7 @@ export function SignupPage() {
           )}
         </div>
         <Button type="submit" size="lg" className="w-full" disabled={pending}>
-          {pending && <Spinner className="text-white" label="Creating account" />}
+          {pending && <Spinner className="text-on-ink" label="Creating account" />}
           Create account
         </Button>
         <p className="text-xs text-slate">

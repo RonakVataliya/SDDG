@@ -2,14 +2,15 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 import { cn } from '@/lib/utils'
 
-const badgeVariants = cva('inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-xs font-medium whitespace-nowrap', {
+const badgeVariants = cva('inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-[11.5px] font-medium whitespace-nowrap [&_svg]:size-3', {
   variants: {
     tone: {
-      neutral: 'bg-ink/6 text-slate',
-      teal: 'bg-teal-wash text-teal-deep',
+      neutral: 'bg-rule text-ink-2',
+      accent: 'bg-accent-wash text-accent-deep',
       amber: 'bg-amber-wash text-amber',
       violet: 'bg-violet-wash text-violet',
       danger: 'bg-danger-wash text-danger',
+      success: 'bg-success-wash text-success',
     },
   },
   defaultVariants: { tone: 'neutral' },
@@ -23,7 +24,7 @@ export function Badge({ className, tone, ...props }: React.ComponentProps<'span'
 export function RefTag({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
-      className={cn('rounded-sm border border-rule bg-paper px-1 font-mono text-[12px] leading-5 text-ink', className)}
+      className={cn('inline-flex h-5 items-center rounded-[4px] border border-rule-strong bg-field px-1.5 font-mono text-[11px] text-ink-2', className)}
       {...props}
     />
   )

@@ -1,0 +1,197 @@
+{
+  "id": "library",
+  "title": "City library",
+  "style": "srs-numbered",
+  "reviewed": false,
+  "requirement_count": 10,
+  "text": "1. A member shall be able to search the catalogue by title, author or ISBN.\n2. A member shall be able to borrow up to 5 books at a time.\n3. A member shall be able to reserve a book that is currently on loan.\n4. A member shall be able to renew a loan once, for 14 more days.\n5. The librarian shall register new members.\n6. The librarian shall add new books to the catalogue.\n7. The librarian shall record the return of a book.\n8. The system shall charge a fine of 10 rupees per day for an overdue book.\n9. The system shall email a member 2 days before a loan is due.\n10. The librarian shall be able to view a report of overdue loans.\n",
+  "labels": {
+    "actors": [
+      [
+        "Member",
+        "Library member"
+      ],
+      [
+        "Librarian"
+      ]
+    ],
+    "entities": [
+      [
+        "Book",
+        "Book copy"
+      ],
+      [
+        "Member",
+        "Library member",
+        "Member account"
+      ],
+      [
+        "Loan",
+        "Borrowing"
+      ],
+      [
+        "Reservation",
+        "Hold"
+      ],
+      [
+        "Fine",
+        "Penalty"
+      ],
+      [
+        "Catalogue",
+        "Catalog"
+      ]
+    ],
+    "processes": [
+      [
+        "Search catalogue",
+        "Search books",
+        "Search catalog"
+      ],
+      [
+        "Borrow book",
+        "Issue book",
+        "Check out book"
+      ],
+      [
+        "Reserve book",
+        "Place hold"
+      ],
+      [
+        "Renew loan",
+        "Renew book"
+      ],
+      [
+        "Register member",
+        "Register new member"
+      ],
+      [
+        "Add book",
+        "Add new book",
+        "Add book to catalogue"
+      ],
+      [
+        "Record return",
+        "Return book",
+        "Record book return"
+      ],
+      [
+        "Charge fine",
+        "Calculate fine",
+        "Apply overdue fine"
+      ],
+      [
+        "Send due reminder",
+        "Email due reminder",
+        "Notify member"
+      ],
+      [
+        "View overdue report",
+        "Generate overdue report",
+        "View overdue loans"
+      ]
+    ],
+    "interactions": [
+      [
+        "Member",
+        "Search catalogue"
+      ],
+      [
+        "Member",
+        "Borrow book"
+      ],
+      [
+        "Member",
+        "Reserve book"
+      ],
+      [
+        "Member",
+        "Renew loan"
+      ],
+      [
+        "Librarian",
+        "Register member"
+      ],
+      [
+        "Librarian",
+        "Add book"
+      ],
+      [
+        "Librarian",
+        "Record return"
+      ],
+      [
+        "Librarian",
+        "View overdue report"
+      ]
+    ],
+    "relationships": [
+      [
+        "Member",
+        "Loan"
+      ],
+      [
+        "Loan",
+        "Book"
+      ],
+      [
+        "Member",
+        "Reservation"
+      ],
+      [
+        "Reservation",
+        "Book"
+      ],
+      [
+        "Loan",
+        "Fine"
+      ],
+      [
+        "Catalogue",
+        "Book"
+      ]
+    ],
+    "data_stores": [
+      [
+        "Catalogue",
+        "Book catalogue",
+        "Catalog"
+      ],
+      [
+        "Loans",
+        "Loan records"
+      ],
+      [
+        "Members",
+        "Member records"
+      ]
+    ],
+    "data_flows": [
+      [
+        "Member",
+        "Search catalogue"
+      ],
+      [
+        "Search catalogue",
+        "Catalogue"
+      ],
+      [
+        "Librarian",
+        "Add book"
+      ],
+      [
+        "Add book",
+        "Catalogue"
+      ],
+      [
+        "Borrow book",
+        "Loans"
+      ],
+      [
+        "Record return",
+        "Loans"
+      ]
+    ]
+  },
+  "forbidden": []
+}

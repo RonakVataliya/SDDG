@@ -1,5 +1,20 @@
+import { useEffect } from 'react'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, unwrap, type Diagram, type DiagramType, type ItemCategory, type Job, type Point } from './client'
+import {
+  api,
+  unwrap,
+  type ConditionUpdate,
+  type Diagram,
+  type DiagramType,
+  type ItemCategory,
+  type Job,
+  type Point,
+  type ResultStatus,
+  type RunMode,
+  type Schemas,
+  type TestCaseCreate,
+  type TestCaseUpdate,
+} from './client'
 import type { paths } from './schema'
 
 export const keys = {
@@ -12,15 +27,26 @@ export const keys = {
   diagrams: (id: string) => ['projects', id, 'diagrams'] as const,
   diagram: (id: string) => ['diagrams', id] as const,
   diagramImage: (id: string) => ['diagrams', id, 'png'] as const,
+  diagramStyle: (id: string) => ['diagrams', id, 'style'] as const,
+  stylePreview: (id: string, style: Schemas['DiagramStyle'] | null) => ['diagrams', id, 'preview', style] as const,
   diagramLayout: (id: string) => ['diagrams', id, 'layout'] as const,
   job: (id: string) => ['jobs', id] as const,
   consent: ['me', 'consent'] as const,
+  // Tests (stream 6): everything under ['projects', id, 'tests'] is refreshed together after a test job or an edit.
+  tests: (id: string) => ['projects', id, 'tests'] as const,
+  testRequirements: (id: string) => ['projects', id, 'tests', 'requirements'] as const,
+  testDesign: (id: string, statementId: string) => ['projects', id, 'tests', 'requirements', statementId] as const,
+  testCases: (id: string) => ['projects', id, 'tests', 'cases'] as const,
+  testRuns: (id: string) => ['projects', id, 'tests', 'runs'] as const,
+  testRun: (id: string, runId: string) => ['projects', id, 'tests', 'runs', runId] as const,
+  runSelection: (id: string) => ['projects', id, 'tests', 'selection'] as const,
+  flags: (id: string) => ['projects', id, 'flags'] as const,
   documents: (id: string) => ['projects', id, 'documents'] as const,
 }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
 
-const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running'
+const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running' || job?.status === 'waiting'
 
 /* ---------- projects ---------- */
 
@@ -40,7 +66,7 @@ export function useProject(projectId: string) {
 export function useCreateProject() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => unwrap(api.POST('/projects', { body: { name } })),
+    mutationFn: (body: Schemas['ProjectCreate']) => unwrap(api.POST('/projects', { body })),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.projects }),
   })
 }
@@ -146,6 +172,41 @@ export function useStatements(projectId: string) {
   })
 }
 
+/** Requirements-first: any requirement change clears the confirmation and the extracted building blocks. */
+function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.items(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
+    },
+  })
+}
+
+type StatementLabel = Schemas['StatementWrite']['label']
+
+export function useAddStatement(projectId: string) {
+  return useStatementChange(projectId, (body: { text: string; label?: StatementLabel }) =>
+    unwrap(api.POST('/projects/{project_id}/statements', { params: { path: { project_id: projectId } }, body })),
+  )
+}
+
+export function useUpdateStatement(projectId: string) {
+  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel }) =>
+    unwrap(api.PATCH('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } }, body })),
+  )
+}
+
+export function useDeleteStatement(projectId: string) {
+  return useStatementChange(projectId, (id: string) =>
+    unwrap(api.DELETE('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } } })),
+  )
+}
+
 export function useItems(projectId: string, category: ItemCategory | undefined, page: number) {
   return useQuery({
     queryKey: keys.itemPage(projectId, category, page),
@@ -171,7 +232,7 @@ export function useUpdateItem(projectId: string) {
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.items(projectId) })
-      // FR5e: any change clears the confirmation, so the project summary is stale.
+      // Requirements-first: an item fix keeps the confirmation; the project's updated_at still changes.
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
     },
   })
@@ -183,6 +244,46 @@ export function useConfirmExtraction(projectId: string) {
     mutationFn: () =>
       unwrap(api.POST('/projects/{project_id}/confirmation', { params: { path: { project_id: projectId } } })),
     onSuccess: (project) => qc.setQueryData(keys.project(projectId), project),
+  })
+}
+
+/* ---------- requirement flags (issue #34): advisory, never block anything ---------- */
+
+export function useFlags(projectId: string) {
+  return useQuery({
+    queryKey: keys.flags(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/flags', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+export function useFlagSummary(projectId: string) {
+  return useQuery({
+    queryKey: [...keys.flags(projectId), 'summary'],
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/flags/summary', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+type FlagAction = { flagId: string } & ({ kind: 'answer'; answer: string } | { kind: 'resolve' | 'reopen' | 'apply-fix' })
+
+export function useFlagAction(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (a: FlagAction) => {
+      const params = { path: { project_id: projectId, flag_id: a.flagId } }
+      if (a.kind === 'answer') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/answer', { params, body: { answer: a.answer } }))
+      if (a.kind === 'resolve') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/resolve', { params }))
+      if (a.kind === 'reopen') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/reopen', { params }))
+      return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/apply-fix', { params }))
+    },
+    onSuccess: (_flag, a) => {
+      void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
+      // Apply fix rewrites the requirement (and can close the related conflict flag): refetch statements too.
+      if (a.kind === 'apply-fix') {
+        void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.items(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      }
+    },
   })
 }
 
@@ -261,6 +362,51 @@ export function useDiagramImage(diagramId: string) {
   return useQuery({ queryKey: keys.diagramImage(diagramId), queryFn: () => fetchDiagramExport(diagramId, 'png'), staleTime: Infinity })
 }
 
+/* ---------- visual customisation (#38) ---------- */
+
+/** The diagram's saved look. A version with no style of its own uses the nearest earlier version's, else the default. */
+export function useDiagramStyle(diagramId: string) {
+  return useQuery({
+    queryKey: keys.diagramStyle(diagramId),
+    queryFn: () => unwrap(api.GET('/diagrams/{diagram_id}/style', { params: { path: { diagram_id: diagramId } } })),
+  })
+}
+
+/** Saves the look. The picture changes, and so may later versions that inherit it, so their cached images are dropped. */
+export function useSaveDiagramStyle(diagramId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (style: Schemas['DiagramStyle']) =>
+      unwrap(api.PUT('/diagrams/{diagram_id}/style', { params: { path: { diagram_id: diagramId } }, body: style })),
+    onSuccess: (style) => {
+      qc.setQueryData(keys.diagramStyle(diagramId), style)
+      void qc.invalidateQueries({
+        // Later versions may inherit this style; this version's style was just set above.
+        predicate: ({ queryKey: [scope, id, kind] }) =>
+          scope === 'diagrams' && (kind === 'png' || (kind === 'style' && id !== diagramId)),
+      })
+    },
+  })
+}
+
+/** The diagram drawn with a style that is not saved yet. Pass null to skip; the last picture stays while the next loads. */
+export function useStylePreview(diagramId: string, style: Schemas['DiagramStyle'] | null) {
+  return useQuery({
+    queryKey: keys.stylePreview(diagramId, style),
+    queryFn: () =>
+      unwrap(
+        api.POST('/diagrams/{diagram_id}/preview', {
+          params: { path: { diagram_id: diagramId } },
+          body: style!,
+          parseAs: 'blob',
+        }),
+      ) as Promise<Blob>,
+    enabled: style !== null,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+  })
+}
+
 /** Plain-language edit ("rename X to Y"). The server returns a new version; the one it came from is kept. */
 export function useReviseDiagram(projectId: string) {
   const qc = useQueryClient()
@@ -313,4 +459,217 @@ export function saveBlob(blob: Blob, filename: string) {
   const a = Object.assign(document.createElement('a'), { href: url, download: filename })
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/* ---------- tests (Sprint 3, stream 6) ---------- */
+
+const projectPath = (projectId: string) => ({ params: { path: { project_id: projectId } } })
+
+/** Every requirement with its test-design summary. Polls while a test job is queued or running. */
+export function useTestRequirements(projectId: string) {
+  return useQuery({
+    queryKey: keys.testRequirements(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/requirements', projectPath(projectId))),
+    refetchInterval: (q) => (isActive(q.state.data?.active_job) ? 2000 : false),
+  })
+}
+
+export function useTestDesign(projectId: string, statementId: string | null) {
+  return useQuery({
+    queryKey: keys.testDesign(projectId, statementId ?? 'none'),
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{project_id}/tests/requirements/{statement_id}', {
+          params: { path: { project_id: projectId, statement_id: statementId! } },
+        }),
+      ),
+    enabled: !!statementId,
+  })
+}
+
+/** Polls a test job and refreshes every Tests query once it finishes, so the new design or steps show up. */
+export function useTestJob(projectId: string, jobId: string | null | undefined) {
+  const qc = useQueryClient()
+  const job = useJob(jobId)
+  const done = job.data && !isActive(job.data)
+  useEffect(() => {
+    if (done) void qc.invalidateQueries({ queryKey: keys.tests(projectId) })
+  }, [done, projectId, qc])
+  return job
+}
+
+/** AI request 1 for the chosen requirements (the server sends them 5 at a time). */
+export function useStartCriteria(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (statementIds: string[]) =>
+      unwrap(api.POST('/projects/{project_id}/tests/criteria-jobs', { ...projectPath(projectId), body: { statement_ids: statementIds } })),
+    onSuccess: (job) => {
+      qc.setQueryData(keys.job(job.id), job)
+      void qc.invalidateQueries({ queryKey: keys.testRequirements(projectId) })
+    },
+  })
+}
+
+/** Editing a condition recomputes classes, boundaries and drafts in code (no AI) and returns the new design. */
+export function useUpdateCondition(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ conditionId, body }: { conditionId: string; body: ConditionUpdate }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/tests/conditions/{condition_id}', {
+          params: { path: { project_id: projectId, condition_id: conditionId } },
+          body,
+        }),
+      ),
+    onSuccess: (design) => {
+      qc.setQueryData(keys.testDesign(projectId, design.statement_id), design)
+      void qc.invalidateQueries({ queryKey: keys.testRequirements(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.testCases(projectId) })
+    },
+  })
+}
+
+export function useUpdateCriterion(projectId: string, statementId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ criterionId, given, when, then }: { criterionId: string; given: string; when: string; then: string }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/tests/criteria/{criterion_id}', {
+          params: { path: { project_id: projectId, criterion_id: criterionId } },
+          body: { given, when, then },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.testDesign(projectId, statementId) }),
+  })
+}
+
+/** AI request 2: steps for kept drafts only (all of them when caseIds is omitted). */
+export function useStartSteps(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (caseIds?: string[]) =>
+      unwrap(api.POST('/projects/{project_id}/tests/step-jobs', { ...projectPath(projectId), body: { case_ids: caseIds } })),
+    onSuccess: (job) => {
+      qc.setQueryData(keys.job(job.id), job)
+      void qc.invalidateQueries({ queryKey: keys.testRequirements(projectId) })
+    },
+  })
+}
+
+export function useTestCases(projectId: string) {
+  return useQuery({
+    queryKey: keys.testCases(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/cases', projectPath(projectId))),
+  })
+}
+
+export function useCreateCase(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: TestCaseCreate) => unwrap(api.POST('/projects/{project_id}/tests/cases', { ...projectPath(projectId), body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tests(projectId) }),
+  })
+}
+
+/** Keep/discard a draft or edit a case's text. */
+export function useUpdateCase(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ caseId, body }: { caseId: string; body: TestCaseUpdate }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/tests/cases/{case_id}', {
+          params: { path: { project_id: projectId, case_id: caseId } },
+          body,
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tests(projectId) }),
+  })
+}
+
+export function useTestRuns(projectId: string) {
+  return useQuery({
+    queryKey: keys.testRuns(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/runs', projectPath(projectId))),
+  })
+}
+
+export function useTestRun(projectId: string, runId: string | null) {
+  return useQuery({
+    queryKey: keys.testRun(projectId, runId ?? 'none'),
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{project_id}/tests/runs/{run_id}', { params: { path: { project_id: projectId, run_id: runId! } } }),
+      ),
+    enabled: !!runId,
+  })
+}
+
+/** What each run mode would pick (shown in the Start run dialog). */
+export function useRunSelection(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.runSelection(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/tests/runs/selection', projectPath(projectId))),
+    enabled,
+    // The picks depend on the latest results and requirement texts, so the dialog always asks again when it opens.
+    refetchOnMount: 'always',
+  })
+}
+
+export function useStartRun(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; mode: RunMode; case_ids?: string[] }) =>
+      unwrap(api.POST('/projects/{project_id}/tests/runs', { ...projectPath(projectId), body })),
+    onSuccess: (run) => {
+      qc.setQueryData(keys.testRun(projectId, run.id), run)
+      void qc.invalidateQueries({ queryKey: keys.testRuns(projectId) })
+    },
+  })
+}
+
+export function useMarkResult(projectId: string, runId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ caseId, status, note }: { caseId: string; status: ResultStatus; note?: string | null }) =>
+      unwrap(
+        api.PUT('/projects/{project_id}/tests/runs/{run_id}/results/{case_id}', {
+          params: { path: { project_id: projectId, run_id: runId, case_id: caseId } },
+          body: { status, note: note ?? null },
+        }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.testRun(projectId, runId) })
+      void qc.invalidateQueries({ queryKey: keys.testRuns(projectId), exact: true })
+    },
+  })
+}
+
+export function useFinishRun(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) =>
+      unwrap(
+        api.POST('/projects/{project_id}/tests/runs/{run_id}/finish', { params: { path: { project_id: projectId, run_id: runId } } }),
+      ),
+    onSuccess: (run) => {
+      qc.setQueryData(keys.testRun(projectId, run.id), run)
+      void qc.invalidateQueries({ queryKey: keys.tests(projectId) })
+    },
+  })
+}
+
+/** Answers a flag's question; for an untestable flag the answer fills in the suggested requirement. */
+export function useAnswerFlag(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ flagId, answer }: { flagId: string; answer: string }) =>
+      unwrap(
+        api.POST('/projects/{project_id}/flags/{flag_id}/answer', {
+          params: { path: { project_id: projectId, flag_id: flagId } },
+          body: { answer },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.tests(projectId) }),
+  })
 }

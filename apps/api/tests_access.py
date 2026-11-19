@@ -19,7 +19,9 @@ from fastapi.testclient import TestClient
 import routers.integrated as integrated
 import tests_integration
 from core import db
+from core import testing_db as tdb
 from core.crypto import PREFIX
+from core.styling import DEFAULT_STYLE
 from main import app
 
 SECRET_TEXT = f'Zebra{uuid.uuid4().hex} logs in.'  # must never show up in the database or the logs
@@ -61,21 +63,45 @@ def check(client):
     statements = client.get(f'{api}/projects/{pid}/statements', headers=mine).json()
     statement = statements[0]
     assert statement['text'] == SECRET_TEXT, statement
-    item = client.get(f'{api}/projects/{pid}/items', headers=mine).json()['items'][0]
     assert client.post(f'{api}/projects/{pid}/confirmation', headers=mine).status_code == 201
     job = db.create_job(pid, 'generation', 3, 'Queued', diagram_types=['use_case'])
-    asyncio.run(integrated.generation_worker(job['id'], pid, ['use_case']))
+    asyncio.run(integrated.generation_worker(job['id'], pid, ['use_case']))  # extracts the items, then draws
     diagram_id = db.member_job(job['id'], OWNER_ID)['diagram_ids'][0]
+    item = client.get(f'{api}/projects/{pid}/items', headers=mine).json()['items'][0]
     db.save_flags(pid, [{'statement_id': statement['id'], 'type': 'ambiguous', 'reason': 'Vague.'}], [statement['id']])
     flag_id = client.get(f'{api}/projects/{pid}/flags', headers=mine).json()[0]['id']
     db.update_job(job['id'], status='failed', error=f'Kroki rejected: {SECRET_TEXT}')  # failure text can echo requirements
+    client.patch(f'{api}/projects/{pid}/client', headers=mine, json={'client_name': SECRET_TEXT})
+    # Tests feature rows (written directly: no AI is needed to check who can reach them).
+    tdb.replace_design(pid, statement['id'], SECRET_TEXT, [{'given': SECRET_TEXT, 'when': 'w', 'then': 't'}],
+                       [{'name': 'days', 'kind': 'range', 'description': SECRET_TEXT, 'min': 1, 'max': 30}],
+                       [{'kind': 'basic', 'text': SECRET_TEXT}], [{'measure': SECRET_TEXT, 'limit': 2, 'unit': 's'}])
+    tdb.replace_drafts(pid, statement['id'], SECRET_TEXT, [{
+        'title': SECRET_TEXT, 'technique': 'EC', 'kind': 'positive', 'priority': 'high', 'outcome': 'accepted',
+        'test_data': {'days': 15}, 'covers': ['EC:days:valid']}])
+    case = tdb.list_cases(pid)[0]
+    tdb.save_steps(pid, case['id'], [SECRET_TEXT], [SECRET_TEXT], SECRET_TEXT)
+    run = tdb.create_run(pid, SECRET_TEXT, 'all', [case['id']], OWNER)
+    tdb.save_result(pid, run['id'], case['id'], 'fail', SECRET_TEXT, OWNER)
 
     # 1. A stranger gets 404 on every route that takes a resource id, whatever the method.
-    ids = {'project_id': pid, 'item_id': item['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id}
+    ids = {'project_id': pid, 'item_id': item['id'], 'statement_id': statement['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id,
+           'condition_id': tdb.get_conditions(pid)[0]['id'], 'criterion_id': tdb.get_criteria(pid)[0]['id'],
+           'case_id': case['id'], 'run_id': run['id']}
     bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
               '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
-              '/layout': {'positions': {}}}
+              '/layout': {'positions': {}}, '/projects/{project_id}': {'name': 'Hacked', 'confirm_name': 'Secret project'}, '/client': {'client_name': 'Hacked'},
+              '/statements': {'text': 'Hacked'}, '/statements/{statement_id}': {'text': 'Hacked'},
+              '/validation/accept': {'warning_id': 'Hacked'}, '/validation/fix': {'warning_id': 'Hacked'},
+              '/style': dict(DEFAULT_STYLE), '/preview': dict(DEFAULT_STYLE),
+              # Tests feature: valid bodies, so a refusal can only come from the access check
+              '/criteria-jobs': {'statement_ids': [statement['id']]}, '/step-jobs': {},
+              '/conditions/{condition_id}': {'min': 0}, '/criteria/{criterion_id}': {'given': 'x', 'when': 'x', 'then': 'x'},
+              '/tests/cases': {'statement_id': statement['id'], 'title': 'Hacked', 'kind': 'edge', 'priority': 'low',
+                               'steps': ['x'], 'expected': 'x'},
+              '/tests/cases/{case_id}': {'kept': False}, '/tests/runs': {'name': 'Hacked', 'mode': 'all'},
+              '/results/{case_id}': {'status': 'pass'}}
     swept = 0
     for path, methods in app.openapi()['paths'].items():
         if not any(f'{{{k}}}' in path for k in ids):
@@ -85,7 +111,7 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 20, swept  # a new route with a resource id must be added to this check
+    assert swept == 52, swept  # a new route with a resource id must be added to this check (34 + 3 style + 15 Tests routes)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)
@@ -98,6 +124,9 @@ def check(client):
     assert client.get(f'{api}/projects/{pid}/statements', headers=mine).json() == statements
     assert client.get(f'{api}/projects/{pid}/items', headers=mine).json()['items'][0] == item
     assert len(client.get(f'{api}/projects/{pid}/diagrams', headers=mine).json()) == 1
+    mine_cases = client.get(f'{api}/projects/{pid}/tests/cases', headers=mine).json()
+    assert len(mine_cases) == 1 and mine_cases[0]['kept'] and mine_cases[0]['title'] == SECRET_TEXT
+    assert len(client.get(f'{api}/projects/{pid}/tests/runs', headers=mine).json()) == 1
 
     # 4. Access follows the project_members table: adding a member opens the project, removing one closes it.
     sql('INSERT INTO project_members(project_id, user_id) VALUES (%s, %s)', pid, STRANGER_ID)

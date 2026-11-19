@@ -385,6 +385,7 @@ def test_upload_document_links_job_and_document(monkeypatch):
     monkeypatch.setattr(integrated.db, "create_job", fake_create_job)
     monkeypatch.setattr(integrated.db, "update_document", fake_update_doc)
     monkeypatch.setattr(integrated.db, "touch_project", lambda pid, clear_confirmation=True: None)
+    monkeypatch.setattr(integrated.db, "reset_model", lambda pid: None)  # requirements-first (main)
     async def noop_queued(*args, **kwargs):
         pass
     monkeypatch.setattr(integrated, "queued", noop_queued)
@@ -563,6 +564,7 @@ def test_delete_document_removes_storage_and_metadata(monkeypatch):
     monkeypatch.setattr(integrated, "_delete_storage", fake_delete_storage)
     monkeypatch.setattr(integrated.db, "delete_document", fake_delete_db)
     monkeypatch.setattr(integrated.db, "touch_project", lambda pid, clear_confirmation=True: None)
+    monkeypatch.setattr(integrated.db, "reset_model", lambda pid: None)  # requirements-first (main)
 
     client = TestClient(app)
     res = client.delete(
@@ -589,7 +591,7 @@ def test_extraction_worker_end_to_end_with_metadata(monkeypatch):
         doc_updates.append((doc_id, fields))
 
     inserted_statements = []
-    def fake_insert_statements(pid, statements, source_document="pasted requirements"):
+    def fake_insert_statements(pid, statements, document="pasted requirements"):
         inserted_statements.extend(statements)
         return [f"st_{i}" for i in range(len(statements))]
 
@@ -602,6 +604,7 @@ def test_extraction_worker_end_to_end_with_metadata(monkeypatch):
     monkeypatch.setattr(integrated.db, "insert_statements", fake_insert_statements)
     monkeypatch.setattr(integrated.db, "add_system_items", fake_add_items)
     monkeypatch.setattr(integrated.db, "touch_project", lambda pid, clear_confirmation=True: None)
+    monkeypatch.setattr(integrated.db, "reset_model", lambda pid: None)  # requirements-first (main)
     monkeypatch.setattr(integrated, "detect", lambda pid: True)
 
     class FakeExtractionAI:
@@ -699,7 +702,7 @@ def test_docx_upload_and_extraction_end_to_end(monkeypatch):
         doc_updates.append((doc_id, fields))
 
     inserted_statements = []
-    def fake_insert_statements(pid, statements, source_document="pasted requirements"):
+    def fake_insert_statements(pid, statements, document="pasted requirements"):
         inserted_statements.extend(statements)
         return [f"st_{i}" for i in range(len(statements))]
 
@@ -708,6 +711,7 @@ def test_docx_upload_and_extraction_end_to_end(monkeypatch):
     monkeypatch.setattr(integrated.db, "insert_statements", fake_insert_statements)
     monkeypatch.setattr(integrated.db, "add_system_items", lambda pid, items: None)
     monkeypatch.setattr(integrated.db, "touch_project", lambda pid, clear_confirmation=True: None)
+    monkeypatch.setattr(integrated.db, "reset_model", lambda pid: None)  # requirements-first (main)
     monkeypatch.setattr(integrated, "detect", lambda pid: True)
 
     class FakeDocxAI:
@@ -810,13 +814,13 @@ def test_failed_extraction_updates_document_and_job_status_and_records_error(mon
     # 1. Job must be marked failed with specific error
     assert len(failed_job_errors) == 1
     assert failed_job_errors[0][0] == "job_fail_789"
-    assert "Extraction failed" in failed_job_errors[0][1]
+    assert "Finding requirements failed" in failed_job_errors[0][1]
 
     # 2. Document must transition to 'failed' (not remain in 'processing')
     assert any(f.get("status") == "failed" for _, f in doc_updates)
     last_doc_update = doc_updates[-1][1]
     assert last_doc_update.get("status") == "failed"
-    assert "Extraction failed" in last_doc_update.get("warning", "")
+    assert "Finding requirements failed" in last_doc_update.get("warning", "")
 
 
 def test_sample_pdf_extracts_statements_user_stories_and_fr_nfr_ids():
@@ -877,7 +881,7 @@ def test_extraction_worker_persists_sample_pdf_and_recovers_when_ai_returns_empt
     job_updates = []
     doc_updates = []
 
-    monkeypatch.setattr(integrated.db, "insert_statements", lambda pid, raw, source_document=None: (
+    monkeypatch.setattr(integrated.db, "insert_statements", lambda pid, raw, document=None: (
         inserted_statements.extend([{"project_id": pid, **r} for r in raw]),
         [f"st_{i}" for i in range(len(raw))]
     )[1])
@@ -885,6 +889,7 @@ def test_extraction_worker_persists_sample_pdf_and_recovers_when_ai_returns_empt
     monkeypatch.setattr(integrated.db, "update_job", lambda jid, **kwargs: job_updates.append((jid, kwargs)))
     monkeypatch.setattr(integrated.db, "update_document", lambda did, **kwargs: doc_updates.append((did, kwargs)))
     monkeypatch.setattr(integrated.db, "touch_project", lambda pid, clear_confirmation=True: None)
+    monkeypatch.setattr(integrated.db, "reset_model", lambda pid: None)  # requirements-first (main)
     monkeypatch.setattr(integrated, "detect", lambda pid: True)
 
     class EmptyAIClient:
@@ -918,9 +923,8 @@ def test_extraction_worker_persists_sample_pdf_and_recovers_when_ai_returns_empt
     assert len(inserted_statements) >= 20
     assert all(s["project_id"] == "proj_pdf_1" for s in inserted_statements)
 
-    # 2. Items must be persisted with the correct project ID
-    assert len(inserted_items) >= 10
-    assert all(i["project_id"] == "proj_pdf_1" for i in inserted_items)
+    # 2. Requirements-first (main): extraction stores statements only; building blocks are extracted at generation
+    assert inserted_items == []
 
     # 3. Statuses must be terminal success
     assert any(kwargs.get("status") == "succeeded" for _, kwargs in job_updates)

@@ -132,7 +132,9 @@ def run_extraction_pipeline(
         )
 
     # Only what this call extracted: elements passed in through `known` are not echoed back.
-    extracted = {field: final_state.get(field, []) for node in to_run for field in NODE_FIELDS[node]}
+    known_ids = {e.id for group in (known.actors, known.entities, known.processes, known.data_stores) for e in group} if known else set()
+    extracted = {field: [e for e in final_state.get(field, []) if e.id not in known_ids]
+                 for node in to_run for field in NODE_FIELDS[node]}
     return ExtractionResult(
         requirements=requirements,
         issues=issues,

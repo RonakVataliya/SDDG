@@ -17,10 +17,19 @@ class Answer(BaseModel):
     answer: str = Field(min_length=1, max_length=1000)
 
 
+ANSWER_SLOT = "{answer}"
+
+
 def view(f):
     """A flag as the API returns it: `suggestion` is the replacement text, or "No suggestion available."
-    (never an empty placeholder), and `has_suggestion` says which."""
-    return {**f, "has_suggestion": bool(f["suggested_fix"]), "suggestion": f["suggested_fix"] or NO_SUGGESTION}
+    (never an empty placeholder), and `has_suggestion` says which.
+
+    An unanswered `untestable` flag (Tests feature) keeps the AI's rewrite template, with an {answer} slot, in
+    suggested_fix; it is not a usable suggestion until the answer fills the slot."""
+    fix = f["suggested_fix"]
+    if fix and ANSWER_SLOT in fix:
+        fix = None
+    return {**f, "has_suggestion": bool(fix), "suggestion": fix or NO_SUGGESTION}
 
 
 def get_flag(project_id, flag_id, user):
@@ -58,8 +67,13 @@ def answer(project_id: str, flag_id: str, body: Answer, user: User = Depends(get
     user) and the requirement is re-analysed. The requirement text is not changed (resolving is separate from editing),
     and re-analysis will not reopen a flag the user resolved."""
     flag = get_flag(project_id, flag_id, user)
-    db.update_flag(project_id, flag_id, answer=body.answer.strip(), status="resolved",
-                   resolved_by=user.email, resolved_at=db.now())
+    answer_text = body.answer.strip()
+    fields = {}
+    if flag["type"] == "untestable" and flag["suggested_fix"] and ANSWER_SLOT in flag["suggested_fix"]:
+        # Tests feature: the answer completes the AI's rewrite, giving a suggested requirement with no third AI call.
+        fields["suggested_fix"] = flag["suggested_fix"].replace(ANSWER_SLOT, answer_text.rstrip("."))
+    db.update_flag(project_id, flag_id, answer=answer_text, status="resolved",
+                   resolved_by=user.email, resolved_at=db.now(), **fields)
     detect(project_id, [flag["statement_id"]])
     return view(db.get_flag(project_id, flag_id))
 
@@ -84,6 +98,7 @@ def apply_fix(project_id: str, flag_id: str, user: User = Depends(get_current_us
     if not flag["suggested_fix"]:
         raise HTTPException(409, NO_SUGGESTION)
     db.set_statement_text(project_id, flag["statement_id"], flag["suggested_fix"])
+    db.reset_model(project_id)  # the requirement changed: confirm again, building blocks are re-extracted
     db.update_flag(project_id, flag_id, status="resolved", resolved_by=user.email, resolved_at=db.now())
     detect(project_id, [i for i in (flag["statement_id"], flag["related_statement_id"]) if i])
     return view(db.get_flag(project_id, flag_id))
