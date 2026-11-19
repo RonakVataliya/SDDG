@@ -13,7 +13,7 @@ export type UseCaseModel = {
   links: { actor: string; case: string }[]
 }
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+export const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 export function buildUseCaseModel(items: ExtractedItem[], systemName: string): UseCaseModel {
   const actors = items.filter((i) => i.category === 'actor')
@@ -87,16 +87,16 @@ export function renderUseCase(model: UseCaseModel, style?: DiagramStyle): string
     const y = caseY.get(u.id)!
     const stroke = u.assumed ? `stroke="${ASSUMED}" stroke-dasharray="5 4"` : `stroke="${c.line}"`
     parts.push(
-      `<ellipse cx="${cx}" cy="${y}" rx="${rx}" ry="${ry}" fill="${c.fill}" ${stroke} stroke-width="1.4"/>` +
-        `<text x="${cx}" y="${y + Math.round(fs * 0.38)}" text-anchor="middle" font-size="${fs}" fill="${c.text}">${esc(u.name)}</text>`,
+      `<g data-element-id="${esc(u.id)}"><ellipse cx="${cx}" cy="${y}" rx="${rx}" ry="${ry}" fill="${c.fill}" ${stroke} stroke-width="1.4"/>` +
+        `<text x="${cx}" y="${y + Math.round(fs * 0.38)}" text-anchor="middle" font-size="${fs}" fill="${c.text}">${esc(u.name)}</text></g>`,
     )
   })
   actors.forEach((a) => {
     const { x, y } = actorAt.get(a.id)!
     parts.push(
-      `<g stroke="${c.line}" stroke-width="1.4" fill="none" stroke-linecap="round"><circle cx="${x}" cy="${y - 6}" r="8"/>` +
+      `<g data-element-id="${esc(a.id)}"><g stroke="${c.line}" stroke-width="1.4" fill="none" stroke-linecap="round"><circle cx="${x}" cy="${y - 6}" r="8"/>` +
         `<path d="M${x} ${y + 2}v22M${x - 12} ${y + 10}h24M${x} ${y + 24}l-10 16M${x} ${y + 24}l10 16"/></g>` +
-        `<text x="${x}" y="${y + 58}" text-anchor="middle" font-size="${fs - 1}" fill="${c.text}">${esc(a.name)}</text>`,
+        `<text x="${x}" y="${y + 58}" text-anchor="middle" font-size="${fs - 1}" fill="${c.text}">${esc(a.name)}</text></g>`,
     )
   })
 
@@ -104,4 +104,12 @@ export function renderUseCase(model: UseCaseModel, style?: DiagramStyle): string
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" font-family="Helvetica, Arial, sans-serif">` +
     `<rect width="100%" height="100%" fill="${c.background}"/>${parts.join('')}</svg>`
   )
+}
+
+/** Other diagram types: a labelled sheet listing the items (the real API draws them with PlantUML via Kroki). */
+export function renderPlaceholder(label: string, items: ExtractedItem[]): string {
+  const names = items.filter((i) => i.category !== 'relationship' && i.category !== 'interaction').slice(0, 10)
+  const rows = names.map((n, i) => `<g data-element-id="${esc(n.id)}"><rect x="40" y="${80 + i * 44}" width="300" height="32" rx="6" fill="#ffffff" stroke="#1a2233"/><text x="56" y="${101 + i * 44}" font-size="13" fill="#1a2233">${esc(n.name)}</text></g>`)
+  const h = 120 + names.length * 44
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 ${h}" width="380" height="${h}" font-family="Helvetica, Arial, sans-serif"><rect width="100%" height="100%" fill="#ffffff"/><text x="40" y="48" font-size="15" font-weight="600" fill="#1a2233">${esc(label)} diagram (mock)</text>${rows.join('')}</svg>`
 }

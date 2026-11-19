@@ -13,13 +13,13 @@ export function DraftCases({ projectId, design, canEdit }: { projectId: string; 
   const fromFlows = design.drafts.filter((d) => d.technique === 'Flow').length
   if (!design.drafts.length) return null
   return (
-    <section className="overflow-hidden rounded-lg border border-rule bg-surface" aria-label="Draft test cases">
+    <section className="overflow-hidden rounded-xl border border-rule bg-field" aria-label="Draft test cases">
       <header className="flex flex-wrap items-center gap-2 border-b border-rule px-4 py-2.5">
         <h4 className="text-sm font-semibold">Draft test cases</h4>
         <span className="text-xs text-slate" data-testid="draft-summary">
           {design.drafts.length - fromFlows} from conditions + {fromFlows} from flows
         </span>
-        <Badge tone="teal" className="ml-auto">
+        <Badge tone="accent" className="ml-auto">
           <CpuIcon className="size-3" /> Built by code
         </Badge>
       </header>
@@ -62,7 +62,7 @@ function DraftRow({ draft: c, disabled, onKeep }: { draft: TestCase; disabled: b
           <span className="block font-mono text-xs text-slate">{testDataLine(c.test_data)}</span>
         )}
       </span>
-      {c.status === 'ready' && <Badge tone="teal">Ready</Badge>}
+      {c.status === 'ready' && <Badge tone="accent">Ready</Badge>}
     </li>
   )
 }

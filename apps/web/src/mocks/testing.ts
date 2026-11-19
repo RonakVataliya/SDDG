@@ -44,7 +44,7 @@ type FlowRow = EngineFlow & { id: string; project_id: string; statement_id: stri
 type CaseRow = Omit<TestCase, 'statement_ref' | 'freshness' | 'last_result'> & { project_id: string; text_at_generation: string }
 type RunRow = { id: string; project_id: string; name: string; mode: RunMode; case_ids: string[]; created_by: string; created_at: string; finished_at: string | null }
 type ResultRow = { run_id: string; case_id: string; project_id: string; status: ResultStatus; note: string | null; marked_by: string; marked_at: string }
-type FlagRow = Omit<Flag, 'statement_ref' | 'has_suggestion' | 'suggestion'> & { project_id: string; suggested_fix: string | null; template: string | null }
+export type FlagRow = Omit<Flag, 'statement_ref' | 'has_suggestion' | 'suggestion'> & { project_id: string; suggested_fix: string | null; template: string | null }
 
 type Rows = {
   designs: Record<string, DesignRow>
@@ -100,6 +100,11 @@ function openFlagTypes(pid: string, sid: string): FlagType[] {
   for (const f of T().flags) if (f.statement_id === sid && f.status === 'open') types.add(f.type)
   return [...types]
 }
+
+/** The Tests feature's flags of a project, as the shared /flags list shows them. */
+export const testFlagViews = (pid: string) => T().flags.filter((f) => f.project_id === pid).map(flagView)
+export const findTestFlag = (pid: string, id: string) => T().flags.find((f) => f.id === id && f.project_id === pid)
+export const testFlagView = (f: FlagRow) => flagView(f)
 
 function flagView(f: FlagRow): Flag {
   const { project_id: _p, template: _t, suggested_fix, ...rest } = f

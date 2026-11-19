@@ -31,7 +31,7 @@ export function RequirementDesign({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start gap-2 rounded-lg border border-rule bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-start gap-2 rounded-xl border border-rule bg-field px-4 py-3">
         <RefTag>{requirement.ref}</RefTag>
         <p className="min-w-0 flex-1 font-medium">{requirement.text}</p>
         {requirement.label && <Badge>{requirement.label}</Badge>}
@@ -81,7 +81,7 @@ function DesignBody({ projectId, design, canEdit }: { projectId: string; design:
           badges={
             <>
               <AiBadge n={1} />
-              <Badge tone="teal">
+              <Badge tone="accent">
                 <CpuIcon className="size-3" /> Classes and boundaries: plain code, no AI
               </Badge>
             </>
@@ -130,7 +130,7 @@ function DesignBody({ projectId, design, canEdit }: { projectId: string; design:
 
 function Section({ title, note, badges, children }: { title: string; note?: string; badges?: ReactNode; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-rule bg-surface" aria-label={title}>
+    <section className="overflow-hidden rounded-xl border border-rule bg-field" aria-label={title}>
       <header className="flex flex-wrap items-center gap-2 border-b border-rule px-4 py-2.5">
         <h4 className="text-sm font-semibold">{title}</h4>
         {note && <span className="text-xs text-slate">{note}</span>}
@@ -170,7 +170,7 @@ function CriterionRow({
       <li className="space-y-2 px-4 py-3">
         {parts.map(([label, key]) => (
           <label key={key} className="flex items-center gap-3 text-sm">
-            <span className="w-12 font-mono text-[11px] font-semibold text-teal-deep uppercase">{label}</span>
+            <span className="w-12 font-mono text-[11px] font-semibold text-accent-deep uppercase">{label}</span>
             <Input className="h-9" value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
           </label>
         ))}
@@ -196,7 +196,7 @@ function CriterionRow({
       <dl className="grid flex-1 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5">
         {parts.map(([label, key]) => (
           <div key={key} className="contents">
-            <dt className="font-mono text-[11px] leading-5 font-semibold text-teal-deep uppercase">{label}</dt>
+            <dt className="font-mono text-[11px] leading-5 font-semibold text-accent-deep uppercase">{label}</dt>
             <dd>{criterion[key]}</dd>
           </div>
         ))}
@@ -242,7 +242,7 @@ function ConditionRow({ condition: c, projectId, canEdit }: { condition: Conditi
           {c.classes.map((k) => (
             <span
               key={`${k.valid}-${k.label}`}
-              className={cn('rounded-sm px-1.5 py-px text-xs', k.valid ? 'bg-teal-wash text-teal-deep' : 'bg-danger-wash text-danger')}
+              className={cn('rounded-sm px-1.5 py-px text-xs', k.valid ? 'bg-accent-wash text-accent-deep' : 'bg-danger-wash text-danger')}
             >
               {k.valid ? 'valid' : 'invalid'} {k.label}
             </span>
@@ -339,7 +339,7 @@ function LimitInput({
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
-      className="h-7 w-14 rounded-sm border border-dashed border-rule-strong bg-paper text-center font-mono text-[13px] tabular-nums focus-visible:border-solid focus-visible:border-teal focus-visible:outline-none disabled:border-transparent disabled:bg-transparent"
+      className="h-7 w-14 rounded-sm border border-dashed border-rule-strong bg-paper text-center font-mono text-[13px] tabular-nums focus-visible:border-solid focus-visible:border-accent focus-visible:outline-none disabled:border-transparent disabled:bg-transparent"
     />
   )
 }

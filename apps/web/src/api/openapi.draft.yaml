@@ -88,6 +88,39 @@ paths:
     delete:
       responses:
         '204': { description: Deleted }
+  /projects/{project_id}/flags:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Requirement quality flags (issue #34). Advisory only; never blocks anything.
+      parameters: [{ name: status, in: query, schema: { type: string, enum: [open, resolved] } }]
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Flag' } } } }
+  /projects/{project_id}/flags/summary:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Per requirement flag counts, for the flag icon next to each statement
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FlagSummary' } } } }
+  /projects/{project_id}/flags/{flag_id}/resolve:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { name: flag_id, in: path, required: true, schema: { type: string } }]
+    post:
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Flag' } } } }
+  /projects/{project_id}/flags/{flag_id}/reopen:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { name: flag_id, in: path, required: true, schema: { type: string } }]
+    post:
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Flag' } } } }
+  /projects/{project_id}/flags/{flag_id}/apply-fix:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }, { name: flag_id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Replace the requirement text with the suggestion and resolve the flag; 409 if there is no suggestion
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Flag' } } } }
   /projects/{project_id}/items:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:
@@ -401,11 +434,16 @@ components:
     Role: { type: string, enum: [owner, editor, viewer] }
     Project:
       type: object
-      required: [id, name, role, created_at, updated_at, statement_count, item_count, extraction, confirmed, diagram_count, extracted_nodes]
+      required: [id, name, role, is_owner, archived_at, archived_by, client_name, contact_email, created_at, updated_at, statement_count, item_count, extraction, confirmed, diagram_count, extracted_nodes]
       properties:
         id: { type: string }
         name: { type: string, minLength: 1, maxLength: 100 }
         role: { $ref: '#/components/schemas/Role' }
+        is_owner: { type: boolean, description: Only the owner may rename, archive, delete or set the client }
+        archived_at: { type: [string, 'null'], format: date-time }
+        archived_by: { type: [string, 'null'], description: E-mail of the user who archived it }
+        client_name: { type: [string, 'null'] }
+        contact_email: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         statement_count: { type: integer }
@@ -414,8 +452,16 @@ components:
         confirmed: { type: boolean, description: The requirements are confirmed (cleared by any requirement change) }
         confirmed_at: { type: [string, 'null'], format: date-time }
         diagram_count: { type: integer }
+        open_flag_count: { type: integer }
         extracted_nodes: { type: array, items: { type: string }, description: 'Extraction nodes already run on the confirmed requirements (actors, entities, ...)' }
     ProjectCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        client_name: { type: [string, 'null'], maxLength: 100 }
+        contact_email: { type: [string, 'null'], maxLength: 254 }
+    ProjectRename:
       type: object
       required: [name]
       properties: { name: { type: string, minLength: 1, maxLength: 100 } }
@@ -444,6 +490,15 @@ components:
       properties:
         text: { type: string, maxLength: 2000 }
         label: { type: [string, 'null'], enum: [functional, non_functional, user_story, constraint, unknown, null] }
+    FlagSummary:
+      type: object
+      required: [statement_id, statement_ref, total, open, types]
+      properties:
+        statement_id: { type: string }
+        statement_ref: { type: string }
+        total: { type: integer }
+        open: { type: integer }
+        types: { type: array, items: { $ref: '#/components/schemas/FlagType' } }
     ItemCategory:
       type: string
       enum: [actor, entity, process, data_flow, data_store, interaction, relationship]
@@ -483,7 +538,8 @@ components:
         description: { type: [string, 'null'] }
     DiagramType:
       type: string
-      enum: [use_case, class, activity, sequence, dfd, component]
+      enum: [use_case, class, activity, sequence, dfd, component, package]
+      description: package = drawn from the confirmed subsystem decomposition (Design step), never generated
     GenerationCreate:
       type: object
       required: [diagram_types]
@@ -521,8 +577,23 @@ components:
         created_at: { type: string, format: date-time }
         parent_id: { type: [string, 'null'], description: The version this one was edited from; null for a fresh generation }
         instruction: { type: [string, 'null'], description: The edit request that produced this version; null for a fresh generation }
+    DiagramElement:
+      type: object
+      required: [element_id, kind, label, statement_ids]
+      properties:
+        element_id: { type: string, description: Matches data-element-id in the SVG }
+        model_item_id: { type: [string, 'null'] }
+        kind: { type: string }
+        label: { type: string }
+        statement_ids: { type: array, items: { type: string } }
     Diagram:
-      $ref: '#/components/schemas/DiagramSummary'
+      allOf:
+        - $ref: '#/components/schemas/DiagramSummary'
+        - type: object
+          properties:
+            svg: { type: [string, 'null'], description: 'Rendered SVG; elements are wrapped in g with data-element-id' }
+            elements: { type: array, items: { $ref: '#/components/schemas/DiagramElement' } }
+            statements: { type: array, items: { $ref: '#/components/schemas/RequirementStatement' }, description: Requirements this diagram traces to }
     RevisionCreate:
       type: object
       required: [instruction]
@@ -590,14 +661,17 @@ components:
         statement_id: { type: string }
         statement_ref: { type: string }
         type: { $ref: '#/components/schemas/FlagType' }
+        statement_text: { type: string }
         reason: { type: string }
         trigger_text: { type: [string, 'null'] }
+        related_statement_id: { type: [string, 'null'] }
         question: { type: [string, 'null'] }
         answer: { type: [string, 'null'] }
         has_suggestion: { type: boolean }
         suggestion: { type: string, description: 'The suggested requirement text, or "No suggestion available."' }
         status: { type: string, enum: [open, resolved] }
         resolved_by: { type: [string, 'null'] }
+        resolved_at: { type: [string, 'null'], format: date-time }
     FlagAnswer:
       type: object
       required: [answer]

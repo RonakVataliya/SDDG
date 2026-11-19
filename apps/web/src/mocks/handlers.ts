@@ -1,15 +1,17 @@
 /** MOCK ONLY. MSW handlers for the FE draft contract (src/api/openapi.draft.yaml). Delete once H3 is live. */
 import { delay, http, HttpResponse, type HttpResponseResolver } from 'msw'
+import type { Flag } from '@/api/client'
 import { AI_SECTION_VERSION } from '@/features/privacy/policy'
 import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { detectFlags } from './flags'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
-import { testingHandlers } from './testing'
+import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
 
@@ -55,6 +57,9 @@ const notFound = () => fail(404, 'Not found, or you do not have access to it.')
 
 export const handlers = [
   http.get(u('/health'), () => HttpResponse.json({ status: 'ok' })),
+  // Requirement flags (issue #34) come before the Tests handlers: one flags table holds both the review flags and
+  // the Tests feature's `untestable` questions, like the API.
+  ...flagHandlers(),
   // Tests feature (stream 6): src/mocks/testing.ts
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
 
@@ -156,6 +161,7 @@ export const handlers = [
       db.nextStatement[p.id] = n + 1
       const st = { id: uid('st'), ref: `R-${String(n).padStart(3, '0')}`, text: text.trim(), label: label ?? null, source: { document: 'added by you', page: null, paragraph: null } }
       db.statements[p.id] = [...(db.statements[p.id] ?? []), st]
+      db.flags[p.id] = [...(db.flags[p.id] ?? []), ...detectFlags([st], db.statements[p.id], uid)]
       resetModel(p.id)
       save()
       return HttpResponse.json(st, { status: 201 })
@@ -169,7 +175,11 @@ export const handlers = [
       if (!p || !st) return notFound()
       const { text, label } = (await request.json()) as { text?: string; label?: string | null }
       if (text !== undefined && !text.trim()) return fail(422, 'Requirement text can’t be empty.')
-      if (text !== undefined) st.text = text.trim()
+      if (text !== undefined) {
+        st.text = text.trim()
+        const db = getDb()
+        db.flags[p.id] = [...(db.flags[p.id] ?? []).filter((f) => f.statement_id !== st.id || f.status === 'resolved'), ...detectFlags([st], db.statements[p.id], uid)]
+      }
       if (label) st.label = label
       resetModel(p.id)
       save()
@@ -183,6 +193,7 @@ export const handlers = [
       const db = getDb()
       if (!p || !(db.statements[p.id] ?? []).some((s) => s.id === params.statement_id)) return notFound()
       db.statements[p.id] = db.statements[p.id].filter((s) => s.id !== params.statement_id)
+      db.flags[p.id] = (db.flags[p.id] ?? []).filter((f) => f.statement_id !== params.statement_id && f.related_statement_id !== params.statement_id)
       resetModel(p.id)
       save()
       return new HttpResponse(null, { status: 204 })
@@ -505,4 +516,103 @@ async function svgToPdf(svg: string): Promise<Blob> {
   const bytes = new Uint8Array(await jpeg.arrayBuffer())
   // The image is drawn at the diagram's own size; its pixel size is the 2x canvas.
   return jpegToPdf(bytes, canvas.width, canvas.height, width, height)
+}
+
+/* ---------- requirement flags (issue #34): advisory, never block anything ---------- */
+
+/** Review flags (mocks/flags.ts) and the Tests feature's untestable questions (mocks/testing.ts), as the API lists them. */
+function flagViews(pid: string): Flag[] {
+  const byId = new Map((getDb().statements[pid] ?? []).map((s) => [s.id, s]))
+  const review = (getDb().flags[pid] ?? [])
+    .filter((f) => byId.has(f.statement_id))
+    .map((f) => ({
+      ...f,
+      suggestion: f.suggestion ?? '',
+      statement_ref: byId.get(f.statement_id)!.ref,
+      statement_text: byId.get(f.statement_id)!.text,
+      has_suggestion: !!f.suggestion,
+    }))
+  const tests = testFlagViews(pid)
+    .filter((f) => byId.has(f.statement_id))
+    .map((f) => ({ ...f, statement_text: byId.get(f.statement_id)!.text }))
+  return [...review, ...tests]
+}
+
+function flagHandlers() {
+  return [
+    http.get(
+      u('/projects/:project_id/flags'),
+      authed(({ email, params, request }) => {
+        const p = ownedProject(email, params.project_id)
+        if (!p) return notFound()
+        const status = new URL(request.url).searchParams.get('status')
+        return HttpResponse.json(flagViews(p.id).filter((f) => !status || f.status === status))
+      }),
+    ),
+    http.get(
+      u('/projects/:project_id/flags/summary'),
+      authed(({ email, params }) => {
+        const p = ownedProject(email, params.project_id)
+        if (!p) return notFound()
+        const out = new Map<string, { statement_id: string; statement_ref: string; total: number; open: number; types: string[] }>()
+        for (const f of flagViews(p.id)) {
+          const s = out.get(f.statement_id) ?? { statement_id: f.statement_id, statement_ref: f.statement_ref, total: 0, open: 0, types: [] }
+          s.total++
+          if (f.status === 'open') s.open++
+          if (!s.types.includes(f.type)) s.types.push(f.type)
+          out.set(f.statement_id, s)
+        }
+        return HttpResponse.json([...out.values()])
+      }),
+    ),
+    http.post(
+      u('/projects/:project_id/flags/:flag_id/:action'),
+      authed(async ({ email, params, request }) => {
+        const p = ownedProject(email, params.project_id)
+        if (!p) return notFound()
+        const review = (getDb().flags[p.id] ?? []).find((f) => f.id === params.flag_id)
+        const test = review ? undefined : findTestFlag(p.id, String(params.flag_id))
+        const flag = review ?? test
+        if (!flag) return notFound()
+        const resolve = (by = email) => Object.assign(flag, { status: 'resolved', resolved_by: by, resolved_at: new Date().toISOString() })
+        switch (params.action) {
+          case 'answer': {
+            const { answer } = (await request.json()) as { answer?: string }
+            const a = (answer ?? '').trim()
+            if (!a) return fail(422, test ? 'Write an answer first.' : 'Answers must be 1–1000 characters.')
+            if (a.length > 1000) return fail(422, 'Answers must be 1–1000 characters.')
+            flag.answer = a
+            resolve()
+            // An untestable question's answer fills its rewrite template (the Tests feature shows it).
+            if (test?.template) test.suggested_fix = test.template.replace('{answer}', a)
+            break
+          }
+          case 'resolve':
+            resolve()
+            break
+          case 'reopen':
+            Object.assign(flag, { status: 'open', resolved_by: null, resolved_at: null })
+            break
+          case 'apply-fix': {
+            const fix = review ? review.suggestion : test?.suggested_fix
+            if (!fix) return fail(409, 'No suggestion available.')
+            const st = (getDb().statements[p.id] ?? []).find((s) => s.id === flag.statement_id)
+            if (st) st.text = fix
+            resolve()
+            resetModel(p.id)
+            // The fix also settles the other side of a conflict.
+            for (const f of getDb().flags[p.id] ?? [])
+              if (f.status === 'open' && f.type === 'conflict' && (f.related_statement_id === flag.statement_id || f.statement_id === flag.related_statement_id))
+                Object.assign(f, { status: 'resolved', resolved_by: email, resolved_at: new Date().toISOString() })
+            break
+          }
+          default:
+            return notFound()
+        }
+        save()
+        if (test) return HttpResponse.json(testFlagView(test))
+        return HttpResponse.json(flagViews(p.id).find((f) => f.id === flag.id))
+      }),
+    ),
+  ]
 }

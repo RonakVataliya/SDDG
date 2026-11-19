@@ -33,7 +33,7 @@ type StylePanelProps = {
 const STYLE_KEYS = ['preset', 'background', 'fill', 'text', 'line', 'direction', 'font_size'] as const
 
 /** Colours compare case-insensitively: the colour picker gives lower case, the server upper case. */
-const sameStyle = (a: DiagramStyle, b: DiagramStyle) => STYLE_KEYS.every((k) => String(a[k]).toUpperCase() === String(b[k]).toUpperCase())
+export const sameStyle = (a: DiagramStyle, b: DiagramStyle) => STYLE_KEYS.every((k) => String(a[k]).toUpperCase() === String(b[k]).toUpperCase())
 
 const colourFields: { key: keyof StyleColours; label: string }[] = [
   { key: 'background', label: 'Diagram background' },
@@ -243,7 +243,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
               font_size: Number(event.target.value),
             }))
           }
-          className="w-full accent-teal"
+          className="w-full accent-accent"
         />
         <div className="flex justify-between text-xs text-slate">
           <span>{FONT_SIZE_MIN} pt</span>
