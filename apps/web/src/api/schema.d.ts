@@ -219,7 +219,300 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        /** Delete the project and everything in it (Owner only); 422 "Type the project name to confirm." */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectDelete"];
+                };
+            };
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description confirm_name is not the project's name */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Rename the project (Owner only; other members get 404) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectRename"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+                /** @description Name already used by this owner */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive the project (Owner only, idempotent) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+            };
+        };
+        /** Reopen an archived project (Owner only) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/client": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        /** Set the project's client name and contact e-mail (Owner only); a blank field clears it */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectClient"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+                /** @description Invalid e-mail address */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** List documents uploaded to a project */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of project documents */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectDocument"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Upload a PDF or DOCX document and start extraction */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        /** Format: binary */
+                        file: unknown;
+                    };
+                };
+            };
+            responses: {
+                /** @description Upload accepted and extraction started */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DocumentUploadResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    document_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            deleted: boolean;
+                            id: string;
+                        };
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -799,6 +1092,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Requirement coverage (FR20, any member); only the latest version of each diagram counts */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RequirementCoverage"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/report.html": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Combined project report (any member) as one self-contained, print-styled HTML page; print it to save a PDF */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description HTML page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/html": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/stories": {
         parameters: {
             query?: never;
@@ -948,230 +1321,6 @@ export interface paths {
                 };
             };
         };
-        trace?: never;
-    };
-    "/projects/{project_id}/design": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: components["parameters"]["ProjectId"];
-            };
-            cookie?: never;
-        };
-        /** Every system design section, in order (a section unlocks when the one before it is confirmed) */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    project_id: components["parameters"]["ProjectId"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DesignSectionList"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/design/{kind}/draft-jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: components["parameters"]["ProjectId"];
-                kind: components["parameters"]["DesignKind"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** AI draft of the section from the confirmed requirements; on success it replaces the content as a draft */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    project_id: components["parameters"]["ProjectId"];
-                    kind: components["parameters"]["DesignKind"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Queued */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Job"];
-                    };
-                };
-                /** @description No AI consent recorded (X8) */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Requirements not confirmed, section locked, or a draft already running */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/design/{kind}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: components["parameters"]["ProjectId"];
-                kind: components["parameters"]["DesignKind"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /** Save the section's content as a draft (a confirmed section goes back to draft); 422 with a readable detail */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    project_id: components["parameters"]["ProjectId"];
-                    kind: components["parameters"]["DesignKind"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["DesignSectionUpdate"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DesignSection"];
-                    };
-                };
-                /** @description Section locked */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Refused */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/design/{kind}/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: components["parameters"]["ProjectId"];
-                kind: components["parameters"]["DesignKind"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm the section; 422 when it is empty, out of date or incomplete for its kind */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    project_id: components["parameters"]["ProjectId"];
-                    kind: components["parameters"]["DesignKind"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DesignSection"];
-                    };
-                };
-                /** @description Section locked */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Refused */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/projects/{project_id}/diagrams": {
@@ -2460,6 +2609,29 @@ export interface components {
             open_flag_count?: number;
             /** @description Extraction nodes already run on the confirmed requirements (actors, entities, ...) */
             extracted_nodes: string[];
+            document_count?: number;
+            document_page_count?: number;
+        };
+        ProjectDocument: {
+            id: string;
+            project_id: string;
+            filename: string;
+            storage_path: string;
+            content_type: string;
+            size_bytes: number;
+            page_count: number;
+            status: "uploaded" | "processing" | "processed" | "failed";
+            warning?: string | null;
+            skipped_pages?: number[];
+            job_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DocumentUploadResponse: {
+            document: components["schemas"]["ProjectDocument"];
+            job: components["schemas"]["Job"];
         };
         ProjectCreate: {
             name: string;
@@ -2468,6 +2640,14 @@ export interface components {
         };
         ProjectRename: {
             name: string;
+        };
+        ProjectDelete: {
+            /** @description The project's exact name */
+            confirm_name: string;
+        };
+        ProjectClient: {
+            client_name?: string | null;
+            contact_email?: string | null;
         };
         InputCreate: {
             text: string;
@@ -2484,6 +2664,14 @@ export interface components {
             text: string;
             /** @description Label the input already carried */
             label?: string | null;
+            source_label?: string | null;
+            metadata?: {
+                role?: string;
+                goal?: string;
+                reason?: string;
+                structured?: boolean;
+                [key: string]: unknown;
+            } | null;
             source: components["schemas"]["SourceLocation"];
         };
         StatementWrite: {
@@ -2549,7 +2737,7 @@ export interface components {
         Job: {
             id: string;
             /** @enum {string} */
-            kind: "extraction" | "generation" | "test_criteria" | "test_steps" | "design_goals";
+            kind: "extraction" | "generation" | "test_criteria" | "test_steps";
             status: components["schemas"]["JobStatus"];
             queue_position?: number | null;
             progress: {
@@ -2659,64 +2847,34 @@ export interface components {
                 [key: string]: components["schemas"]["Point"];
             };
         };
-        /**
-         * @description Section kinds in order; only implemented kinds exist
-         * @enum {string}
-         */
-        DesignKind: "goals";
-        DesignSection: {
-            kind: components["schemas"]["DesignKind"];
+        RequirementCoverage: {
+            total: number;
+            with_diagrams: number;
+            not_represented: number;
+            not_represented_refs: string[];
+            with_open_flags: number;
+            /** @description Not computed yet (null) */
+            with_tests: number | null;
+            rows: components["schemas"]["RequirementCoverageRow"][];
+        };
+        RequirementCoverageRow: {
+            id: string;
+            ref: string;
+            text: string;
+            label: string | null;
+            /** @description Source document name */
+            source: string;
+            diagrams: components["schemas"]["CoveringDiagram"][];
+            open_flags: components["schemas"]["FlagType"][];
+            /** @description Not computed yet (null) */
+            tests: number | null;
+        };
+        CoveringDiagram: {
+            id: string;
+            type: components["schemas"]["DiagramType"];
             title: string;
-            /** @enum {string} */
-            status: "empty" | "draft" | "confirmed";
-            /** @description 0 when empty */
+            /** @description Version number of the latest version (1 = first generation) */
             version: number;
-            /** @description Per kind: goals -> DesignGoals */
-            content: {
-                [key: string]: unknown;
-            } | null;
-            /** @description Computed from the saved content. Per kind: goals -> DesignGoalsDerived */
-            derived: {
-                [key: string]: unknown;
-            } | null;
-            /** @description A requirement it cites changed or was deleted since it was last written */
-            stale: boolean;
-            /** @description The previous section is not confirmed yet */
-            locked: boolean;
-            /** @description The latest AI draft job of this section */
-            job: components["schemas"]["Job"] | null;
-            /** Format: date-time */
-            updated_at: string | null;
-        };
-        DesignSectionList: {
-            sections: components["schemas"]["DesignSection"][];
-        };
-        DesignSectionUpdate: {
-            content: {
-                [key: string]: unknown;
-            };
-        };
-        DesignGoals: {
-            /** @description Array order is the ranking (first = most important) */
-            goals: {
-                /** @description One of the 28 lecture 24 design goals */
-                name: string;
-                reason: string;
-                statement_ids: string[];
-            }[];
-        };
-        DesignGoalsDerived: {
-            groups: {
-                client: string[];
-                end_user: string[];
-                developer: string[];
-                other: string[];
-            };
-            conflicts: {
-                a: string;
-                b: string;
-                pair: string;
-            }[];
         };
         /** @enum {string} */
         StoryPriority: "must" | "should" | "could" | "wont";
@@ -3048,7 +3206,6 @@ export interface components {
         StatementId: string;
         CaseId: string;
         RunId: string;
-        DesignKind: components["schemas"]["DesignKind"];
     };
     requestBodies: never;
     headers: never;

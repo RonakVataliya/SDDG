@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { RequirementStatement, Schemas } from '@/api/client'
 import { errorMessage } from '@/api/errors'
-import { useAddStatement, useConfirmExtraction, useDeleteStatement, useFlags, useFlagSummary, useStatements, useUpdateStatement } from '@/api/queries'
+import { useAddStatement, useConfirmExtraction, useDeleteStatement, useFlags, useFlagSummary, useStatements, useStories, useUpdateStatement } from '@/api/queries'
 import { Badge, RefTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Textarea } from '@/components/ui/input'
@@ -33,6 +33,7 @@ export function ReviewPage() {
   const [editing, setEditing] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [drawer, setDrawer] = useState<{ open: boolean; focus?: string | null }>({ open: false })
+  const stories = useStories(project.id).data?.stories ?? [] // 3.4: each requirement links to its stories
   const highlight = useSearchParams()[0].get('requirement') // set by search: show this requirement
   const canEdit = project.role !== 'viewer'
 
@@ -116,6 +117,7 @@ export function ReviewPage() {
                 flag={openFlagByStatement.get(s.id)}
                 summary={summaryById.get(s.id)}
                 openTypes={openTypes.get(s.id)}
+                storyRefs={stories.filter((st) => st.statement_ids.includes(s.id)).map((st) => st.ref)}
                 highlighted={s.ref === highlight}
                 canEdit={canEdit}
                 onEdit={() => setEditing(s.id)}
@@ -143,6 +145,7 @@ function Row({
   flag,
   summary,
   openTypes,
+  storyRefs,
   highlighted,
   canEdit,
   onEdit,
@@ -153,6 +156,7 @@ function Row({
   flag?: Schemas['Flag']
   summary?: Schemas['FlagSummary']
   openTypes?: Schemas['FlagType'][]
+  storyRefs: string[]
   highlighted?: boolean
   canEdit: boolean
   onEdit: () => void
@@ -171,9 +175,38 @@ function Row({
     >
       <RefTag className="mt-0.5 shrink-0">{s.ref}</RefTag>
       <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] text-slate">{shortLabel(s.label)}</span>
-      <p className="min-w-0 flex-1 text-[13.5px] leading-[22px]">
-        <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
-      </p>
+      {/* FR1/FR2: the requirement's own ID from the input (FR-001, NFR-2, …) */}
+      {s.source_label && (
+        <Badge tone="neutral" className="mt-0.5 h-fit shrink-0 font-mono text-[11px]">
+          {s.source_label}
+        </Badge>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] leading-[22px]">
+          <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
+        </p>
+        {/* FR1: structured user story (As a <role>, I want <goal>, so that <reason>) */}
+        {Boolean(s.metadata?.structured && s.metadata.role) && (
+          <p className="mt-0.5 text-xs text-slate">
+            Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
+            <span className="text-ink">{String(s.metadata?.goal)}</span>
+            {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
+          </p>
+        )}
+        {storyRefs.length > 0 && (
+          <p className="mt-0.5 text-[12px] text-slate">
+            Stories:{' '}
+            {storyRefs.map((ref, i) => (
+              <span key={ref}>
+                {i > 0 && ', '}
+                <Link to={`/projects/${projectId}/backlog?requirement=${s.id}`} className="font-medium text-accent hover:underline">
+                  {ref}
+                </Link>
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
       <FlagPill summary={summary} openTypes={openTypes} onClick={onFlags} />
       {canEdit &&
         (confirming ? (
