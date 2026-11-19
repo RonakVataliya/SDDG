@@ -1323,6 +1323,230 @@ export interface paths {
         };
         trace?: never;
     };
+    "/projects/{project_id}/design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Every system design section, in order (a section unlocks when the one before it is confirmed) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DesignSectionList"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/design/{kind}/draft-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                kind: components["parameters"]["DesignKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** AI draft of the section from the confirmed requirements; on success it replaces the content as a draft */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    kind: components["parameters"]["DesignKind"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Job"];
+                    };
+                };
+                /** @description No AI consent recorded (X8) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Requirements not confirmed, section locked, or a draft already running */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/design/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                kind: components["parameters"]["DesignKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Save the section's content as a draft (a confirmed section goes back to draft); 422 with a readable detail */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    kind: components["parameters"]["DesignKind"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DesignSectionUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DesignSection"];
+                    };
+                };
+                /** @description Section locked */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/design/{kind}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                kind: components["parameters"]["DesignKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm the section; 422 when it is empty, out of date or incomplete for its kind */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    kind: components["parameters"]["DesignKind"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DesignSection"];
+                    };
+                };
+                /** @description Section locked */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/diagrams": {
         parameters: {
             query?: never;
@@ -2737,7 +2961,7 @@ export interface components {
         Job: {
             id: string;
             /** @enum {string} */
-            kind: "extraction" | "generation" | "test_criteria" | "test_steps";
+            kind: "extraction" | "generation" | "test_criteria" | "test_steps" | "design_goals" | "design_decomposition";
             status: components["schemas"]["JobStatus"];
             queue_position?: number | null;
             progress: {
@@ -2875,6 +3099,114 @@ export interface components {
             title: string;
             /** @description Version number of the latest version (1 = first generation) */
             version: number;
+        };
+        /**
+         * @description Section kinds in order; only implemented kinds exist
+         * @enum {string}
+         */
+        DesignKind: "goals" | "decomposition";
+        DesignSection: {
+            kind: components["schemas"]["DesignKind"];
+            title: string;
+            /** @enum {string} */
+            status: "empty" | "draft" | "confirmed";
+            /** @description 0 when empty */
+            version: number;
+            /** @description Per kind: goals -> DesignGoals, decomposition -> DesignDecomposition */
+            content: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Computed from the saved content. Per kind: goals -> DesignGoalsDerived, decomposition -> DesignDecompositionDerived */
+            derived: {
+                [key: string]: unknown;
+            } | null;
+            /** @description A requirement it cites changed or was deleted since it was last written */
+            stale: boolean;
+            /** @description The previous section is not confirmed yet */
+            locked: boolean;
+            /** @description The latest AI draft job of this section */
+            job: components["schemas"]["Job"] | null;
+            /** Format: date-time */
+            updated_at: string | null;
+        };
+        DesignSectionList: {
+            sections: components["schemas"]["DesignSection"][];
+        };
+        DesignSectionUpdate: {
+            content: {
+                [key: string]: unknown;
+            };
+        };
+        DesignGoals: {
+            /** @description Array order is the ranking (first = most important) */
+            goals: {
+                /** @description One of the 28 lecture 24 design goals */
+                name: string;
+                reason: string;
+                statement_ids: string[];
+            }[];
+        };
+        DesignGoalsDerived: {
+            groups: {
+                client: string[];
+                end_user: string[];
+                developer: string[];
+                other: string[];
+            };
+            conflicts: {
+                a: string;
+                b: string;
+                pair: string;
+            }[];
+        };
+        DesignDecomposition: {
+            /**
+             * @description closed: a layer calls only the layer directly below; open: any lower layer
+             * @enum {string}
+             */
+            architecture: "closed" | "open";
+            subsystems: {
+                /** @description Short slug, unique; kept when the name changes */
+                id: string;
+                name: string;
+                description: string;
+                /** @description 1 = top layer; larger = lower */
+                layer: number;
+                services: {
+                    name: string;
+                    operations: string[];
+                }[];
+                /** @description Names of extracted classes/entities it owns; a class belongs to at most one subsystem */
+                classes: string[];
+                /** @description Ids of other subsystems */
+                depends_on: string[];
+                statement_ids: string[];
+            }[];
+        };
+        DesignDecompositionDerived: {
+            /** @description Partitions = subsystems sharing a layer */
+            layers: {
+                layer: number;
+                subsystem_ids: string[];
+            }[];
+            subsystems: {
+                id: string;
+                /** @description internal / (internal + crossing) relations touching it; null when it touches none */
+                cohesion: number | null;
+                /** @description Distinct other subsystems linked by a crossing relation or depends_on */
+                coupling: number;
+            }[];
+            /** @description Whole decomposition; null without relations */
+            cohesion: number | null;
+            warnings: {
+                /** @enum {string} */
+                code: "too_many_subsystems" | "too_many_layers" | "upward_dependency" | "skipped_layer" | "unassigned_class" | "empty_subsystem";
+                message: string;
+                /** @description upward_dependency and skipped_layer: [from, to]; empty_subsystem: [id] */
+                subsystem_ids: string[];
+            }[];
+            /** @description PlantUML source; stored as a package diagram when the section is confirmed */
+            package_diagram: string;
         };
         /** @enum {string} */
         StoryPriority: "must" | "should" | "could" | "wont";
@@ -3206,6 +3538,7 @@ export interface components {
         StatementId: string;
         CaseId: string;
         RunId: string;
+        DesignKind: components["schemas"]["DesignKind"];
     };
     requestBodies: never;
     headers: never;

@@ -96,6 +96,7 @@ function buildAreas(project: Project): Area[] {
   const areas: Area[] = [
     // Tests work straight from the requirements, so they do not wait for diagrams.
     { to: 'tests', label: 'Tests', locked: project.statement_count && stage !== 'extracting' ? undefined : 'Locked until requirements exist' },
+    { to: 'design', label: 'Design', locked: project.confirmed ? undefined : 'Locked until you confirm' },
     { to: 'backlog', label: 'Backlog' },
     { to: 'coverage', label: 'Coverage' },
     { to: 'items', label: 'Building blocks', locked: project.item_count > 0 ? undefined : 'Nothing extracted yet' },

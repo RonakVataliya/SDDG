@@ -18,9 +18,6 @@ export type LayoutElement = Schemas['LayoutElement']
 export type LayoutLine = Schemas['LayoutLine']
 export type Point = Schemas['Point']
 // Tests (Sprint 3, stream 6)
-export type Flag = Schemas['Flag']
-export type FlagType = Schemas['FlagType']
-export type FlagSummary = Schemas['FlagSummary']
 export type TestRequirementSummary = Schemas['TestRequirementSummary']
 export type TestRequirementList = Schemas['TestRequirementList']
 export type TestDesign = Schemas['TestDesign']
@@ -54,6 +51,17 @@ export type StoryCreate = Schemas['StoryCreate']
 export type StoryUpdate = Schemas['StoryUpdate']
 export type StoryPriority = Schemas['StoryPriority']
 export type StoryStatus = Schemas['StoryStatus']
+// System Design (Feature 4)
+export type DesignKind = Schemas['DesignKind']
+export type DesignSection = Schemas['DesignSection']
+export type DesignGoals = Schemas['DesignGoals']
+export type DesignGoalsDerived = Schemas['DesignGoalsDerived']
+export type DesignDecomposition = Schemas['DesignDecomposition']
+export type DesignDecompositionDerived = Schemas['DesignDecompositionDerived']
+export type Flag = Schemas['Flag']
+export type FlagSummary = Schemas['FlagSummary']
+export type FlagType = Schemas['FlagType']
+
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {

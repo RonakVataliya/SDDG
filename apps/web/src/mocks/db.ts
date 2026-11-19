@@ -29,7 +29,8 @@ export type DiagramRow = Diagram & {
   svg: string
   /** Positions moved by hand (#37), element id → centre [x, y]. Like the backend, the PNG export ignores them. */
   layout?: Record<string, [number, number]>
-  /** The statements a diagram cites when the API stores them itself (package diagrams); otherwise taken from its items. */
+  /** A package diagram (from the Design step): its PlantUML source and the statements its section cites, as the API stores. */
+  source?: string
   statement_ids?: string[]
   /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
   style?: DiagramStyle
@@ -55,8 +56,12 @@ export const emptyTests = (): TestsState => ({
   designs: {}, criteria: [], conditions: [], flows: [], targets: {}, cases: [], runs: [], results: [], flags: [], nextCase: {},
 })
 
+/** System design sections (Feature 4) per project and kind; shapes live in ./design.ts. */
+export type DesignState = Record<string, Record<string, unknown>>
+
 export type MockDb = {
   tests: TestsState
+  design: DesignState
   consent: Record<string, { version: string; at: string }>
   projects: ProjectRow[]
   statements: Record<string, RequirementStatement[]>
@@ -71,7 +76,7 @@ export type MockDb = {
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
+const empty = (): MockDb => ({ tests: emptyTests(), design: {}, consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
 
 let db: MockDb = load()
 

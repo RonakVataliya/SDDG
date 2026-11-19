@@ -109,3 +109,7 @@ class StoryUpdate(BaseModel):
     confirmations: list[str] = None
     statement_ids: list[str] = None
 
+
+class DesignSectionUpdate(BaseModel):
+    """A design section's content; its shape depends on the section kind and is checked by routers/design.py."""
+    content: dict
