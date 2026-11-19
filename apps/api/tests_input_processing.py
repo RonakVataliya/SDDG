@@ -829,7 +829,8 @@ def test_sample_pdf_extracts_statements_user_stories_and_fr_nfr_ids():
     from core.input_processing import read_and_extract_upload, extract_fallback_statements_and_items
 
     pdf_path = Path("/Users/kavya/Downloads/SDDG_FR1_FR2_Test_SRS.pdf")
-    assert pdf_path.exists(), "Sample test PDF must exist"
+    if not pdf_path.exists():
+        pytest.skip("sample SRS PDF is only on the author's machine")
 
     class MockUpload:
         def __init__(self, filename, data):
@@ -870,10 +871,13 @@ def test_sample_pdf_extracts_statements_user_stories_and_fr_nfr_ids():
 
 
 def test_extraction_worker_persists_sample_pdf_and_recovers_when_ai_returns_empty(monkeypatch):
+    import httpx
     import routers.integrated as integrated
     from pathlib import Path
 
     pdf_path = Path("/Users/kavya/Downloads/SDDG_FR1_FR2_Test_SRS.pdf")
+    if not pdf_path.exists():
+        pytest.skip("sample SRS PDF is only on the author's machine")
     text = Path("/tmp/test_srs_text.txt").read_text() if Path("/tmp/test_srs_text.txt").exists() else "FR-001: The system shall register users."
 
     inserted_statements = []
@@ -978,3 +982,74 @@ def test_extraction_worker_fails_when_zero_valid_statements(monkeypatch):
     assert "No requirements could be extracted" in failed_errors[0][1]
 
 
+def _docx_zip(members: dict[str, bytes]) -> bytes:
+    import zipfile
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("word/document.xml", "<w:document/>")
+        for name, body in members.items():
+            z.writestr(name, body)
+    return out.getvalue()
+
+
+def test_docx_zip_bomb_is_rejected_before_unpacking():
+    from core.input_processing import MAX_DOCX_UNCOMPRESSED_BYTES
+    # ~60 MB of zeros compresses to a few tens of KB, far below the 10 MiB upload limit
+    data = _docx_zip({"word/media/bomb.bin": b"\0" * (MAX_DOCX_UNCOMPRESSED_BYTES + 10 * 1024 * 1024)})
+    assert len(data) < MAX_FILE_BYTES
+    upload = UploadFile(filename="bomb.docx", file=io.BytesIO(data))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(read_and_extract_upload(upload))
+    assert error.value.status_code == 413
+    assert "unsafe" in error.value.detail
+
+
+def test_docx_with_too_many_members_is_rejected():
+    from core.input_processing import MAX_DOCX_MEMBERS
+    data = _docx_zip({f"word/x{i}.xml": b"" for i in range(MAX_DOCX_MEMBERS + 1)})
+    upload = UploadFile(filename="many.docx", file=io.BytesIO(data))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(read_and_extract_upload(upload))
+    assert error.value.status_code == 400
+    assert "too many" in error.value.detail
+
+
+def test_parsing_runs_off_the_event_loop(monkeypatch):
+    """A slow parse must not stop other requests: the event loop keeps ticking while it runs."""
+    import threading
+    import time
+    import core.input_processing as ip
+
+    seen = {}
+
+    def slow_parse(data, filename, extension):
+        seen["thread"] = threading.current_thread()
+        time.sleep(0.5)
+        return {"ok": True}
+
+    monkeypatch.setattr(ip, "_extract_upload_bytes", slow_parse)
+
+    async def scenario():
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.05)
+                ticks += 1
+
+        task = asyncio.create_task(ticker())
+        result = await ip.read_and_extract_upload(UploadFile(filename="a.pdf", file=io.BytesIO(b"%PDF-1.4 x")))
+        task.cancel()
+        return result, ticks
+
+    result, ticks = asyncio.run(scenario())
+    assert result == {"ok": True}
+    assert seen["thread"] is not threading.main_thread()
+    assert ticks >= 5, ticks  # blocked loop would have ticked ~0 times during the 0.5 s parse
+
+
+if __name__ == "__main__":
+    # tests_*.py are run one by one with `python` in CI; without this the pytest-style tests above never ran.
+    raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

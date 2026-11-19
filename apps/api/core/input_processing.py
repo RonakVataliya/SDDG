@@ -1,6 +1,7 @@
 """FR1/FR2 input parsing, format verification, extraction and limits."""
 from __future__ import annotations
 
+import asyncio
 import io
 import math
 import re
@@ -17,6 +18,9 @@ MAX_FILE_BYTES = 10 * 1024 * 1024  # FR2a: exactly 10 MiB is accepted
 MAX_PROJECT_PAGES = 100
 CHARS_PER_PAGE = 3000
 SUPPORTED_EXTENSIONS = {".pdf", ".docx"}
+# A DOCX is a zip: a 10 MiB file can expand to gigabytes, so the unpacked size and member count are capped too.
+MAX_DOCX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+MAX_DOCX_MEMBERS = 2000
 USER_STORY_RE = re.compile(
     r"^\s*(?:[-*•\x7f\u2022]\s*)?As\s+an?\s+(?P<role>.+?)\s*,?\s+I\s+want\s+(?P<goal>.+?)\s*,?\s+so\s+that\s+(?P<reason>.+?)\s*[.!]?\s*$",
     re.IGNORECASE,
@@ -496,7 +500,8 @@ def _docx_page_count(data: bytes, extracted_text: str) -> tuple[int, str | None]
                 source = Path(temp) / "source.docx"
                 source.write_bytes(data)
                 completed = subprocess.run(
-                    [office, "--headless", "--convert-to", "pdf", "--outdir", temp, str(source)],
+                    [office, f"-env:UserInstallation={Path(temp, 'profile').as_uri()}", "--headless",
+                     "--convert-to", "pdf", "--outdir", temp, str(source)],
                     capture_output=True, timeout=30, check=False,
                 )
                 rendered = Path(temp) / "source.pdf"
@@ -561,7 +566,27 @@ async def read_and_extract_upload(upload: UploadFile) -> dict[str, Any]:
         )
     if total_size == 0:
         raise HTTPException(status_code=400, detail="The uploaded file is empty.")
-    data = bytes(data)
+    # Parsing (pypdf, python-docx, LibreOffice for up to 30 s) is CPU-bound and blocking: run it in a worker
+    # thread so one big upload cannot stall every other request on this event loop.
+    return await asyncio.to_thread(_extract_upload_bytes, bytes(data), filename, extension)
+
+
+def _check_docx_package(archive: zipfile.ZipFile) -> None:
+    """Rejects zip bombs before anything is decompressed. The sizes come from the zip directory; zipfile never
+    returns more bytes than a member declares, so these limits bound what testzip(), python-docx and the
+    docProps read can allocate."""
+    infos = archive.infolist()
+    if len(infos) > MAX_DOCX_MEMBERS:
+        raise HTTPException(status_code=400, detail="This DOCX contains too many internal files and was rejected as unsafe.")
+    if sum(info.file_size for info in infos) > MAX_DOCX_UNCOMPRESSED_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"This DOCX expands to more than {MAX_DOCX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB when unpacked and was rejected as unsafe.",
+        )
+
+
+def _extract_upload_bytes(data: bytes, filename: str, extension: str) -> dict[str, Any]:
+    """Blocking part of read_and_extract_upload: verify the content and extract text and pages."""
 
     if extension == ".pdf":
         if not data.startswith(b"%PDF-"):
@@ -584,6 +609,7 @@ async def read_and_extract_upload(upload: UploadFile) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="This DOCX is password-protected. Remove its password and try again.")
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            _check_docx_package(archive)
             names = set(archive.namelist())
             if "EncryptedPackage" in names:
                 raise HTTPException(status_code=400, detail="This DOCX is password-protected. Remove its password and try again.")
