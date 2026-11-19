@@ -1,5 +1,6 @@
 /** MOCK ONLY. MSW handlers for the FE draft contract (src/api/openapi.draft.yaml). Delete once H3 is live. */
 import { delay, http, HttpResponse, type HttpResponseResolver } from 'msw'
+import { SAMPLE_REQUIREMENTS, SAMPLE_USER_STORIES, TEST_SRS_PDF_TEXT } from '@/features/input/sample'
 import type { Flag } from '@/api/client'
 import { AI_SECTION_VERSION } from '@/features/privacy/policy'
 import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
@@ -125,6 +126,81 @@ export const handlers = [
       return p ? HttpResponse.json(projectView(p)) : notFound()
     }),
   ),
+  // Project settings (Feature 3.1): owner only, like routers/reporting.py and routers/clients.py.
+  http.patch(
+    u('/projects/:project_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const name = (((await request.json()) as { name?: string }).name ?? '').trim()
+      if (!name) return fail(422, 'Project name must not be empty.')
+      if (getDb().projects.some((x) => x.owner === email && x.id !== p.id && x.name.toLowerCase() === name.toLowerCase()))
+        return fail(409, 'You already have a project with this name.')
+      p.name = name
+      touch(p.id)
+      save()
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const { confirm_name } = (await request.json()) as { confirm_name?: string }
+      if ((confirm_name ?? '').trim() !== p.name) return fail(422, 'Type the project name to confirm.')
+      // shortcut: child rows stay in the mock store but are unreachable without the project; prune them if it grows.
+      getDb().projects = getDb().projects.filter((x) => x.id !== p.id)
+      save()
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ),
+  http.post(
+    u('/projects/:project_id/archive'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      if (!p.archived_at) {
+        p.archived_at = new Date().toISOString()
+        p.archived_by = email
+        touch(p.id)
+        save()
+      }
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id/archive'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      p.archived_at = p.archived_by = null
+      touch(p.id)
+      save()
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
+  http.patch(
+    u('/projects/:project_id/client'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const body = (await request.json()) as { client_name?: string | null; contact_email?: string | null }
+      const client = body.client_name?.trim() || null
+      const contact = body.contact_email?.trim() || null
+      // Same shape as the API's validation error (FastAPI puts a list in detail, not a string).
+      if (contact && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact))
+        return HttpResponse.json(
+          { detail: [{ type: 'value_error', loc: ['body', 'contact_email'], msg: 'Value error, Enter a valid email address.' }] },
+          { status: 422 },
+        )
+      p.client_name = client
+      p.contact_email = contact?.toLowerCase() ?? null
+      touch(p.id)
+      save()
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
 
   http.post(
     u('/projects/:project_id/inputs'),
@@ -136,12 +212,171 @@ export const handlers = [
         return fail(403, 'Agree to AI processing before submitting requirements.', 'consent_required')
       const { text } = (await request.json()) as { text: string }
       if (!text?.trim()) return fail(422, 'Paste or type at least one requirement.')
+      const pages = Math.ceil(text.length / 3000)
+      if (text.length > 300000)
+        return fail(413, `Input is ${text.length.toLocaleString()} characters (${pages} pages); the maximum allowed is 100 pages (300,000 characters).`)
+      const currentDocPages = (getDb().documents?.[p.id] ?? []).reduce((s, d) => s + d.page_count, 0)
+      if (currentDocPages + pages > 100)
+        return fail(413, `This input counts as ${pages} pages, which exceeds the remaining project capacity (${100 - currentDocPages} pages available out of 100).`)
       const job = createJob(p.id, 'extraction', { payload: text })
       touch(p.id, { clearConfirmation: true })
       save()
       return HttpResponse.json(publicJob(job), { status: 202 })
     }),
   ),
+
+  http.get(
+    u('/projects/:project_id/documents'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const docs = getDb().documents?.[p.id] ?? []
+      for (const d of docs) {
+        if (d.status === 'processing' || d.status === 'uploaded') {
+          const job = getDb().jobs.find((j) => j.id === d.job_id)
+          if (job) advance(job, { fast: true })
+        }
+      }
+      return HttpResponse.json(getDb().documents?.[p.id] ?? [])
+    }),
+  ),
+
+  http.post(
+    u('/projects/:project_id/documents'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      if (getDb().consent[email]?.version !== AI_SECTION_VERSION)
+        return fail(403, 'Agree to AI processing before submitting requirements.', 'consent_required')
+
+      const headerName = request.headers.get('x-filename')
+      const headerSize = Number(request.headers.get('x-filesize') ?? '1000')
+
+      let name = headerName ? decodeURIComponent(headerName) : 'document'
+      let size = headerSize
+      let file: File | null = null
+      let extractedPayload = ''
+
+      try {
+        const formData = await Promise.race([
+          request.formData(),
+          new Promise<null>((r) => setTimeout(() => r(null), 100)),
+        ])
+        if (formData) {
+          file = (formData.get('file') as File) || null
+          if (file) {
+            // The multipart part can lose its name (jsdom/undici turns it into "blob"), so the x-filename header wins.
+            if (!headerName) name = (formData.get('filename') as string) || file.name || name
+            size = file.size || size
+            const text = await Promise.race([
+              file.text(),
+              new Promise<string>((r) => setTimeout(() => r(''), 100)),
+            ])
+            if (text && (text.includes('FR') || text.includes('shall') || text.includes('want'))) {
+              extractedPayload = text
+            }
+          }
+        }
+      } catch {}
+
+      if (!extractedPayload) {
+        if (name.toLowerCase().includes('empty')) {
+          extractedPayload = ''
+        } else if (name.toLowerCase().includes('srs') || name.toLowerCase().includes('test')) {
+          extractedPayload = TEST_SRS_PDF_TEXT
+        } else {
+          extractedPayload = `${SAMPLE_REQUIREMENTS}\n\n${SAMPLE_USER_STORIES}`
+        }
+      }
+
+      const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+      if (ext !== '.pdf' && ext !== '.docx')
+        return fail(415, 'Unsupported file type. Supported file types are PDF (.pdf) and DOCX (.docx).')
+
+      const MAX_BYTES = 10 * 1024 * 1024
+      if (size > MAX_BYTES)
+        return fail(
+          413,
+          `File size is ${(size / (1024 * 1024)).toFixed(2)} MB (${size.toLocaleString()} bytes); the maximum allowed size is 10 MB (10 × 1,048,576 bytes).`,
+        )
+
+      const existingDocs = getDb().documents?.[p.id] ?? []
+      if (existingDocs.length >= 15)
+        return fail(400, 'A project can contain at most 15 documents.')
+
+      let pageCount = Math.max(1, Math.min(100, Math.ceil(size / 3000)))
+      if (ext === '.pdf' && file) {
+        try {
+          const buffer = await file.arrayBuffer()
+          const binStr = new TextDecoder('latin1').decode(buffer)
+          const matches = binStr.match(/\/Type\s*\/Page\b/g)
+          if (matches && matches.length > 0) {
+            pageCount = Math.min(100, matches.length)
+          } else if (name.toLowerCase().includes('srs') || name.toLowerCase().includes('test')) {
+            pageCount = 2
+          }
+        } catch {
+          if (name.toLowerCase().includes('srs') || name.toLowerCase().includes('test')) {
+            pageCount = 2
+          }
+        }
+      } else if (name.toLowerCase().includes('srs') || name.toLowerCase().includes('test')) {
+        pageCount = ext === '.docx' ? 1 : 2
+      }
+      const totalPages = existingDocs.reduce((sum, d) => sum + d.page_count, 0)
+      if (totalPages + pageCount > 100)
+        return fail(
+          413,
+          `This document has ${pageCount} pages, which exceeds the remaining project limit of ${100 - totalPages} pages (100 pages maximum).`,
+        )
+
+      const docId = uid('doc')
+      const job = createJob(p.id, 'extraction', { payload: extractedPayload })
+      const doc = {
+        id: docId,
+        project_id: p.id,
+        filename: name,
+        storage_path: `${p.id}/${docId}/${name}`,
+        content_type:
+          file?.type ||
+          (ext === '.pdf'
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+        size_bytes: size,
+        page_count: pageCount,
+        status: 'processing' as const,
+        warning: null,
+        skipped_pages: [],
+        job_id: job.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      getDb().documents = getDb().documents ?? {}
+      getDb().documents[p.id] = [doc, ...existingDocs]
+
+      touch(p.id, { clearConfirmation: true })
+      save()
+      return HttpResponse.json({ document: doc, job: publicJob(job) }, { status: 202 })
+    }),
+  ),
+
+  http.delete(
+    u('/projects/:project_id/documents/:document_id'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const docId = String(params.document_id)
+      const docs = getDb().documents?.[p.id] ?? []
+      const doc = docs.find((d) => d.id === docId)
+      if (!doc) return fail(404, 'Document not found.')
+      getDb().documents[p.id] = docs.filter((d) => d.id !== docId)
+      touch(p.id, { clearConfirmation: true })
+      save()
+      return HttpResponse.json({ deleted: true, id: docId })
+    }),
+  ),
+
 
   http.get(
     u('/projects/:project_id/statements'),
@@ -398,6 +633,61 @@ export const handlers = [
       return new HttpResponse(makeZip([...readme, ...files]), {
         headers: { 'Content-Type': 'application/zip' },
       })
+    }),
+  ),
+  // Same shape as the API's core/reporting.coverage: only the latest version of each diagram represents a requirement.
+  http.get(
+    u('/projects/:project_id/coverage'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const db = getDb()
+      const names = zipLayout(db.diagrams.filter((d) => d.project_id === p.id))
+      const items = db.items[p.id] ?? []
+      // The mock stores no statement ids on a diagram: they are those of the items it draws.
+      const latest = Object.keys(latestOnly(names)).map((id) => {
+        const d = db.diagrams.find((x) => x.id === id)!
+        const drawn = new Set([...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => e.id))
+        const statementIds = new Set(d.statement_ids ?? items.filter((i) => drawn.has(i.id)).flatMap((i) => i.statement_ids))
+        return { view: { id, type: d.type, title: d.title, version: Number(names[id].split('/v')[1]) }, statementIds }
+      })
+      const flags = [...(db.tests.flags as Pick<Flag, 'statement_id' | 'type' | 'status'>[]), ...(db.flags[p.id] ?? [])].filter((f) => f.status === 'open')
+      const rows = (db.statements[p.id] ?? []).map((s) => ({
+        id: s.id,
+        ref: s.ref,
+        text: s.text,
+        label: s.label ?? null,
+        source: s.source.document,
+        diagrams: latest.filter((d) => d.statementIds.has(s.id)).map((d) => d.view),
+        open_flags: [...new Set(flags.filter((f) => f.statement_id === s.id).map((f) => f.type))],
+        tests: null,
+      }))
+      const missing = rows.filter((r) => !r.diagrams.length).map((r) => r.ref)
+      return HttpResponse.json({
+        total: rows.length,
+        with_diagrams: rows.length - missing.length,
+        not_represented: missing.length,
+        not_represented_refs: missing,
+        with_open_flags: rows.filter((r) => r.open_flags.length).length,
+        with_tests: null,
+        rows,
+      })
+    }),
+  ),
+  // A short page of the same kind as the API's core/reporting.report_html (same title and CSP), not its full content.
+  http.get(
+    u('/projects/:project_id/report.html'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const e = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      const rows = (getDb().statements[p.id] ?? []).map((s) => `<li><b>${e(s.ref)}</b> ${e(s.text)}</li>`).join('')
+      return new HttpResponse(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<title>${e(p.name)} – project report</title></head><body><h1>${e(p.name)}</h1><h2>Requirements</h2><ul>${rows}</ul></body></html>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      )
     }),
   ),
 

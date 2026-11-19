@@ -1,6 +1,7 @@
 """Supabase Postgres access. Schema: apps/api/migrations/ (python -m core.migrate, or AUTO_MIGRATE=true; see README)."""
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -21,12 +22,14 @@ JSON_COLS = (
     "performance_targets", "limits", "set_values", "invalid_values", "classes", "boundaries", "test_data", "covers",
     "preconditions", "steps",
     "case_ids",
+    # Uploaded documents and statement metadata (FR1/FR2)
+    "skipped_pages", "metadata",
     "confirmations",  # stories (3.4)
 )
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
     "projects": ("name", "client_name"),
-    "statements": ("text", "source_excerpt"),
+    "statements": ("text", "source_excerpt", "metadata"),
     "items": ("name", "description"),
     "diagrams": ("title", "svg", "elements", "plantuml_source", "instruction", "spec"),
     "flags": ("reason", "trigger_text", "question", "answer", "suggested_fix"),
@@ -40,9 +43,15 @@ SECRET = {
     "test_cases": ("title", "test_data", "covers", "preconditions", "steps", "expected"),
     "test_runs": ("name",),
     "test_results": ("note",),
+    "documents": ("filename",),
     "stories": ("role_text", "goal_text", "reason_text", "confirmations"),  # 3.4
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
+
+# FR1b/FR2/FR3 project limits for uploaded documents.
+MAX_DOCUMENTS_PER_PROJECT = 15
+MAX_PAGES_PER_PROJECT = 100
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 
 def now():
@@ -53,9 +62,50 @@ def uid(prefix):
     return f"{prefix}_{uuid4().hex}"
 
 
+_SCHEMA_CHECKED = False
+_DOCUMENTS_TABLE_EXISTS = False
+_HAS_STATEMENT_SOURCE_LABEL = False
+_HAS_STATEMENT_METADATA = False
+_HAS_JOB_DOCUMENT_ID = False
+
+
+def _check_schema_once():
+    """Detects database schema capabilities to remain resilient before migrations are applied."""
+    global _SCHEMA_CHECKED, _DOCUMENTS_TABLE_EXISTS, _HAS_STATEMENT_SOURCE_LABEL, _HAS_STATEMENT_METADATA, _HAS_JOB_DOCUMENT_ID
+    if _SCHEMA_CHECKED:
+        return
+    try:
+        with pool.connection() as c:
+            row = c.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='documents'"
+            ).fetchone()
+            _DOCUMENTS_TABLE_EXISTS = bool(row)
+
+            stmt_cols = {
+                r["column_name"]
+                for r in c.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='statements'"
+                ).fetchall()
+            }
+            _HAS_STATEMENT_SOURCE_LABEL = "source_label" in stmt_cols
+            _HAS_STATEMENT_METADATA = "metadata" in stmt_cols
+
+            job_cols = {
+                r["column_name"]
+                for r in c.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='jobs'"
+                ).fetchall()
+            }
+            _HAS_JOB_DOCUMENT_ID = "document_id" in job_cols
+            _SCHEMA_CHECKED = True
+    except Exception:
+        pass
+
+
 def init_db():
     fernet()  # fail fast if DATA_ENCRYPTION_KEY is missing
     pool.open(wait=True)  # fail fast if the database is unreachable
+    _check_schema_once()
 
 
 def _decode(r):
@@ -112,13 +162,32 @@ def project_rows(user_id):
 
 
 def project_counts(pid):
+    _check_schema_once()
+    documents = (
+        "(SELECT count(*) FROM documents WHERE project_id=%s) AS document_count, "
+        "(SELECT COALESCE(sum(page_count), 0) FROM documents WHERE project_id=%s) AS document_page_count"
+        if _DOCUMENTS_TABLE_EXISTS
+        else "0 AS document_count, 0 AS document_page_count"
+    )
     return one(
         "SELECT (SELECT count(*) FROM statements WHERE project_id=%s) AS statement_count, "
         "(SELECT count(*) FROM items WHERE project_id=%s) AS item_count, "
         "(SELECT count(*) FROM diagrams WHERE project_id=%s) AS diagram_count, "
-        "(SELECT count(*) FROM flags WHERE project_id=%s AND status='open') AS open_flag_count",
-        pid, pid, pid, pid,
+        "(SELECT count(*) FROM flags WHERE project_id=%s AND status='open') AS open_flag_count, " + documents,
+        *([pid] * (6 if _DOCUMENTS_TABLE_EXISTS else 4)),
     )
+
+
+def project_document_totals(pid):
+    _check_schema_once()
+    if not _DOCUMENTS_TABLE_EXISTS:
+        return {"document_count": 0, "total_pages": 0}
+    row = one(
+        "SELECT count(*) AS document_count, COALESCE(sum(page_count), 0) AS total_pages "
+        "FROM documents WHERE project_id=%s",
+        pid,
+    )
+    return row or {"document_count": 0, "total_pages": 0}
 
 
 def create_project(user_id, name, client_name=None, contact_email=None):
@@ -177,7 +246,9 @@ def set_consent(user_id, version):
 
 
 def insert_statements(pid, statements, document="pasted requirements"):
-    """Store statements (from the splitter or typed by the user); returns their new ids in order."""
+    """Store statements (from the splitter, an uploaded document or typed by the user); returns their new ids in order."""
+    _check_schema_once()
+    extra_cols = _HAS_STATEMENT_SOURCE_LABEL and _HAS_STATEMENT_METADATA
     with pool.connection() as c:
         # Lock the project row so two extractions finishing together cannot both pick the next R-number;
         # numbering continues from the highest ref, so a ref is never reused.
@@ -191,8 +262,8 @@ def insert_statements(pid, statements, document="pasted requirements"):
 
         for i, s in enumerate(statements):
             src = s.get("source_location") or {}
-
-            rows.append((
+            excerpt = src.get("excerpt")
+            row = [
                 uid("st"),
                 pid,
                 f"R-{n + i + 1:03d}",
@@ -203,8 +274,21 @@ def insert_statements(pid, statements, document="pasted requirements"):
                 src.get("paragraph"),
                 src.get("line_start"),
                 src.get("line_end"),
-                encrypt(src.get("excerpt")),
-            ))
+            ]
+            if extra_cols:
+                metadata = s.get("metadata")
+                row += [
+                    encrypt(excerpt),
+                    s.get("source_label"),
+                    encrypt(json.dumps(metadata)) if metadata is not None else None,
+                ]
+            else:
+                # Before the migration: keep the original FR/NFR ID visible in the excerpt.
+                excerpt = excerpt or ""
+                if s.get("source_label") and not excerpt.startswith(s["source_label"]):
+                    excerpt = f"{s['source_label']}: {excerpt}".strip(": ")
+                row.append(encrypt(excerpt or None))
+            rows.append(tuple(row))
 
         # IMPORTANT: execute only once, after all rows are prepared
         with c.cursor() as cur:
@@ -213,7 +297,8 @@ def insert_statements(pid, statements, document="pasted requirements"):
                 "id, project_id, ref, text, label, source_document, "
                 "source_page, source_paragraph, source_line_start, "
                 "source_line_end, source_excerpt"
-                ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                + (", source_label, metadata) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                   if extra_cols else ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"),
                 rows,
             )
 
@@ -221,17 +306,40 @@ def insert_statements(pid, statements, document="pasted requirements"):
 
 
 def get_statements(pid):
-    return [
-        {
+    from core.input_processing import FR_NFR_RE, USER_STORY_RE
+
+    results = []
+    for r in many("SELECT * FROM statements WHERE project_id=%s ORDER BY seq", pid):
+        # Rows stored before source_label/metadata existed: derive them from the text.
+        meta = r.get("metadata")
+        if meta is None and r.get("text"):
+            m = USER_STORY_RE.match(r["text"])
+            if m:
+                meta = {
+                    "structured": True,
+                    "role": m.group("role").strip(),
+                    "goal": m.group("goal").strip().rstrip(".,;"),
+                    "reason": m.group("reason").strip().rstrip(".,;"),
+                }
+        source_label = r.get("source_label")
+        if not source_label:
+            for candidate in (r.get("source_excerpt"), r.get("text")):
+                if candidate:
+                    m = FR_NFR_RE.match(candidate)
+                    if m:
+                        source_label = re.sub(r"[\s_]+", "-", m.group(1)).upper()
+                        break
+        results.append({
             "id": r["id"], "ref": r["ref"], "text": r["text"], "label": r["label"],
+            "source_label": source_label,
+            "metadata": meta,
             "source": {
                 "document": r["source_document"], "page": r["source_page"],
                 "paragraph": r["source_paragraph"], "line_start": r["source_line_start"],
                 "line_end": r["source_line_end"], "excerpt": r["source_excerpt"],
             },
-        }
-        for r in many("SELECT * FROM statements WHERE project_id=%s ORDER BY seq", pid)
-    ]
+        })
+    return results
 
 
 def _item_key(i):
@@ -314,7 +422,16 @@ def _job(r):
     return r
 
 
-def create_job(pid, kind, total, label, diagram_types=()):
+def create_job(pid, kind, total, label, diagram_types=(), document_id=None):
+    """Create a job, optionally linked to an uploaded source document."""
+    _check_schema_once()
+    if document_id is not None and _HAS_JOB_DOCUMENT_ID:
+        return _job(one(
+            "INSERT INTO jobs(id, project_id, kind, status, queue_position, progress_step, progress_total, "
+            "progress_label, diagram_types, diagram_ids, document_id, created_at) "
+            "VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s,%s) RETURNING *",
+            uid("job"), pid, kind, total, label, json.dumps(list(diagram_types)), document_id, now(),
+        ))
     return _job(one(
         "INSERT INTO jobs(id, project_id, kind, status, queue_position, progress_step, progress_total, "
         "progress_label, diagram_types, diagram_ids, created_at) VALUES (%s,%s,%s,'queued',1,0,%s,%s,%s,'[]',%s) RETURNING *",
@@ -521,3 +638,146 @@ def add_llm_calls(job_id, pid, calls, mixed):
             f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
             [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
         )
+
+# ---------------------------------------------------------------------------
+# Document management
+# ---------------------------------------------------------------------------
+
+def create_document(
+    pid,
+    filename,
+    storage_path,
+    content_type,
+    size_bytes,
+    page_count,
+    warning=None,
+    skipped_pages=None,
+    job_id=None,
+):
+    """Register a stored document and enforce project document/page limits.
+
+    The project row lock serializes simultaneous uploads for the same project.
+    Raises ValueError when a project limit or file limit is exceeded.
+    """
+    _check_schema_once()
+    if not _DOCUMENTS_TABLE_EXISTS:
+        raise RuntimeError(
+            "The 'documents' table does not exist in Supabase database. "
+            "Please apply apps/api/migrations/0008_documents.sql."
+        )
+
+    if not filename or not filename.strip():
+        raise ValueError("A document filename is required.")
+
+    if size_bytes <= 0 or size_bytes > MAX_DOCUMENT_BYTES:
+        raise ValueError("Document size must be between 1 byte and 10 MiB.")
+
+    if page_count <= 0 or page_count > MAX_PAGES_PER_PROJECT:
+        raise ValueError("Document page count must be between 1 and 100.")
+
+    document_id = uid("doc")
+    created_at = now()
+    skipped_pages = skipped_pages or []
+
+    with pool.connection() as c:
+        project = c.execute(
+            "SELECT id FROM projects WHERE id=%s FOR UPDATE",
+            (pid,),
+        ).fetchone()
+
+        if not project:
+            raise ValueError("Project not found.")
+
+        totals = c.execute(
+            "SELECT count(*) AS document_count, "
+            "COALESCE(sum(page_count), 0) AS total_pages "
+            "FROM documents WHERE project_id=%s",
+            (pid,),
+        ).fetchone()
+
+        if totals["document_count"] >= MAX_DOCUMENTS_PER_PROJECT:
+            raise ValueError(
+                f"A project can contain at most {MAX_DOCUMENTS_PER_PROJECT} documents."
+            )
+
+        if totals["total_pages"] + page_count > MAX_PAGES_PER_PROJECT:
+            raise ValueError(
+                f"A project can contain at most {MAX_PAGES_PER_PROJECT} pages in total."
+            )
+
+        row = c.execute(
+            "INSERT INTO documents("
+            "id, project_id, filename, storage_path, content_type, size_bytes, "
+            "page_count, status, warning, skipped_pages, job_id, created_at, updated_at"
+            ") VALUES (%s,%s,%s,%s,%s,%s,%s,'uploaded',%s,%s,%s,%s,%s) RETURNING *",
+            (
+                document_id,
+                pid,
+                encrypt(filename.strip()),
+                storage_path,
+                content_type,
+                size_bytes,
+                page_count,
+                warning,
+                json.dumps(skipped_pages),
+                job_id,
+                created_at,
+                created_at,
+            ),
+        ).fetchone()
+
+    return _decode(row)
+
+
+def get_document(pid, document_id):
+    """Get one document belonging to a project."""
+    _check_schema_once()
+    if not _DOCUMENTS_TABLE_EXISTS:
+        return None
+    return one(
+        "SELECT * FROM documents WHERE project_id=%s AND id=%s",
+        pid, document_id,
+    )
+
+
+def list_documents(pid):
+    """List project documents, newest first."""
+    _check_schema_once()
+    if not _DOCUMENTS_TABLE_EXISTS:
+        return []
+    return many(
+        "SELECT * FROM documents WHERE project_id=%s ORDER BY created_at DESC",
+        pid,
+    )
+
+
+def update_document(document_id, **fields):
+    """Update document status, job_id, warning, or skipped_pages."""
+    _check_schema_once()
+    if not _DOCUMENTS_TABLE_EXISTS:
+        return None
+    allowed = {"status", "warning", "skipped_pages", "job_id"}
+    if not fields or not set(fields).issubset(allowed):
+        raise ValueError("Invalid document update fields.")
+
+    if "skipped_pages" in fields:
+        fields["skipped_pages"] = json.dumps(fields["skipped_pages"])
+
+    fields["updated_at"] = now()
+    sets = ", ".join(f"{key}=%s" for key in fields)
+
+    return one(
+        f"UPDATE documents SET {sets} WHERE id=%s RETURNING *",
+        *fields.values(), document_id,
+    )
+
+
+def delete_document(pid, document_id):
+    """Delete document metadata. Storage-object deletion is handled by the API."""
+    _check_schema_once()
+    if not _DOCUMENTS_TABLE_EXISTS:
+        return None
+    return one(
+        "DELETE FROM documents WHERE project_id=%s AND id=%s RETURNING *",
+        pid, document_id,
+    )

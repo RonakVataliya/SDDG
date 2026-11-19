@@ -38,6 +38,16 @@ export function ReviewPage() {
   const canEdit = project.role !== 'viewer'
 
   const summaryById = useMemo(() => new Map((summary.data ?? []).map((s) => [s.statement_id, s])), [summary.data])
+  // The summary's `types` also lists resolved flags' types, so the pill and counts take them from open flags only.
+  const openTypes = useMemo(() => {
+    const m = new Map<string, Schemas['FlagType'][]>()
+    for (const f of flags.data ?? []) {
+      if (f.status !== 'open') continue
+      const have = m.get(f.statement_id) ?? []
+      if (!have.includes(f.type)) m.set(f.statement_id, [...have, f.type])
+    }
+    return m
+  }, [flags.data])
   const openFlagByStatement = useMemo(() => {
     const m = new Map<string, NonNullable<typeof flags.data>[number]>()
     for (const f of flags.data ?? []) if (f.status === 'open' && !m.has(f.statement_id)) m.set(f.statement_id, f)
@@ -106,6 +116,7 @@ export function ReviewPage() {
                 statement={s}
                 flag={openFlagByStatement.get(s.id)}
                 summary={summaryById.get(s.id)}
+                openTypes={openTypes.get(s.id)}
                 storyRefs={stories.filter((st) => st.statement_ids.includes(s.id)).map((st) => st.ref)}
                 highlighted={s.ref === highlight}
                 canEdit={canEdit}
@@ -119,9 +130,9 @@ export function ReviewPage() {
         {adding && <AddRow projectId={project.id} nextRef={nextRef(all)} onDone={() => setAdding(false)} />}
       </section>
 
-      <ConfirmPanel count={all.length} summary={summary.data ?? []} onFlags={() => setDrawer({ open: true })} />
+      <ConfirmPanel count={all.length} summary={summary.data ?? []} openTypes={openTypes} onFlags={() => setDrawer({ open: true })} />
 
-      <FlagsDrawer projectId={project.id} open={drawer.open} onOpenChange={(open) => setDrawer((d) => ({ ...d, open }))} focusStatementId={drawer.focus} statements={all} />
+      <FlagsDrawer projectId={project.id} open={drawer.open} onOpenChange={(open) => setDrawer((d) => ({ ...d, open }))} focusStatementId={drawer.focus} statements={all} canEdit={canEdit} />
     </div>
   )
 }
@@ -133,6 +144,7 @@ function Row({
   statement: s,
   flag,
   summary,
+  openTypes,
   storyRefs,
   highlighted,
   canEdit,
@@ -143,6 +155,7 @@ function Row({
   statement: RequirementStatement
   flag?: Schemas['Flag']
   summary?: Schemas['FlagSummary']
+  openTypes?: Schemas['FlagType'][]
   storyRefs: string[]
   highlighted?: boolean
   canEdit: boolean
@@ -162,10 +175,26 @@ function Row({
     >
       <RefTag className="mt-0.5 shrink-0">{s.ref}</RefTag>
       <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] text-slate">{shortLabel(s.label)}</span>
-      <p className="min-w-0 flex-1 text-[13.5px] leading-[22px]">
-        <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
+      {/* FR1/FR2: the requirement's own ID from the input (FR-001, NFR-2, …) */}
+      {s.source_label && (
+        <Badge tone="neutral" className="mt-0.5 h-fit shrink-0 font-mono text-[11px]">
+          {s.source_label}
+        </Badge>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] leading-[22px]">
+          <Highlighted text={s.text} trigger={flag?.trigger_text} type={flag?.type} />
+        </p>
+        {/* FR1: structured user story (As a <role>, I want <goal>, so that <reason>) */}
+        {Boolean(s.metadata?.structured && s.metadata.role) && (
+          <p className="mt-0.5 text-xs text-slate">
+            Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
+            <span className="text-ink">{String(s.metadata?.goal)}</span>
+            {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
+          </p>
+        )}
         {storyRefs.length > 0 && (
-          <span className="mt-0.5 block text-[12px] text-slate">
+          <p className="mt-0.5 text-[12px] text-slate">
             Stories:{' '}
             {storyRefs.map((ref, i) => (
               <span key={ref}>
@@ -175,15 +204,15 @@ function Row({
                 </Link>
               </span>
             ))}
-          </span>
+          </p>
         )}
-      </p>
-      <FlagPill summary={summary} onClick={onFlags} />
+      </div>
+      <FlagPill summary={summary} openTypes={openTypes} onClick={onFlags} />
       {canEdit &&
         (confirming ? (
           <span className="flex shrink-0 items-center gap-1">
             <Button size="sm" variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(s.id)}>
-              {remove.isPending && <Spinner className="text-white" label="Deleting" />}
+              {remove.isPending && <Spinner className="text-on-ink" label="Deleting" />}
               Delete {s.ref}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
@@ -305,13 +334,13 @@ function AddRow({ projectId, nextRef: ref, onDone }: { projectId: string; nextRe
 }
 
 /** The gate: diagrams are drawn only from confirmed requirements. Flags are advice and never block it. */
-function ConfirmPanel({ count, summary, onFlags }: { count: number; summary: Schemas['FlagSummary'][]; onFlags: () => void }) {
+function ConfirmPanel({ count, summary, openTypes, onFlags }: { count: number; summary: Schemas['FlagSummary'][]; openTypes: Map<string, Schemas['FlagType'][]>; onFlags: () => void }) {
   const { project } = useWorkspace()
   const confirm = useConfirmExtraction(project.id)
   const navigate = useNavigate()
   const open = summary.reduce((n, s) => n + s.open, 0)
   const byType = new Map<Schemas['FlagType'], number>()
-  for (const s of summary) if (s.open) for (const t of s.types) byType.set(t, (byType.get(t) ?? 0) + 1)
+  for (const types of openTypes.values()) for (const t of types) byType.set(t, (byType.get(t) ?? 0) + 1)
 
   return (
     <aside className="space-y-4 self-start">

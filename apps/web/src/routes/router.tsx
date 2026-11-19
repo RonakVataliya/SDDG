@@ -7,9 +7,11 @@ import { GeneratePage } from '@/features/generate/generate-page'
 import { InputPage } from '@/features/input/input-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
 import { ProjectsPage } from '@/features/projects/projects-page'
+import { CoveragePage } from '@/features/reporting/coverage-page'
 import { ItemsPage } from '@/features/review/items-page'
 import { ReviewPage } from '@/features/review/review-page'
 import { SearchPage } from '@/features/search/search-page'
+import { SettingsPage } from '@/features/settings/settings-page'
 import { TestsPage } from '@/features/tests/tests-page'
 import { ViewerPage } from '@/features/viewer/viewer-page'
 import { AppLayout } from './app-layout'
@@ -40,7 +42,9 @@ export const routes = [
               { path: 'items', element: <ItemsPage /> },
               { path: 'generate', element: <GeneratePage /> },
               { path: 'search', element: <SearchPage /> },
+              { path: 'coverage', element: <CoveragePage /> },
               { path: 'backlog', element: <BacklogPage /> },
+              { path: 'settings', element: <SettingsPage /> },
               { path: 'tests', element: <TestsPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },
             ],

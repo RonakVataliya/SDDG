@@ -1,5 +1,5 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
-import type { Diagram, ExtractedItem, Job, RequirementStatement, Story } from '@/api/client'
+import type { Diagram, ExtractedItem, Job, ProjectDocument, RequirementStatement, Story } from '@/api/client'
 import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
@@ -29,6 +29,8 @@ export type DiagramRow = Diagram & {
   svg: string
   /** Positions moved by hand (#37), element id → centre [x, y]. Like the backend, the PNG export ignores them. */
   layout?: Record<string, [number, number]>
+  /** The statements a diagram cites when the API stores them itself (package diagrams); otherwise taken from its items. */
+  statement_ids?: string[]
   /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
   style?: DiagramStyle
 }
@@ -64,11 +66,12 @@ export type MockDb = {
   nextStatement: Record<string, number>
   stories: StoryRow[]
   nextStory: Record<string, number>
+  documents: Record<string, ProjectDocument[]>
   flags: Record<string, FlagRow[]>
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {} })
+const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
 
 let db: MockDb = load()
 
@@ -108,7 +111,7 @@ export function registerJobKind(kind: string, plugin: JobKindPlugin) {
   plugins[kind] = plugin
 }
 
-export function advance(job: JobRow): JobRow {
+export function advance(job: JobRow, opts: { fast?: boolean } = {}): JobRow {
   if (job.status === 'succeeded' || job.status === 'failed') return job
   const plugin = plugins[job.kind]
   // Mirrors the API: generation is "extract building blocks" + one step per diagram type.
@@ -119,7 +122,7 @@ export function advance(job: JobRow): JobRow {
       : ['Extracting building blocks', ...(job.diagram_types ?? []).map((t) => `Generating and rendering ${TYPE_LABEL[t]} diagram`)])
   const QUEUE_MS = plugin?.queueMs ?? QUEUE_DEFAULT_MS
   const STEP_MS = plugin?.stepMs ?? STEP_DEFAULT_MS
-  const elapsed = Date.now() - new Date(job.created_at!).getTime()
+  const elapsed = opts.fast ? 10000 : Date.now() - new Date(job.created_at!).getTime()
   if (elapsed < QUEUE_MS) {
     job.status = 'queued'
     job.queue_position = 1
@@ -132,6 +135,22 @@ export function advance(job: JobRow): JobRow {
   if (step < steps.length) {
     job.status = 'running'
     job.progress = { step: step + 1, total: steps.length, label: steps[step] }
+    return job
+  }
+  if (job.kind === 'extraction' && splitStatements(job.payload ?? '').length === 0) {
+    job.status = 'failed'
+    job.error = 'No requirements could be extracted from this document.'
+    job.finished_at = now()
+    job.progress = { step: steps.length, total: steps.length, label: 'Failed' }
+    if (db.documents?.[job.project_id]) {
+      for (const doc of db.documents[job.project_id]) {
+        if (doc.job_id === job.id || doc.status === 'processing' || doc.status === 'uploaded') {
+          doc.status = 'failed'
+          doc.warning = 'No requirements could be extracted from this document.'
+        }
+      }
+    }
+    save()
     return job
   }
   job.status = 'succeeded'
@@ -159,6 +178,11 @@ function applyExtraction(job: JobRow) {
   db.nextStatement[pid] = start + statements.length
   db.statements[pid] = [...(db.statements[pid] ?? []), ...statements]
   db.flags[pid] = [...(db.flags[pid] ?? []), ...detectFlags(statements, db.statements[pid], uid)]
+
+  // FR1b: the uploaded document this extraction came from is now processed.
+  for (const doc of db.documents?.[pid] ?? []) {
+    if (doc.job_id === job.id) doc.status = 'processed'
+  }
 
   resetModel(pid) // requirements-first: building blocks are extracted later, for the chosen diagrams
 }
@@ -305,6 +329,8 @@ export function projectView(p: ProjectRow): components['schemas']['Project'] {
     confirmed: p.confirmed_at !== null,
     confirmed_at: p.confirmed_at,
     diagram_count: db.diagrams.filter((d) => d.project_id === p.id).length,
+    document_count: db.documents?.[p.id]?.length ?? 0,
+    document_page_count: (db.documents?.[p.id] ?? []).reduce((sum, d) => sum + d.page_count, 0),
     open_flag_count: (db.flags[p.id] ?? []).filter((f) => f.status === 'open' && db.statements[p.id]?.some((s) => s.id === f.statement_id)).length,
     extracted_nodes: p.extracted_nodes ?? [],
   }

@@ -51,6 +51,42 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
         '404': { description: Not found or no access (NFR4), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    patch:
+      summary: Rename the project (Owner only; other members get 404)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProjectRename' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '409': { description: Name already used by this owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      summary: Delete the project and everything in it (Owner only); 422 "Type the project name to confirm."
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProjectDelete' } } }
+      responses:
+        '204': { description: Deleted }
+        '422': { description: confirm_name is not the project's name, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/archive:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    post:
+      summary: Archive the project (Owner only, idempotent)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+    delete:
+      summary: Reopen an archived project (Owner only)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+  /projects/{project_id}/client:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    patch:
+      summary: Set the project's client name and contact e-mail (Owner only); a blank field clears it
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProjectClient' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '422': { description: Invalid e-mail address }
   /projects/{project_id}/inputs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     post:
@@ -158,6 +194,18 @@ paths:
       responses:
         '202': { description: Queued, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
         '409': { description: Extraction not confirmed (FR5e), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/coverage:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Requirement coverage (FR20, any member); only the latest version of each diagram counts
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementCoverage' } } } }
+  /projects/{project_id}/report.html:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Combined project report (any member) as one self-contained, print-styled HTML page; print it to save a PDF
+      responses:
+        '200': { description: HTML page, content: { text/html: { schema: { type: string } } } }
   /projects/{project_id}/stories:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:
@@ -493,6 +541,15 @@ components:
       type: object
       required: [name]
       properties: { name: { type: string, minLength: 1, maxLength: 100 } }
+    ProjectDelete:
+      type: object
+      required: [confirm_name]
+      properties: { confirm_name: { type: string, maxLength: 200, description: The project's exact name } }
+    ProjectClient:
+      type: object
+      properties:
+        client_name: { type: [string, 'null'], maxLength: 100 }
+        contact_email: { type: [string, 'null'], maxLength: 254 }
     InputCreate:
       type: object
       required: [text]
@@ -680,6 +737,37 @@ components:
       required: [positions]
       properties:
         positions: { type: object, description: Only the elements that moved, by element id, additionalProperties: { $ref: '#/components/schemas/Point' } }
+    RequirementCoverage:
+      type: object
+      required: [total, with_diagrams, not_represented, not_represented_refs, with_open_flags, with_tests, rows]
+      properties:
+        total: { type: integer }
+        with_diagrams: { type: integer }
+        not_represented: { type: integer }
+        not_represented_refs: { type: array, items: { type: string } }
+        with_open_flags: { type: integer }
+        with_tests: { type: [integer, 'null'], description: Not computed yet (null) }
+        rows: { type: array, items: { $ref: '#/components/schemas/RequirementCoverageRow' } }
+    RequirementCoverageRow:
+      type: object
+      required: [id, ref, text, label, source, diagrams, open_flags, tests]
+      properties:
+        id: { type: string }
+        ref: { type: string }
+        text: { type: string }
+        label: { type: [string, 'null'] }
+        source: { type: string, description: Source document name }
+        diagrams: { type: array, items: { $ref: '#/components/schemas/CoveringDiagram' } }
+        open_flags: { type: array, items: { $ref: '#/components/schemas/FlagType' } }
+        tests: { type: [integer, 'null'], description: Not computed yet (null) }
+    CoveringDiagram:
+      type: object
+      required: [id, type, title, version]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/DiagramType' }
+        title: { type: string }
+        version: { type: integer, description: Version number of the latest version (1 = first generation) }
     StoryPriority: { type: string, enum: [must, should, could, wont] }
     StoryStatus: { type: string, enum: [todo, in_progress, done] }
     Story:
