@@ -117,7 +117,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
 
   if (saved.isPending) {
     return (
-      <section className="mx-5 mt-4 rounded-lg border border-rule p-4">
+      <section className="mx-4 mb-4 rounded-xl border border-rule bg-field p-4 text-[13px]">
         Loading diagram style...
       </section>
     )
@@ -125,7 +125,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
 
   if (saved.isError) {
     return (
-      <section className="mx-5 mt-4 rounded-lg border border-rule p-4">
+      <section className="mx-4 mb-4 rounded-xl border border-rule bg-field p-4 text-[13px]">
         <p className="text-sm text-danger">
           Could not load diagram style: {errorMessage(saved.error)}
         </p>
@@ -134,7 +134,7 @@ export function StylePanel({ diagramId, diagramType, onPreviewChange }: StylePan
   }
 
   return (
-    <section className="mx-5 mt-4 rounded-lg border border-rule bg-surface p-4">
+    <section className="mx-4 mb-4 rounded-xl border border-rule bg-field p-4">
       {blocker.state === 'blocked' && (
         <Notice tone="warning" title="Leave without saving the new look?" className="mb-4">
           <span className="block">Your colour, direction or font size changes have not been saved. Leaving drops them.</span>
