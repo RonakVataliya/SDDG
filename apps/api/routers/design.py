@@ -10,6 +10,7 @@ draft is asked for and what confirming it stores (the decomposition's package di
 code in the AI service (POST /design/derive, no LLM), computed when the section is written and stored with it.
 A section is stale when a requirement it cites has changed or gone since.
 """
+import json
 import logging
 import re
 from typing import Callable, NamedTuple, Optional
@@ -208,12 +209,13 @@ class Kind(NamedTuple):
     confirm_error: Callable  # content -> why it cannot be confirmed yet, or None
     draft: Callable  # async (AIJob, statements, design_model) -> content from the AI
     on_confirm: Optional[Callable] = None  # async (project id, section view) before it is confirmed; may refuse
+    uses_model: bool = False  # its derived values read the extracted model, so a change there makes it stale
 
 
 KINDS = {
     "goals": Kind("Design goals", _clean_goals, _uncited_goals, _draft_goals),
     "decomposition": Kind("Subsystem decomposition", _clean_decomposition, _uncited_subsystems, _draft_decomposition,
-                          _store_package_diagram),
+                          _store_package_diagram, uses_model=True),
 }
 
 
@@ -226,14 +228,23 @@ def cited(value):
     return set()
 
 
-def citation_hash(ids, texts):
-    """The Tests feature's HMAC over the cited statements' ids and texts, in id order."""
-    return requirement_hash("\n".join(f"{i}\t{texts.get(i)}" for i in sorted(ids)))
+def model_fingerprint(model):
+    """The part of the extracted model a section's derived values read: its classes and the relations between them."""
+    return json.dumps({"classes": sorted(model["classes"]),
+                       "relations": sorted([r["source"], r["target"]] for r in model["relations"])})
+
+
+def citation_hash(ids, texts, model=None):
+    """The Tests feature's HMAC over the cited statements' ids and texts, in id order; for a section whose derived
+    values read the extracted model (Kind.uses_model), also over that model, so changing it makes the section stale."""
+    text = "\n".join(f"{i}\t{texts.get(i)}" for i in sorted(ids))
+    return requirement_hash(text + "\n" + model_fingerprint(model) if model else text)
 
 
 def section_views(pid):
     rows = ddb.sections(pid)
     texts = {s["id"]: s["text"] for s in db.get_statements(pid)}
+    model = design_model(pid) if any(k.uses_model for k in KINDS.values()) else None
     views = []
     for kind, k in KINDS.items():
         r = rows.get(kind)
@@ -242,7 +253,7 @@ def section_views(pid):
             "kind": kind, "title": k.title, "status": r["status"] if r else "empty",
             "version": r["version"] if r else 0,
             "content": r["content"] if r else None, "derived": r["derived"] if r else None,
-            "stale": bool(r) and (not ids <= texts.keys() or r["requirement_hash"] != citation_hash(ids, texts)),
+            "stale": bool(r) and (not ids <= texts.keys() or r["requirement_hash"] != citation_hash(ids, texts, model if k.uses_model else None)),
             "locked": bool(views) and views[-1]["status"] != "confirmed",
             "job": ddb.latest_job(pid, f"design_{kind}"),
             "updated_at": r["updated_at"] if r else None,
@@ -270,11 +281,14 @@ async def derive(kind, content, model):
 
 
 async def store(pid, kind, content):
-    """Checks the content for its kind, derives its values and stores it as a draft, one version up."""
+    """Checks the content for its kind, derives its values and stores it as a draft, one version up. The sections
+    after it go back to draft too: they were confirmed on top of what has just changed."""
     texts = {s["id"]: s["text"] for s in db.get_statements(pid)}
     content = KINDS[kind].clean(content, texts.keys())
-    derived = await derive(kind, content, design_model(pid))
-    ddb.save(pid, kind, content, derived, citation_hash(cited(content), texts))
+    model = design_model(pid)
+    derived = await derive(kind, content, model)
+    ddb.save(pid, kind, content, derived, citation_hash(cited(content), texts, model if KINDS[kind].uses_model else None))
+    ddb.unconfirm(pid, list(KINDS)[list(KINDS).index(kind) + 1:])
 
 
 async def draft_worker(job_id, pid, kind):

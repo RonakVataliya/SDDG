@@ -407,6 +407,22 @@ def check_decomposition(c):
     r = c.post(f'{API}/projects/{pid}/generations', headers=H, json={'diagram_types': ['package']})
     assert r.status_code == 422, r.text
 
+    # Renaming a class of the extracted model makes the decomposition stale (its derived values read the model);
+    # the goals do not read it, so they stay fresh.
+    assert c.post(f'{d}/decomposition/confirm', headers=H).status_code == 200
+    assert not section(c, pid, 'decomposition')['stale']
+    r = c.patch(f'{API}/projects/{pid}/items/{items["Invoice"]}', headers=H, json={'name': 'Bill'})
+    assert r.status_code == 200, r.text
+    assert section(c, pid, 'decomposition')['stale'] and not section(c, pid, 'goals')['stale']
+    c.patch(f'{API}/projects/{pid}/items/{items["Invoice"]}', headers=H, json={'name': 'Invoice'})
+    assert not section(c, pid, 'decomposition')['stale']
+
+    # Saving the goals again sends the confirmed decomposition, built on the old goals, back to draft.
+    assert section(c, pid, 'decomposition')['status'] == 'confirmed'
+    assert c.put(f'{d}/goals', headers=H, json={'content': goals}).status_code == 200
+    assert section(c, pid, 'goals')['status'] == 'draft' and section(c, pid, 'decomposition')['status'] == 'draft'
+    assert section(c, pid, 'decomposition')['locked']  # locked again until the goals are confirmed
+
     # Editing a cited requirement makes the section stale.
     c.patch(f'{API}/projects/{pid}/statements/{r2}', headers=H, json={'text': 'Patients pay invoices by card.'})
     assert section(c, pid, 'decomposition')['stale']

@@ -31,6 +31,13 @@ def confirm(pid, kind):
            db.now(), pid, kind)
 
 
+def unconfirm(pid, kinds):
+    """Sends confirmed sections back to draft (a section after one that has just been changed)."""
+    if kinds:
+        db.run("UPDATE design_sections SET status='draft', updated_at=%s "
+               "WHERE project_id=%s AND kind = ANY(%s) AND status='confirmed'", db.now(), pid, list(kinds))
+
+
 def latest_job(pid, job_kind):
     return db._job(db.one("SELECT * FROM jobs WHERE project_id=%s AND kind=%s ORDER BY created_at DESC LIMIT 1",
                           pid, job_kind))
