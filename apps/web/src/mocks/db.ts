@@ -1,5 +1,5 @@
 /** MOCK ONLY. In-browser stand-in for the backend's Postgres, persisted to localStorage between reloads. */
-import type { Diagram, ExtractedItem, Job, ProjectDocument, RequirementStatement } from '@/api/client'
+import type { Diagram, ExtractedItem, Job, ProjectDocument, RequirementStatement, Story } from '@/api/client'
 import { DEFAULT_STYLE, type DiagramStyle } from '@/features/viewer/style'
 import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
@@ -29,9 +29,14 @@ export type DiagramRow = Diagram & {
   svg: string
   /** Positions moved by hand (#37), element id → centre [x, y]. Like the backend, the PNG export ignores them. */
   layout?: Record<string, [number, number]>
+  /** The statements a diagram cites when the API stores them itself (package diagrams); otherwise taken from its items. */
+  statement_ids?: string[]
   /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
   style?: DiagramStyle
 }
+
+/** Stories backlog (3.4); the assignee's email is looked up on read, like the API's join. */
+export type StoryRow = Omit<Story, 'assignee_email'> & { project_id: string }
 
 /** Tests feature (stream 6) rows; shapes live in ./testing.ts. */
 export type TestsState = {
@@ -59,12 +64,14 @@ export type MockDb = {
   jobs: JobRow[]
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
+  stories: StoryRow[]
+  nextStory: Record<string, number>
   documents: Record<string, ProjectDocument[]>
   flags: Record<string, FlagRow[]>
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, flags: {}, documents: {} })
+const empty = (): MockDb => ({ tests: emptyTests(), consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
 
 let db: MockDb = load()
 

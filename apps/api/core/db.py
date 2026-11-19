@@ -24,6 +24,7 @@ JSON_COLS = (
     "case_ids",
     # Uploaded documents and statement metadata (FR1/FR2)
     "skipped_pages", "metadata",
+    "confirmations",  # stories (3.4)
 )
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
@@ -43,6 +44,7 @@ SECRET = {
     "test_runs": ("name",),
     "test_results": ("note",),
     "documents": ("filename",),
+    "stories": ("role_text", "goal_text", "reason_text", "confirmations"),  # 3.4
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 

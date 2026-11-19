@@ -12,6 +12,7 @@ import { detectFlags } from './flags'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
+import { storiesHandlers } from './stories'
 import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
@@ -63,6 +64,8 @@ export const handlers = [
   ...flagHandlers(),
   // Tests feature (stream 6): src/mocks/testing.ts
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Stories backlog (3.4): src/mocks/stories.ts
+  ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
 
   http.get(
     u('/me/consent'),
@@ -121,6 +124,81 @@ export const handlers = [
     authed(({ email, params }) => {
       const p = ownedProject(email, params.project_id)
       return p ? HttpResponse.json(projectView(p)) : notFound()
+    }),
+  ),
+  // Project settings (Feature 3.1): owner only, like routers/reporting.py and routers/clients.py.
+  http.patch(
+    u('/projects/:project_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const name = (((await request.json()) as { name?: string }).name ?? '').trim()
+      if (!name) return fail(422, 'Project name must not be empty.')
+      if (getDb().projects.some((x) => x.owner === email && x.id !== p.id && x.name.toLowerCase() === name.toLowerCase()))
+        return fail(409, 'You already have a project with this name.')
+      p.name = name
+      touch(p.id)
+      save()
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const { confirm_name } = (await request.json()) as { confirm_name?: string }
+      if ((confirm_name ?? '').trim() !== p.name) return fail(422, 'Type the project name to confirm.')
+      // shortcut: child rows stay in the mock store but are unreachable without the project; prune them if it grows.
+      getDb().projects = getDb().projects.filter((x) => x.id !== p.id)
+      save()
+      return new HttpResponse(null, { status: 204 })
+    }),
+  ),
+  http.post(
+    u('/projects/:project_id/archive'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      if (!p.archived_at) {
+        p.archived_at = new Date().toISOString()
+        p.archived_by = email
+        touch(p.id)
+        save()
+      }
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id/archive'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      p.archived_at = p.archived_by = null
+      touch(p.id)
+      save()
+      return HttpResponse.json(projectView(p))
+    }),
+  ),
+  http.patch(
+    u('/projects/:project_id/client'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const body = (await request.json()) as { client_name?: string | null; contact_email?: string | null }
+      const client = body.client_name?.trim() || null
+      const contact = body.contact_email?.trim() || null
+      // Same shape as the API's validation error (FastAPI puts a list in detail, not a string).
+      if (contact && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact))
+        return HttpResponse.json(
+          { detail: [{ type: 'value_error', loc: ['body', 'contact_email'], msg: 'Value error, Enter a valid email address.' }] },
+          { status: 422 },
+        )
+      p.client_name = client
+      p.contact_email = contact?.toLowerCase() ?? null
+      touch(p.id)
+      save()
+      return HttpResponse.json(projectView(p))
     }),
   ),
 
@@ -555,6 +633,61 @@ export const handlers = [
       return new HttpResponse(makeZip([...readme, ...files]), {
         headers: { 'Content-Type': 'application/zip' },
       })
+    }),
+  ),
+  // Same shape as the API's core/reporting.coverage: only the latest version of each diagram represents a requirement.
+  http.get(
+    u('/projects/:project_id/coverage'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const db = getDb()
+      const names = zipLayout(db.diagrams.filter((d) => d.project_id === p.id))
+      const items = db.items[p.id] ?? []
+      // The mock stores no statement ids on a diagram: they are those of the items it draws.
+      const latest = Object.keys(latestOnly(names)).map((id) => {
+        const d = db.diagrams.find((x) => x.id === id)!
+        const drawn = new Set([...(d.model?.actors ?? []), ...(d.model?.cases ?? [])].map((e) => e.id))
+        const statementIds = new Set(d.statement_ids ?? items.filter((i) => drawn.has(i.id)).flatMap((i) => i.statement_ids))
+        return { view: { id, type: d.type, title: d.title, version: Number(names[id].split('/v')[1]) }, statementIds }
+      })
+      const flags = [...(db.tests.flags as Pick<Flag, 'statement_id' | 'type' | 'status'>[]), ...(db.flags[p.id] ?? [])].filter((f) => f.status === 'open')
+      const rows = (db.statements[p.id] ?? []).map((s) => ({
+        id: s.id,
+        ref: s.ref,
+        text: s.text,
+        label: s.label ?? null,
+        source: s.source.document,
+        diagrams: latest.filter((d) => d.statementIds.has(s.id)).map((d) => d.view),
+        open_flags: [...new Set(flags.filter((f) => f.statement_id === s.id).map((f) => f.type))],
+        tests: null,
+      }))
+      const missing = rows.filter((r) => !r.diagrams.length).map((r) => r.ref)
+      return HttpResponse.json({
+        total: rows.length,
+        with_diagrams: rows.length - missing.length,
+        not_represented: missing.length,
+        not_represented_refs: missing,
+        with_open_flags: rows.filter((r) => r.open_flags.length).length,
+        with_tests: null,
+        rows,
+      })
+    }),
+  ),
+  // A short page of the same kind as the API's core/reporting.report_html (same title and CSP), not its full content.
+  http.get(
+    u('/projects/:project_id/report.html'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const e = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      const rows = (getDb().statements[p.id] ?? []).map((s) => `<li><b>${e(s.ref)}</b> ${e(s.text)}</li>`).join('')
+      return new HttpResponse(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<title>${e(p.name)} – project report</title></head><body><h1>${e(p.name)}</h1><h2>Requirements</h2><ul>${rows}</ul></body></html>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      )
     }),
   ),
 

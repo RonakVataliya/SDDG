@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { RequirementStatement, Schemas } from '@/api/client'
 import { errorMessage } from '@/api/errors'
-import { useAddStatement, useConfirmExtraction, useDeleteStatement, useFlags, useFlagSummary, useStatements, useUpdateStatement } from '@/api/queries'
+import { useAddStatement, useConfirmExtraction, useDeleteStatement, useFlags, useFlagSummary, useStatements, useStories, useUpdateStatement } from '@/api/queries'
 import { Badge, RefTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Textarea } from '@/components/ui/input'
@@ -33,6 +33,7 @@ export function ReviewPage() {
   const [editing, setEditing] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [drawer, setDrawer] = useState<{ open: boolean; focus?: string | null }>({ open: false })
+  const stories = useStories(project.id).data?.stories ?? [] // 3.4: each requirement links to its stories
   const highlight = useSearchParams()[0].get('requirement') // set by search: show this requirement
   const canEdit = project.role !== 'viewer'
 
@@ -116,6 +117,7 @@ export function ReviewPage() {
                 flag={openFlagByStatement.get(s.id)}
                 summary={summaryById.get(s.id)}
                 openTypes={openTypes.get(s.id)}
+                storyRefs={stories.filter((st) => st.statement_ids.includes(s.id)).map((st) => st.ref)}
                 highlighted={s.ref === highlight}
                 canEdit={canEdit}
                 onEdit={() => setEditing(s.id)}
@@ -143,6 +145,7 @@ function Row({
   flag,
   summary,
   openTypes,
+  storyRefs,
   highlighted,
   canEdit,
   onEdit,
@@ -153,6 +156,7 @@ function Row({
   flag?: Schemas['Flag']
   summary?: Schemas['FlagSummary']
   openTypes?: Schemas['FlagType'][]
+  storyRefs: string[]
   highlighted?: boolean
   canEdit: boolean
   onEdit: () => void
@@ -187,6 +191,19 @@ function Row({
             Role: <strong className="font-medium text-ink">{String(s.metadata?.role)}</strong> · Goal:{' '}
             <span className="text-ink">{String(s.metadata?.goal)}</span>
             {s.metadata?.reason ? ` · Reason: ${String(s.metadata.reason)}` : ''}
+          </p>
+        )}
+        {storyRefs.length > 0 && (
+          <p className="mt-0.5 text-[12px] text-slate">
+            Stories:{' '}
+            {storyRefs.map((ref, i) => (
+              <span key={ref}>
+                {i > 0 && ', '}
+                <Link to={`/projects/${projectId}/backlog?requirement=${s.id}`} className="font-medium text-accent hover:underline">
+                  {ref}
+                </Link>
+              </span>
+            ))}
           </p>
         )}
       </div>

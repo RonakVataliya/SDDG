@@ -219,10 +219,191 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete the project and everything in it (Owner only); 422 "Type the project name to confirm." */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectDelete"];
+                };
+            };
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description confirm_name is not the project's name */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Rename the project (Owner only; other members get 404) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectRename"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+                /** @description Name already used by this owner */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/projects/{project_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive the project (Owner only, idempotent) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+            };
+        };
+        /** Reopen an archived project (Owner only) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/client": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Set the project's client name and contact e-mail (Owner only); a blank field clears it */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProjectClient"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+                /** @description Invalid e-mail address */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         trace?: never;
     };
     "/projects/{project_id}/documents": {
@@ -909,6 +1090,237 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Requirement coverage (FR20, any member); only the latest version of each diagram counts */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RequirementCoverage"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/report.html": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Combined project report (any member) as one self-contained, print-styled HTML page; print it to save a PDF */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description HTML page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/html": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/stories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Every story (by S-number) and the project's members, for the assignee picker (any member) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoryList"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Add a story; 422 with a readable detail, e.g. "A story must link to at least one requirement." */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StoryCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Story"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/stories/{story_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a story; its S-number is not reused */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    story_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change any of a story's fields; a field left out is unchanged */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    story_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StoryUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Story"];
+                    };
+                };
+                /** @description Refused */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/projects/{project_id}/diagrams": {
@@ -2229,6 +2641,14 @@ export interface components {
         ProjectRename: {
             name: string;
         };
+        ProjectDelete: {
+            /** @description The project's exact name */
+            confirm_name: string;
+        };
+        ProjectClient: {
+            client_name?: string | null;
+            contact_email?: string | null;
+        };
         InputCreate: {
             text: string;
         };
@@ -2426,6 +2846,91 @@ export interface components {
             positions: {
                 [key: string]: components["schemas"]["Point"];
             };
+        };
+        RequirementCoverage: {
+            total: number;
+            with_diagrams: number;
+            not_represented: number;
+            not_represented_refs: string[];
+            with_open_flags: number;
+            /** @description Not computed yet (null) */
+            with_tests: number | null;
+            rows: components["schemas"]["RequirementCoverageRow"][];
+        };
+        RequirementCoverageRow: {
+            id: string;
+            ref: string;
+            text: string;
+            label: string | null;
+            /** @description Source document name */
+            source: string;
+            diagrams: components["schemas"]["CoveringDiagram"][];
+            open_flags: components["schemas"]["FlagType"][];
+            /** @description Not computed yet (null) */
+            tests: number | null;
+        };
+        CoveringDiagram: {
+            id: string;
+            type: components["schemas"]["DiagramType"];
+            title: string;
+            /** @description Version number of the latest version (1 = first generation) */
+            version: number;
+        };
+        /** @enum {string} */
+        StoryPriority: "must" | "should" | "could" | "wont";
+        /** @enum {string} */
+        StoryStatus: "todo" | "in_progress" | "done";
+        Story: {
+            id: string;
+            /** @description Project-unique, never reused, e.g. S-001 */
+            ref: string;
+            role: string;
+            goal: string;
+            reason: string;
+            priority: components["schemas"]["StoryPriority"];
+            /** @description Story points */
+            estimate: number | null;
+            status: components["schemas"]["StoryStatus"];
+            assignee_id: string | null;
+            assignee_email: string | null;
+            /** @description Acceptance criteria */
+            confirmations: string[];
+            /** @description Empty once its requirements were deleted */
+            statement_ids: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        StoryCreate: {
+            role: string;
+            goal: string;
+            reason: string;
+            priority?: components["schemas"]["StoryPriority"];
+            estimate?: number | null;
+            status?: components["schemas"]["StoryStatus"];
+            assignee_id?: string | null;
+            confirmations?: string[];
+            statement_ids: string[];
+        };
+        /** @description A field left out is unchanged; null clears estimate or assignee_id */
+        StoryUpdate: {
+            role?: string;
+            goal?: string;
+            reason?: string;
+            priority?: components["schemas"]["StoryPriority"];
+            estimate?: number | null;
+            status?: components["schemas"]["StoryStatus"];
+            assignee_id?: string | null;
+            confirmations?: string[];
+            statement_ids?: string[];
+        };
+        StoryList: {
+            stories: components["schemas"]["Story"][];
+            members: {
+                id: string;
+                email: string;
+            }[];
         };
         /** @enum {string} */
         FlagType: "ambiguous" | "incomplete" | "conflict" | "untestable";

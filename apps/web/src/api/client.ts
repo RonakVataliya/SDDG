@@ -48,6 +48,12 @@ export type RunSelection = Schemas['RunSelection']
 export type ProjectDocument = Schemas['ProjectDocument']
 export type DocumentUploadResponse = Schemas['DocumentUploadResponse']
 
+// Stories backlog (3.4)
+export type Story = Schemas['Story']
+export type StoryCreate = Schemas['StoryCreate']
+export type StoryUpdate = Schemas['StoryUpdate']
+export type StoryPriority = Schemas['StoryPriority']
+export type StoryStatus = Schemas['StoryStatus']
 
 const authMiddleware: Middleware = {
   async onRequest({ request }) {

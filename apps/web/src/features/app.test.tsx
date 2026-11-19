@@ -122,6 +122,20 @@ describe('requirements-first review', () => {
     expect(getDb().projects[0].confirmed_at).toBeNull()
   })
 
+  it('shows a requirement’s stories as links to the backlog filtered to it', async () => {
+    seedProject()
+    const at = new Date().toISOString()
+    getDb().stories = [
+      { id: 'us_1', project_id: 'pr_1', ref: 'S-001', role: 'librarian', goal: 'issue a book', reason: 'members can borrow it', priority: 'must', estimate: 3, status: 'todo', assignee_id: null, confirmations: [], statement_ids: ['st_1'], created_at: at, updated_at: at },
+    ]
+    const user = userEvent.setup()
+    const { router } = renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('link', { name: 'S-001' }))
+    expect(router.state.location.pathname).toBe('/projects/pr_1/backlog')
+    expect(router.state.location.search).toBe('?requirement=st_1')
+    expect(await screen.findByRole('list', { name: 'Stories' })).toHaveTextContent('As a librarian I want to issue a book')
+  })
+
   it('adds and deletes requirements, then confirms', async () => {
     seedProject()
     const user = userEvent.setup()

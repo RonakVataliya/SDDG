@@ -22,6 +22,7 @@ from routers.statements import router as statements_router  # noqa: E402
 from routers.testing_design import router as testing_design_router  # noqa: E402
 from routers.testing_cases import router as testing_cases_router  # noqa: E402
 from routers.testing_runs import router as testing_runs_router  # noqa: E402
+from routers.stories import router as stories_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -54,6 +55,7 @@ app.include_router(statements_router, prefix="/api/v1")
 app.include_router(testing_design_router, prefix="/api/v1")
 app.include_router(testing_cases_router, prefix="/api/v1")
 app.include_router(testing_runs_router, prefix="/api/v1")
+app.include_router(stories_router, prefix="/api/v1")
 
 
 @app.get("/health")
