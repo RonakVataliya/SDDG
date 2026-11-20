@@ -27,7 +27,7 @@ def get_style(diagram_id: str, user: User = Depends(get_current_user)):
 
 @router.put("/diagrams/{diagram_id}/style")
 def put_style(diagram_id: str, body=Body(None), user: User = Depends(get_current_user)):
-    diagram = require_diagram(diagram_id, user)
+    diagram = require_diagram(diagram_id, user, need="edit")
     style = checked(body)
     save_style(diagram["id"], style)
     return style

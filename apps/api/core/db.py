@@ -594,6 +594,11 @@ def accept_warning(did, warning_id, email):
     run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
 
 
+def get_diagram_row(did):
+    """A diagram version by id, whoever asks: the caller checks the role (routers.integrated.require_diagram)."""
+    return one("SELECT * FROM diagrams WHERE id=%s", did)
+
+
 def member_diagram(did, user_id):
     return one(
         "SELECT d.* FROM diagrams d JOIN project_members m ON m.project_id=d.project_id WHERE d.id=%s AND m.user_id=%s",

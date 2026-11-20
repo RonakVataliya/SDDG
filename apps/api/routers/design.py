@@ -326,7 +326,7 @@ def list_sections(project_id: str, user: User = Depends(get_current_user)):
 @router.post("/projects/{project_id}/design/{kind}/draft-jobs", status_code=202)
 def start_draft(project_id: str, kind: str, bg: BackgroundTasks, user: User = Depends(get_current_user)):
     """Drafts the section with one AI call; on success the draft replaces what was there."""
-    project = require_project(project_id, user)  # When C2 (roles) lands this becomes require_project(..., need="edit").
+    project = require_project(project_id, user, need="edit")
     if kind not in KINDS:
         raise HTTPException(404, NOT_FOUND)
     consent = db.consent(user.id)  # X8: nothing goes to the AI provider without the user's current consent
@@ -346,7 +346,7 @@ def start_draft(project_id: str, kind: str, bg: BackgroundTasks, user: User = De
 @router.put("/projects/{project_id}/design/{kind}")
 async def save_section(project_id: str, kind: str, body: DesignSectionUpdate, user: User = Depends(get_current_user)):
     """Saves the user's content as a draft (a confirmed section goes back to draft)."""
-    require_project(project_id, user)  # When C2 (roles) lands this becomes require_project(..., need="edit").
+    require_project(project_id, user, need="edit")
     _section(project_id, kind)
     try:
         await store(project_id, kind, body.content)
@@ -360,7 +360,7 @@ async def save_section(project_id: str, kind: str, body: DesignSectionUpdate, us
 
 @router.post("/projects/{project_id}/design/{kind}/confirm")
 async def confirm_section(project_id: str, kind: str, user: User = Depends(get_current_user)):
-    require_project(project_id, user)  # When C2 (roles) lands this becomes require_project(..., need="edit").
+    require_project(project_id, user, need="edit")
     section = _section(project_id, kind)
     if section["status"] == "empty":
         raise HTTPException(422, f"Write or draft the {section['title'].lower()} first.")

@@ -34,7 +34,7 @@ def clean_label(label):
 
 @router.post("/projects/{project_id}/statements", status_code=201)
 def add_statement(project_id: str, body: StatementCreate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     text = body.text.strip()
     if not text:
         raise HTTPException(422, EMPTY)
@@ -46,7 +46,7 @@ def add_statement(project_id: str, body: StatementCreate, user: User = Depends(g
 
 @router.patch("/projects/{project_id}/statements/{statement_id}")
 def edit_statement(project_id: str, statement_id: str, body: StatementUpdate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     text = body.text.strip() if body.text is not None else None
     if text == "":
         raise HTTPException(422, EMPTY)
@@ -61,7 +61,7 @@ def edit_statement(project_id: str, statement_id: str, body: StatementUpdate, us
 
 @router.delete("/projects/{project_id}/statements/{statement_id}", status_code=204)
 def delete_statement(project_id: str, statement_id: str, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     if not db.delete_statement(project_id, statement_id):
         raise HTTPException(404, NOT_FOUND)
     db.reset_model(project_id)

@@ -32,8 +32,8 @@ def view(f):
     return {**f, "has_suggestion": bool(fix), "suggestion": fix or NO_SUGGESTION}
 
 
-def get_flag(project_id, flag_id, user):
-    require_project(project_id, user)
+def get_flag(project_id, flag_id, user, need="view"):
+    require_project(project_id, user, need)
     flag = db.get_flag(project_id, flag_id)
     if not flag:
         raise HTTPException(404, NOT_FOUND)
@@ -66,7 +66,7 @@ def answer(project_id: str, flag_id: str, body: Answer, user: User = Depends(get
     """The answer is the user's clarification of the flagged requirement: it is saved, the flag is resolved (by this
     user) and the requirement is re-analysed. The requirement text is not changed (resolving is separate from editing),
     and re-analysis will not reopen a flag the user resolved."""
-    flag = get_flag(project_id, flag_id, user)
+    flag = get_flag(project_id, flag_id, user, need="edit")
     answer_text = body.answer.strip()
     fields = {}
     if flag["type"] == "untestable" and flag["suggested_fix"] and ANSWER_SLOT in flag["suggested_fix"]:
@@ -80,21 +80,21 @@ def answer(project_id: str, flag_id: str, body: Answer, user: User = Depends(get
 
 @router.post("/projects/{project_id}/flags/{flag_id}/resolve")
 def resolve(project_id: str, flag_id: str, user: User = Depends(get_current_user)):
-    get_flag(project_id, flag_id, user)
+    get_flag(project_id, flag_id, user, need="edit")
     db.update_flag(project_id, flag_id, status="resolved", resolved_by=user.email, resolved_at=db.now())
     return view(db.get_flag(project_id, flag_id))
 
 
 @router.post("/projects/{project_id}/flags/{flag_id}/reopen")
 def reopen(project_id: str, flag_id: str, user: User = Depends(get_current_user)):
-    get_flag(project_id, flag_id, user)
+    get_flag(project_id, flag_id, user, need="edit")
     db.update_flag(project_id, flag_id, status="open", resolved_by=None, resolved_at=None)
     return view(db.get_flag(project_id, flag_id))
 
 
 @router.post("/projects/{project_id}/flags/{flag_id}/apply-fix")
 def apply_fix(project_id: str, flag_id: str, user: User = Depends(get_current_user)):
-    flag = get_flag(project_id, flag_id, user)
+    flag = get_flag(project_id, flag_id, user, need="edit")
     if not flag["suggested_fix"]:
         raise HTTPException(409, NO_SUGGESTION)
     db.set_statement_text(project_id, flag["statement_id"], flag["suggested_fix"], by=user.id)

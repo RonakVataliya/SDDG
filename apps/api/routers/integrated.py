@@ -89,19 +89,21 @@ CATEGORY_FIELDS = [
 # Access Control / Ownership Helpers
 # ============================================================================
 
-def require_project(project_id, user):
-    """Ensures the project exists and the authenticated user is a member of it."""
-    project = db.member_project(project_id, user.id)
-    if not project:
-        raise HTTPException(404, NOT_FOUND)
-    return project
+NEEDS = {"view": "viewer", "edit": "editor", "own": "owner"}
 
 
-def require_diagram(diagram_id, user):
-    """Ensures the diagram exists and the authenticated user is a member of its project."""
-    diagram = db.member_diagram(diagram_id, user.id)
+def require_project(project_id, user, need="view"):
+    """The project, if the caller's role allows `need` (FR24e): "view" any member, "edit" an Editor or Owner, "own"
+    an Owner only. A non-member gets 404 (as if it did not exist), a member whose role is too low gets 403."""
+    return require_role(project_id, user, NEEDS[need])
+
+
+def require_diagram(diagram_id, user, need="view"):
+    """The diagram, if the caller's role on its project allows `need` (same answers as require_project)."""
+    diagram = db.get_diagram_row(diagram_id)
     if not diagram:
         raise HTTPException(404, NOT_FOUND)
+    require_project(diagram["project_id"], user, need)
     return diagram
 
 
@@ -137,11 +139,12 @@ def project_role(project_id, user):
 def project_view(p, user):
     """Formats a project record and its summary counts for API responses."""
     counts = db.project_counts(p["id"])
+    role = p.get("role") or project_role(p["id"], user)  # rows from an UPDATE ... RETURNING carry no role
     return {
         "id": p["id"],
         "name": p["name"],
-        "role": p.get("role") or project_role(p["id"], user),  # rows from an UPDATE ... RETURNING carry no role
-        "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5): require_owner still checks owner_id
+        "role": role,
+        "is_owner": role == "owner",  # rename, delete, archive and client details (Settings) are for Owners
         "archived_at": p["archived_at"],
         "archived_by": p["archived_by"],
         "client_name": p["client_name"],  # Home groups projects by client
@@ -811,7 +814,7 @@ async def upload_document(
     user: User = Depends(get_current_user),
 ):
     """Uploads and validates a PDF or DOCX document (FR1b/c, FR2) and queues extraction."""
-    project = require_project(project_id, user)
+    project = require_project(project_id, user, need="edit")
     if file is None:
         raise HTTPException(status_code=422, detail="No file was uploaded. Send a PDF or DOCX in the 'file' form field.")
 
@@ -976,7 +979,7 @@ async def delete_document(
     user: User = Depends(get_current_user),
 ):
     """Deletes an uploaded document, its stored storage object and record."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     doc = db.get_document(project_id, document_id)
     if not doc:
         raise HTTPException(404, "Document not found.")
@@ -1003,7 +1006,7 @@ def submit_input(
     user: User = Depends(get_current_user),
 ):
     """Submits raw requirements text to trigger background AI extraction."""
-    project = require_project(project_id, user)
+    project = require_project(project_id, user, need="edit")
     text = payload.text
     if not text or not text.strip():
         raise HTTPException(422, "Enter some requirements text.")
@@ -1080,7 +1083,7 @@ def edit_item(
     user: User = Depends(get_current_user),
 ):
     """Updates the name or description of an extracted model item during human-in-the-loop review."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     name = payload.name.strip() if payload.name is not None else None
     if name == "":
         raise HTTPException(422, "Name cannot be empty.")
@@ -1099,7 +1102,7 @@ def edit_item(
 @router.post("/projects/{project_id}/confirmation", status_code=201)
 def confirm_project(project_id: str, user: User = Depends(get_current_user)):
     """Confirms the reviewed requirements, gating diagram generation. Open flags never block this."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     if not db.get_statements(project_id):
         raise HTTPException(409, "Add some requirements first.")
     latest = db.get_latest_extraction_job(project_id)
@@ -1116,7 +1119,7 @@ def generate_diagram(
     user: User = Depends(get_current_user),
 ):
     """Queues a background job to generate diagram(s) from the confirmed model."""
-    project = require_project(project_id, user)
+    project = require_project(project_id, user, need="edit")
     if not project["confirmed_at"]:
         raise HTTPException(409, "Confirm the requirements before generating.")
     diagram_types = list(dict.fromkeys(payload.diagram_types))  # de-duplicate, keep order
@@ -1162,7 +1165,7 @@ async def revise_diagram(
     user: User = Depends(get_current_user),
 ):
     """Applies natural language revision instructions to an existing diagram via AI."""
-    diagram = require_diagram(diagram_id, user)
+    diagram = require_diagram(diagram_id, user, need="edit")
     instruction = payload.instruction.strip()
     if not instruction:
         raise HTTPException(422, "Describe the change you want.")
@@ -1378,7 +1381,7 @@ async def export_project_diagrams(
     if versions == "latest":
         names = latest_only(names)
         rows = [r for r in rows if r["id"] in names]
-    diagrams = [db.member_diagram(r["id"], user.id) for r in sorted(rows, key=lambda r: names[r["id"]])]
+    diagrams = [db.get_diagram_row(r["id"]) for r in sorted(rows, key=lambda r: names[r["id"]])]
     semaphore = asyncio.Semaphore(4)  # be gentle with Kroki
 
     async def files_for(client, d):

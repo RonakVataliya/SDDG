@@ -13,12 +13,9 @@ router = APIRouter()
 
 
 def require_owner(project_id, user):
-    """require_project plus the project's owner. A member who is not the owner gets the same 404 as an outsider.
-    When C2 (roles) lands this becomes require_project(..., need="own")."""
-    project = require_project(project_id, user)
-    if project["owner_id"] != user.id:
-        raise HTTPException(404, NOT_FOUND)
-    return project
+    """Owner only (FR24e): rename, delete, archive, client details. Any Owner, not only the creator; another member
+    gets 403 and an outsider 404."""
+    return require_project(project_id, user, need="own")
 
 
 @router.patch("/projects/{project_id}")
@@ -67,6 +64,6 @@ def get_report(project_id: str, user: User = Depends(get_current_user)):
     coverage, requirements, the latest version of each diagram, open issues and tests."""
     project = require_project(project_id, user)
     latest = sorted(latest_versions(diagram_versions(db.diagram_rows(project_id))).values(), key=lambda v: v[0])
-    diagrams = sorted((db.member_diagram(i, user.id) | {"version": n} for i, n in latest), key=lambda d: d["created_at"])
+    diagrams = sorted((db.get_diagram_row(i) | {"version": n} for i, n in latest), key=lambda d: d["created_at"])
     page = report_html(project, coverage(project_id), diagrams, db.list_flags(project_id, "open"), db.now())
     return HTMLResponse(page, headers={"Content-Security-Policy": REPORT_CSP})

@@ -55,20 +55,20 @@ def list_stories(project_id: str, user: User = Depends(get_current_user)):
 
 @router.post("/projects/{project_id}/stories", status_code=201)
 def add_story(project_id: str, body: StoryCreate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)  # When C2 (roles) lands this becomes require_project(..., need="edit").
+    require_project(project_id, user, need="edit")
     return sdb.create_story(project_id, _clean(project_id, body.model_dump()))
 
 
 @router.patch("/projects/{project_id}/stories/{story_id}")
 def update_story(project_id: str, story_id: str, body: StoryUpdate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)  # When C2 (roles) lands this becomes require_project(..., need="edit").
+    require_project(project_id, user, need="edit")
     _story_or_404(project_id, story_id)
     return sdb.update_story(project_id, story_id, _clean(project_id, body.model_dump(include=body.model_fields_set)))
 
 
 @router.delete("/projects/{project_id}/stories/{story_id}", status_code=204)
 def delete_story(project_id: str, story_id: str, user: User = Depends(get_current_user)):
-    require_project(project_id, user)  # When C2 (roles) lands this becomes require_project(..., need="edit").
+    require_project(project_id, user, need="edit")
     if not sdb.delete_story(project_id, story_id):
         raise HTTPException(404, NOT_FOUND)
     return Response(status_code=204)
