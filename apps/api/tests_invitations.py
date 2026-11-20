@@ -82,12 +82,12 @@ def check_accept_from_bell(client, pid, inv):
     assert r.json()['id'] == pid and r.json()['role'] == 'viewer'
     assert sql('SELECT role FROM project_members WHERE project_id=%s AND user_id=%s', pid, IDS[2])[0][0] == 'viewer'
     mine = client.get(f'{API}/projects', headers=invitee).json()
-    assert [p['id'] for p in mine] == [pid] and mine[0]['owner_email'] == OWNER and mine[0]['joined_at']
+    assert [p['id'] for p in mine] == [pid]  # the project is in their list straight away
+    # owner_email / joined_at and the project's role come from C2's Members work (#59), not from here.
     bell = client.get(f'{API}/notifications', headers=invitee).json()
     assert bell['unread_count'] == 0 and bell['items'][0]['invitation']['status'] == 'accepted'
     assert client.post(f'{API}/invitations/{inv["id"]}/accept', headers=invitee).status_code == 200  # twice is fine
     assert client.get(f'{API}/projects/{pid}/invitations', headers=owner).json() == []  # no longer open
-    assert client.get(f'{API}/projects', headers=owner).json()[0]['joined_at'] is None  # the owner's own project
 
 
 def check_revoke_expiry_and_link(client, pid):

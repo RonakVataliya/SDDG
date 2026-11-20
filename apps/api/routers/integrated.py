@@ -103,7 +103,8 @@ def project_view(p, user):
     return {
         "id": p["id"],
         "name": p["name"],
-        "role": invites.role_for(p, user),  # read from the DB on every request, so a change applies at once
+        # Roles are C2's contract (#59): require_role / project_with_role fill this in. Until then, as before.
+        "role": "owner",
         "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5)
         "archived_at": p["archived_at"],
         "archived_by": p["archived_by"],
@@ -119,7 +120,9 @@ def project_view(p, user):
         "diagram_count": counts["diagram_count"],
         "open_flag_count": counts["open_flag_count"],
         "extracted_nodes": p.get("extracted_nodes") or [],
-        **invites.membership_info(p, user),  # owner_email, joined_at (None for the owner's own projects)
+        # owner_email / joined_at: filled from project_members.joined_at when the Members work (#59) lands.
+        "owner_email": None,
+        "joined_at": None,
     }
 
 
