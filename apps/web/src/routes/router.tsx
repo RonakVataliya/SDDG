@@ -4,6 +4,7 @@ import { SignupPage } from '@/features/auth/signup-page'
 import { VerifyEmailPage } from '@/features/auth/verify-email-page'
 import { AdminLayout } from '@/features/admin/admin-layout'
 import { ErrorsPage } from '@/features/admin/errors-page'
+import { FeedbackPage } from '@/features/admin/feedback-page'
 import { AdminSettingsPage } from '@/features/admin/settings-page'
 import { UsagePage } from '@/features/admin/usage-page'
 import { UsersPage } from '@/features/admin/users-page'
@@ -70,6 +71,7 @@ export const routes = [
               { path: 'users', element: <UsersPage /> },
               { path: 'usage', element: <UsagePage /> },
               { path: 'errors', element: <ErrorsPage /> },
+              { path: 'feedback', element: <FeedbackPage /> },
               { path: 'settings', element: <AdminSettingsPage /> },
             ],
           },

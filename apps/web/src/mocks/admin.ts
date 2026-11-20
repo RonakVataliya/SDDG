@@ -4,6 +4,7 @@
  */
 import { http, HttpResponse, type HttpResponseResolver } from 'msw'
 import type { AdminError, AdminSettings, AdminUsage, AdminUser } from '@/api/client'
+import { feedbackHandlers } from './comments'
 
 type Helpers = {
   u: (path: string) => string
@@ -119,5 +120,7 @@ export function adminHandlers({ u, authed, fail }: Helpers) {
         return HttpResponse.json(view(r))
       }),
     ),
+    // Feedback page (FR27c, Raj): the issue reports kept by src/mocks/comments.ts
+    ...feedbackHandlers(u, asAdmin, fail),
   ]
 }

@@ -946,6 +946,26 @@ export function useAdminErrors(type: AdminErrorType | '', severity: AdminErrorSe
   })
 }
 
+// --- Raj: admin Feedback page (FR27c) ---
+/** Issue reports from every project, newest first, 25 per page; status '' means open and resolved. */
+export function useAdminFeedback(status: 'open' | 'resolved' | '', page: number) {
+  return useQuery({
+    queryKey: ['admin', 'feedback', status, page] as const,
+    queryFn: () => unwrap(api.GET('/admin/feedback', { params: { query: { status: status || undefined, page } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Close a report. */
+export function useCloseFeedback() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (reportId: string) => unwrap(api.POST('/admin/feedback/{report_id}/resolve', { params: { path: { report_id: reportId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
+  })
+}
+// --- end Raj: admin Feedback ---
+
 export type ActivityGroup = 'all' | 'members' | 'requirements' | 'diagrams' | 'comments'
 
 /** Activity tab (FR22): the project's log, newest first, 25 per page. Owners and administrators only (else 403). */

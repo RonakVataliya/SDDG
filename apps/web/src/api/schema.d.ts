@@ -3505,6 +3505,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Issue reports from every project, newest first, 25 per page; filter open or resolved. Only what members sent as an issue report (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: {
+                    status?: "open" | "resolved";
+                    page?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminFeedbackPage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/feedback/{report_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close a report (administrators only). Closing a closed one changes nothing */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    report_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The report */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminFeedback"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No such report (a plain comment is not a report) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/activity": {
         parameters: {
             query?: never;
@@ -5047,6 +5153,33 @@ export interface components {
         AdminErrorType: "api" | "job" | "ai" | "rate_limit";
         /** @enum {string} */
         AdminErrorSeverity: "error" | "warning";
+        AdminFeedback: {
+            id: string;
+            /** @description The text the member sent as an issue report */
+            report: string;
+            /** @description The requirement ref (R-006), the diagram version (Use Case diagram v3) or Project export */
+            on: string | null;
+            target_type: components["schemas"]["CommentTargetType"];
+            target_id: string;
+            project_id: string;
+            project_name: string;
+            /** @description The author's email */
+            from: string | null;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            /** @description First name of who closed it */
+            resolved_by: string | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            at: string;
+        };
+        AdminFeedbackPage: {
+            reports: components["schemas"]["AdminFeedback"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
         AdminError: {
             id: string;
             type: components["schemas"]["AdminErrorType"];
