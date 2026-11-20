@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { projectStage } from '@/features/projects/stage'
+import { OutOfDateBanner } from '@/features/viewer/out-of-date-banner'
 import { cn, plural } from '@/lib/utils'
 import { NotFoundPage } from './not-found-page'
 
@@ -205,6 +206,7 @@ export function WorkspaceLayout() {
           </Notice>
         </div>
       )}
+      <OutOfDateBanner projectId={project.id} confirmed={!!project.confirmed} canGenerate={project.role !== 'viewer'} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         {FRAMED.includes(area) ? (
           <div className="mx-auto flex w-full max-w-[1400px] min-h-0 flex-1 flex-col p-4 sm:p-7">

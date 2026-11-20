@@ -71,7 +71,7 @@ export function CoveragePage() {
       ) : (
         <>
           {/* FR17e: the same model item named differently across diagrams, with "Apply this name to all diagrams". */}
-          <NamingFlag projectId={project.id} />
+          <NamingFlag projectId={project.id} role={project.role} />
           <p className="text-sm text-slate" data-testid="coverage-totals">
             {plural(data.total, 'requirement')} · {data.with_diagrams} covered by a diagram · {data.not_represented} not represented ·{' '}
             {data.with_open_flags} with open issues

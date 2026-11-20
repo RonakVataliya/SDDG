@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core import db
+from core.activity import log_event
 from core.auth import User, get_current_user
 from core.quality import NO_SUGGESTION, detect
+from core.requirements import on_requirement_edited
 from routers.integrated import NOT_FOUND, require_project
 
 router = APIRouter()
@@ -99,6 +101,9 @@ def apply_fix(project_id: str, flag_id: str, user: User = Depends(get_current_us
         raise HTTPException(409, NO_SUGGESTION)
     db.set_statement_text(project_id, flag["statement_id"], flag["suggested_fix"], by=user.id)
     db.reset_model(project_id)  # the requirement changed: confirm again, building blocks are re-extracted
+    statement = db.get_statement(project_id, flag["statement_id"])
+    log_event(project_id, user.id, "statement.edited", f"{statement['ref']} - rev {statement['revision']}")
+    on_requirement_edited(project_id, [flag["statement_id"]], user.id)
     db.update_flag(project_id, flag_id, status="resolved", resolved_by=user.email, resolved_at=db.now())
     detect(project_id, [i for i in (flag["statement_id"], flag["related_statement_id"]) if i])
     return view(db.get_flag(project_id, flag_id))

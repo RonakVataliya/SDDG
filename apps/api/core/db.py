@@ -574,6 +574,18 @@ def update_job(jid, **fields):
             record_error("job", "error", job["kind"].replace("_", " ") + " job failed", job["project_id"], jid)
 
 
+# A diagram is out of date (FR17c) once a requirement it draws was edited (out_of_date_at), until a fresh generation of
+# its type is made after that edit. An edited version of it (parent_id) inherits the mark: see create_diagram.
+OUT_OF_DATE_SQL = ("(d.out_of_date_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM diagrams n WHERE n.project_id = d.project_id "
+                   "AND n.type = d.type AND n.parent_id IS NULL AND n.created_at > d.out_of_date_at))")
+
+
+def diagram_types_made(pid):
+    """{diagram type: True if one of that type is out of date} for the types the project already has."""
+    return {r["type"]: r["out_of_date"] for r in many(
+        f"SELECT d.type, bool_or({OUT_OF_DATE_SQL}) AS out_of_date FROM diagrams d WHERE d.project_id=%s GROUP BY d.type", pid)}
+
+
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
                    parent_id=None, instruction=None, spec=None, layout=None, model_used=None, by=None,
                    conn=None):
@@ -597,6 +609,8 @@ def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_sou
         if parent_id:  # accepted warnings stay accepted on versions made from this one
             c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
                       "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
+            c.execute("UPDATE diagrams SET out_of_date_at = (SELECT out_of_date_at FROM diagrams WHERE id=%s) WHERE id=%s",
+                      (parent_id, d["id"]))  # an edit does not make an out-of-date diagram current
     return _decode(d)
 
 
@@ -622,8 +636,8 @@ def member_diagram(did, user_id):
 
 def list_diagrams(pid):
     return many(
-        "SELECT id, type, title, created_at, parent_id, instruction, revision FROM diagrams WHERE project_id=%s "
-        "ORDER BY created_at DESC",
+        f"SELECT d.id, d.type, d.title, d.created_at, d.parent_id, d.instruction, d.revision, {OUT_OF_DATE_SQL} AS out_of_date "
+        "FROM diagrams d WHERE d.project_id=%s ORDER BY d.created_at DESC",
         pid,
     )
 

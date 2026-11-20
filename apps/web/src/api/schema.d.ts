@@ -3205,6 +3205,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read-only server configuration for the Settings page. Never a secret (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminSettings"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/errors": {
         parameters: {
             query?: never;
@@ -4127,6 +4172,8 @@ export interface components {
             instruction: string | null;
             /** @description 1 for a fresh generation; each edited version is its parent's revision plus one */
             revision?: number;
+            /** @description FR17c: a requirement this diagram draws was edited or deleted after it was drawn (set by the server, in the list only). Stays true until a new generation of this diagram type is made; editing the diagram does not clear it. */
+            out_of_date?: boolean;
         };
         DiagramElement: {
             /** @description Matches data-element-id in the SVG */
@@ -4729,6 +4776,29 @@ export interface components {
             };
             generation: components["schemas"]["UsageGeneration"];
             events: components["schemas"]["UsageEvent"][];
+        };
+        AdminSettings: {
+            ai: {
+                /** @description false when the AI service did not answer */
+                reachable: boolean;
+                /** @description In preference order; the first is used, the rest are fallbacks */
+                providers: {
+                    name: string;
+                    model: string;
+                    /** @description Its key is set */
+                    available: boolean;
+                }[];
+                /** @description How long a job waits for AI capacity before it fails */
+                job_deadline_seconds: number;
+            };
+            /** @description Whether an AI key is set. null when the AI service did not answer. The key itself is never sent. */
+            ai_key_set: boolean | null;
+            storage_limit_bytes: number;
+            invitation_expiry_days: number;
+            /** @description Declared by the server; null when not declared (Supabase Auth owns it) */
+            session_timeout_hours: number | null;
+            failed_logins_before_lock: number | null;
+            lock_minutes: number | null;
         };
         /**
          * @description api = a crash in a route, job = a failed job, ai = a failed AI call

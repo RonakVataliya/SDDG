@@ -5,6 +5,7 @@
   POST /admin/users/{id}/deactivate     blocks sign-in straight away; their projects are kept
   POST /admin/users/{id}/reactivate     lets them sign in again
   GET  /admin/usage                     active users, projects, storage and generation time of the last 7 days
+  GET  /admin/settings                  read-only server configuration (never a secret)
   GET  /admin/errors?type=&severity=&page=   recorded errors, newest first, 25 per page (kinds and IDs only)
 """
 from typing import Literal
@@ -71,3 +72,8 @@ def errors(type: Literal["api", "job", "ai", "rate_limit"] | None = None,
     rows, total = admin_db.list_errors(type, severity, page)
     return {"errors": [{k: r[k] for k in ("id", "type", "severity", "message", "project_id", "at")} for r in rows],
             "total": total, "page": page, "page_size": admin_db.PAGE_SIZE}
+
+
+@router.get("/admin/settings")
+def settings(_: User = Depends(require_admin)):
+    return admin_db.settings()

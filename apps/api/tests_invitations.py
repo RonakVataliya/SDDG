@@ -3,6 +3,7 @@
 Runs against the Postgres in DATABASE_URL with no AI or Kroki calls. Uses throwaway users and deletes what it
 creates. Needs migrations 0010 and 0011 (or schema.sql). Run: python tests_invitations.py
 """
+import json
 import os
 import uuid
 
@@ -61,6 +62,14 @@ def check_invite_rules(client, pid):
     days = (sql('SELECT expires_at - created_at FROM invitations WHERE id=%s', inv['id'])[0][0]).days
     assert days == 7, days
     assert client.post(url, headers=owner, json={'email': INVITEE}).status_code == 409  # one open invitation each
+
+    # FR22: the Activity tab shows "<who> invited <email> as <Role>", so the detail carries the role and the
+    # address. IDs and small values only, and nothing longer than log_event accepts.
+    logged = sql("SELECT action, detail FROM activity_log WHERE target=%s AND action='member.invited'", inv['id'])
+    assert len(logged) == 1, logged
+    detail = json.loads(logged[0][1])
+    assert detail == {'role': 'viewer', 'email': INVITEE}, detail
+    assert all(len(v) <= 100 for v in detail.values()), detail
 
     listed = client.get(url, headers=owner).json()
     assert [i['id'] for i in listed] == [inv['id']] and listed[0]['token'] == inv['token']

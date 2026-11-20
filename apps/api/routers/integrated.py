@@ -26,6 +26,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from fastapi.responses import JSONResponse
 
 from core import db
+from core.activity import log_event
 from core.auth import User, get_current_user
 from core.ai_client import AIBusyTimeout, AIJob
 from core.notifications import notify_project
@@ -1127,7 +1128,12 @@ def generate_diagram(
     if unsupported:
         names = ", ".join(TYPE_LABELS.get(t, t) for t in unsupported)
         raise HTTPException(422, f"Not available in this version: {names}.")
+    made = db.diagram_types_made(project_id)  # before the job: it adds new diagrams
     job = db.create_job(project_id, "generation", len(diagram_types) + 2, "Queued", diagram_types=diagram_types)
+    for t in diagram_types:
+        if t in made:  # a type the project already has is being drawn again; say why when its diagram was out of date
+            log_event(project_id, user.id, "diagram.regenerated", f"{TYPE_LABELS.get(t, t)} diagram",
+                      {"job_id": job["id"], **({"reason": "requirement_change"} if made[t] else {})})
     bg.add_task(queued, generation_worker, job["id"], project_id, diagram_types)
     return job
 

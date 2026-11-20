@@ -5,7 +5,7 @@ import { TransformComponent, TransformWrapper, useControls } from 'react-zoom-pa
 import type { Diagram, DiagramType } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
 import { useDiagram, useDiagramImage, useDiagramLayout, useDiagrams, useDiagramStyle, useReviseDiagram } from '@/api/queries'
-import { RefTag } from '@/components/ui/badge'
+import { Badge, RefTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
@@ -22,7 +22,7 @@ import { useCanEdit, useWorkspace } from '@/routes/workspace-layout'
 import { ExportMenu } from './export-menu'
 
 const MAX_INSTRUCTION = 500
-type Summary = Pick<Diagram, 'id' | 'type' | 'created_at' | 'parent_id' | 'instruction' | 'title'>
+type Summary = Pick<Diagram, 'id' | 'type' | 'created_at' | 'parent_id' | 'instruction' | 'title' | 'out_of_date'>
 
 /** Every version from the first generation to the newest edit that passes through `current`. */
 function lineage(all: Summary[], current: Summary): Summary[] {
@@ -130,7 +130,10 @@ export function ViewerPage() {
       <section aria-label="Diagram" className="grid-bg relative flex min-h-[560px] flex-col">
         <div className="flex flex-wrap items-center gap-2 p-4">
           <div>
-            <h2 className="text-lg leading-tight font-semibold">{typeLabel[diagram.type]} diagram</h2>
+            <h2 className="flex items-center gap-2 text-lg leading-tight font-semibold">
+              {typeLabel[diagram.type]} diagram
+              {all?.find((d) => d.id === diagram.id)?.out_of_date && <Badge tone="amber">Out of date</Badge>}
+            </h2>
             <p className="text-[12px] text-slate">
               {versions.length > 1 && `Version ${index + 1} of ${versions.length} · `}
               {diagram.instruction ? 'Edited' : fromDesign ? 'Drawn' : 'Generated'} {formatRelative(diagram.created_at)}
@@ -391,6 +394,7 @@ function DiagramList({ all, currentId }: { all: Summary[]; currentId: string }) 
                 >
                   <span className={cn('w-6 font-mono text-[11px]', d.id === currentId ? 'font-semibold text-accent' : 'text-slate')}>v{list.length - i}</span>
                   <span className="min-w-0 flex-1 truncate">{d.instruction ?? (d.type === 'package' ? 'Drawn' : 'Generated')}</span>
+                  {d.out_of_date && <Badge tone="amber">Out of date</Badge>}
                   <span className="text-[11px] text-slate">{formatRelative(d.created_at)}</span>
                 </NavLink>
               </li>
