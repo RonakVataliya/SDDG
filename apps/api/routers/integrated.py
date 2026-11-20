@@ -559,7 +559,25 @@ async def generate_one(ai, project, diagram_type, items, actors, processes, mode
 
 
 async def generation_worker(job_id, project_id, diagram_types):
-    """Background worker: extracts the building blocks the chosen diagrams need, then draws each type in turn.
+    """Background worker for a diagram generation job. One AI client serves the whole job: it is opened once here
+    (an httpx client cannot be opened again after it has been used) and closed when the job ends."""
+    started = False
+    try:
+        async with httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS) as client:
+            started = True
+            await _run_generation(client, job_id, project_id, diagram_types)
+    except Exception:
+        logger.exception("generation job %s: AI client error", job_id)
+        if not started:  # never leave the job stuck in "running" (the UI would poll forever)
+            try:
+                await asyncio.to_thread(fail_job, job_id, "Generation failed: an unexpected server error",
+                                        len(diagram_types) + 2)
+            except Exception:
+                logger.exception("generation job %s: could not record the failure", job_id)
+
+
+async def _run_generation(client, job_id, project_id, diagram_types):
+    """Extracts the building blocks the chosen diagrams need, then draws each type in turn.
 
     Types are generated sequentially (kinder to LLM rate limits) and each finished diagram id is published on the
     job straight away, so the UI can open it early. If some fail, the others are still saved.
@@ -577,7 +595,6 @@ async def generation_worker(job_id, project_id, diagram_types):
             progress_label=f"Extracting building blocks for {labels}",
         )
         project = await asyncio.to_thread(db.get_project, project_id)
-        client = httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS)
         ai = AIJob(client, project_id, job_id)  # one provider for the whole job
         await ai.start()
         await extract_building_blocks(ai, project, diagram_types)
@@ -592,35 +609,32 @@ async def generation_worker(job_id, project_id, diagram_types):
     except Exception as e:
         logger.exception("generation job %s failed while extracting building blocks", job_id)
         await asyncio.to_thread(fail_job, job_id, f"Extracting building blocks failed: {ai_error_detail(e)}", total)
-        if "client" in locals():
-            await client.aclose()
         return
 
     saved, failures = [], []
     try:
-        async with client:
-            for step, diagram_type in enumerate(diagram_types, start=2):
-                label = TYPE_LABELS.get(diagram_type, diagram_type)
-                diagram_started = time.monotonic()
+        for step, diagram_type in enumerate(diagram_types, start=2):
+            label = TYPE_LABELS.get(diagram_type, diagram_type)
+            diagram_started = time.monotonic()
+            logger.info(
+                "diagram_generation_start job=%s project=%s type=%s step=%d/%d",
+                job_id, project_id, diagram_type, step, total,
+            )
+            try:
+                await update_job(progress_step=step, progress_label=f"Generating and rendering {label} diagram")
+                diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
+                saved.append((label, diagram["id"]))
+                await update_job(diagram_ids=[d for _, d in saved])
                 logger.info(
-                    "diagram_generation_start job=%s project=%s type=%s step=%d/%d",
-                    job_id, project_id, diagram_type, step, total,
+                    "diagram_generation_complete job=%s project=%s type=%s duration_seconds=%.3f diagram_id=%s",
+                    job_id, project_id, diagram_type, time.monotonic() - diagram_started, diagram["id"],
                 )
-                try:
-                    await update_job(progress_step=step, progress_label=f"Generating and rendering {label} diagram")
-                    diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
-                    saved.append((label, diagram["id"]))
-                    await update_job(diagram_ids=[d for _, d in saved])
-                    logger.info(
-                        "diagram_generation_complete job=%s project=%s type=%s duration_seconds=%.3f diagram_id=%s",
-                        job_id, project_id, diagram_type, time.monotonic() - diagram_started, diagram["id"],
-                    )
-                except Exception as e:
-                    logger.exception(
-                        "diagram_generation_failed job=%s project=%s type=%s duration_seconds=%.3f",
-                        job_id, project_id, diagram_type, time.monotonic() - diagram_started,
-                    )
-                    failures.append(f"{label} ({ai_error_detail(e)})")
+            except Exception as e:
+                logger.exception(
+                    "diagram_generation_failed job=%s project=%s type=%s duration_seconds=%.3f",
+                    job_id, project_id, diagram_type, time.monotonic() - diagram_started,
+                )
+                failures.append(f"{label} ({ai_error_detail(e)})")
 
         diagram_ids = [diagram_id for _, diagram_id in saved]
         if failures:

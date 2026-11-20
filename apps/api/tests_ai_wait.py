@@ -17,7 +17,7 @@ os.environ.setdefault('DATA_ENCRYPTION_KEY', Fernet.generate_key().decode())
 import core.ai_client as ai_client  # noqa: E402
 import routers.integrated as integrated  # noqa: E402
 from core import db  # noqa: E402
-from core.ai_client import pick_provider  # noqa: E402
+from core.ai_client import busy_retry_after, pick_provider  # noqa: E402
 
 USER_ID = f'dev:wait-{uuid.uuid4().hex[:8]}@example.com'
 SECRET = f'Okapi{uuid.uuid4().hex} books a slot.'
@@ -86,6 +86,20 @@ def check_pick_provider():
     assert pick_provider(both_slow, None) == 'gemini'  # the shortest wait
 
 
+def check_busy_retry_after():
+    """A 429 without the AI service's ai_busy body (Render's edge rate limit) and gateway errors are waited out too."""
+    assert busy_retry_after(Resp(429, {'code': 'ai_busy'}, {'retry-after': '7'})) == 7
+    assert busy_retry_after(Resp(429, None)) == 2  # edge 429, no body, no Retry-After: back off 2 s
+    assert busy_retry_after(Resp(429, None, {'retry-after': '11'})) == 11
+    assert busy_retry_after(Resp(429, None), attempt=3) == 16
+    assert busy_retry_after(Resp(429, None), attempt=20) == 30  # capped
+    assert busy_retry_after(Resp(502, None)) == 2 and busy_retry_after(Resp(504, None)) == 2
+    assert busy_retry_after(Resp(503, None)) == 2  # 503 from the gateway (service restarting)
+    assert busy_retry_after(Resp(503, {'detail': 'AI service is not available.'})) is None  # the app's own 503
+    assert busy_retry_after(Resp(400, {'detail': 'bad'})) is None
+    assert busy_retry_after(Resp(200, {})) is None
+
+
 def main():
     db.init_db()
     pid = db.create_project(USER_ID, 'Waiting room')['id']
@@ -103,6 +117,7 @@ def main():
     ai_client.time = type('FakeTime', (), {'monotonic': staticmethod(lambda: clock[0])})
     try:
         check_pick_provider()
+        check_busy_retry_after()
 
         # Busy once, then served: the job waits (status 'waiting'), then succeeds on the job's pinned provider.
         job_id = db.create_job(pid, 'extraction', 3, 'Queued')['id']
