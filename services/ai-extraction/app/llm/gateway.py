@@ -6,6 +6,10 @@
   request is marked mixed_models.
 - Without the header (eval runs, older callers) the preferred provider is used unless its estimated wait is over
   LLM_FAILOVER_WAIT_SECONDS.
+- A call larger than a provider's per-request budget (e.g. Groq free tier, 6000 tokens) goes to a provider it fits,
+  header or not, and a call that fails on its provider (after that provider's retries) is tried once more on the
+  next live provider that fits. Either way the request is marked mixed_models. An explicit single-provider
+  LLM_PROVIDERS list still never fails over.
 - Every call's metadata (never content) is collected per request and returned to the backend in the X-LLM-Usage
   response header, which feeds its llm_calls table.
 """
@@ -39,21 +43,38 @@ class Gateway:
                (st["requests_left_today"] is not None and st["requests_left_today"] <= 0) or \
                st["cooldown_seconds"] > self.settings.LLM_MAX_WAIT_SECONDS
 
-    def choose(self, est_tokens: int) -> str:
-        """The provider for this call; see the module docstring."""
-        names = list(self.providers)
+    def fits(self, name: str, est_tokens: int) -> bool:
+        """Whether one call of est_tokens is within this provider's per-request budget."""
+        return est_tokens <= self.providers[name].max_request_tokens
+
+    def choose(self, est_tokens: int, exclude: frozenset[str] | set[str] = frozenset()) -> str:
+        """The provider for this call; see the module docstring. A provider whose per-request budget the call
+        exceeds is skipped (even when requested) in favour of one it fits; if it fits none, the live provider with
+        the largest budget is returned and the caller raises RequestTooLarge (the input must be chunked).
+        `exclude` drops providers that already failed this call (runtime failover)."""
+        names = [n for n in self.providers if n not in exclude]
         wanted = requested_provider.get()
-        if wanted in self.providers and not self.hard_down(wanted):
+        if wanted in names and not self.hard_down(wanted) and self.fits(wanted, est_tokens):
             return wanted
         live = [n for n in names if not self.hard_down(n)]
         if not live:
-            first = names[0]
+            first = names[0] if names else next(iter(self.providers))
             raise AIBusy(first, self.limiters[first].estimate_wait(est_tokens) or 60.0)
+        fitting = [n for n in live if self.fits(n, est_tokens)]
+        if not fitting:
+            return max(live, key=lambda n: self.providers[n].max_request_tokens)
         if wanted is None:
-            for name in live:
+            for name in fitting:
                 if self.limiters[name].estimate_wait(est_tokens) <= self.settings.LLM_FAILOVER_WAIT_SECONDS:
                     return name
-        return live[0]
+        return fitting[0]
+
+    def fallback(self, est_tokens: int, exclude: set[str]) -> str | None:
+        """Another live provider this call fits, after the ones in `exclude` failed it; None if there is none."""
+        for name in self.providers:
+            if name not in exclude and not self.hard_down(name) and self.fits(name, est_tokens):
+                return name
+        return None
 
     def status(self, tokens: int) -> dict:
         """For GET /llm/status: per provider, in preference order."""
