@@ -147,6 +147,44 @@ paths:
         '403': { description: Not an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '409': { description: Would leave the project without an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  # --- Raj: comments and issue reports (FR32, FR27a-b) ---
+  /projects/{project_id}/comments:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Comments on a project's requirements, diagram versions or the project itself, oldest first (any member)
+      parameters:
+        - { name: target_type, in: query, required: false, schema: { $ref: '#/components/schemas/CommentTargetType' } }
+        - { name: target_id, in: query, required: false, schema: { type: string }, description: Leave out for every comment on that kind of target (for counts) }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Comment' } } } } }
+        '404': { description: Not a member, or no such project, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    post:
+      summary: Comment, or send an issue report (any member, a Viewer too)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CommentCreate' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Comment' } } } }
+        '404': { description: Not a member, or the target is not in this project, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: Empty or too long, or a mention of someone outside the project, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/comments/{comment_id}/resolve:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: comment_id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Resolve a thread (Editor or Owner, or its author). Resolving a resolved thread changes nothing
+      responses:
+        '200': { description: The comment, resolved, content: { application/json: { schema: { $ref: '#/components/schemas/Comment' } } } }
+        '403': { description: A Viewer resolving someone else's thread, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not a member, or no such comment in this project, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/reports:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Issue reports, newest first. An Owner (or System Administrator) sees all; anyone else only their own
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Comment' } } } } }
+        '404': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  # --- end Raj: comments ---
   /projects/{project_id}/inputs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     post:
@@ -819,6 +857,36 @@ components:
       type: object
       required: [confirm_name]
       properties: { confirm_name: { type: string, maxLength: 200, description: The project's exact name } }
+    # --- Raj: comments and issue reports (FR32, FR27a-b) ---
+    CommentTargetType: { type: string, enum: [statement, diagram, project] }
+    CommentCreate:
+      type: object
+      required: [target_type, target_id, body]
+      properties:
+        target_type: { $ref: '#/components/schemas/CommentTargetType' }
+        target_id: { type: string, description: 'A requirement id, a diagram version id, or the project id' }
+        body: { type: string, maxLength: 2200, description: '1 to 2000 characters after trimming' }
+        is_issue_report: { type: boolean, description: 'Send as an issue report (FR27a)' }
+        mentions: { type: array, items: { type: string }, description: User ids of project members picked with @ }
+    Comment:
+      type: object
+      required: [id, target_type, target_id, target_label, body, is_issue_report, status, author, resolved_by, resolved_at, created_at]
+      properties:
+        id: { type: string }
+        target_type: { $ref: '#/components/schemas/CommentTargetType' }
+        target_id: { type: string }
+        target_label: { type: [string, 'null'], description: 'R-006, Use Case diagram v3 or Project' }
+        body: { type: string }
+        is_issue_report: { type: boolean }
+        status: { type: string, enum: [open, resolved] }
+        author:
+          type: object
+          required: [id, email]
+          properties: { id: { type: string }, email: { type: [string, 'null'] } }
+        resolved_by: { type: [string, 'null'], description: First name of who resolved it }
+        resolved_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    # --- end Raj: comments ---
     Member:
       type: object
       required: [user_id, email, role, joined_at, is_creator, is_you]
