@@ -58,6 +58,13 @@ export const keys = {
   drift: (diagramId: string) => ['diagrams', diagramId, 'drift'] as const,
 }
 
+/**
+ * FR17d: drift is not stored — it is recomputed from the current requirements on every read. So any change to a
+ * requirement, and any new diagram version, can change or clear a banner that is on screen right now. One key per
+ * diagram, so this matches every drift query rather than naming a diagram.
+ */
+const driftQueries = { predicate: (q: { queryKey: readonly unknown[] }) => q.queryKey[0] === 'diagrams' && q.queryKey[2] === 'drift' }
+
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
 
 const isActive = (job?: Job | null) => job?.status === 'queued' || job?.status === 'running' || job?.status === 'waiting'
@@ -384,6 +391,7 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
       void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
       void qc.invalidateQueries({ queryKey: keys.design(projectId) }) // design sections citing it may be Out of date
+      void qc.invalidateQueries(driftQueries) // FR17d: a requirement may now match, or stop matching, an edited diagram
     },
   })
 }
@@ -483,6 +491,7 @@ export function useFlagAction(projectId: string) {
         void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
         void qc.invalidateQueries({ queryKey: keys.items(projectId) })
         void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+        void qc.invalidateQueries(driftQueries) // FR17d: the fix rewrites the requirement the warning is measured against
       }
     },
   })
@@ -629,6 +638,7 @@ export function useReviseDiagram(projectId: string) {
       qc.setQueryData(keys.diagram(diagram.id), diagram)
       void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      void qc.invalidateQueries(driftQueries) // FR17d: a new version drifts, or no longer does
     },
   })
 }
@@ -657,6 +667,7 @@ export function useSaveLayout(projectId: string) {
       qc.setQueryData(keys.diagram(diagram.id), diagram)
       void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      void qc.invalidateQueries(driftQueries) // FR17d: a new version drifts, or no longer does
     },
   })
 }
