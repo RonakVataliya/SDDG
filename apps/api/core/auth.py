@@ -19,6 +19,7 @@ _verified = {}
 class User:
     id: str
     email: str
+    is_admin: bool = False  # System Administrator (users.is_admin); trusted for up to TOKEN_TTL like the rest of the user
 
 
 def supabase_user(token):
@@ -47,9 +48,24 @@ def get_current_user(cred: HTTPAuthorizationCredentials = Depends(security)) -> 
     if not u:
         raise HTTPException(401, "Invalid or expired access token")
     email = u.get("email") or ""
-    db.get_user(email, u["id"])  # a database error here is a 500, not a 401 (401 signs the user out)
+    row = db.get_user(email, u["id"]) or {}  # a database error here is a 500, not a 401 (401 signs the user out)
+    if row.get("deactivated_at"):
+        raise HTTPException(401, "This account has been deactivated")  # 401 so the web app signs them out
     if len(_verified) > 1000:  # tokens rotate hourly; drop stale ones instead of growing forever
         _verified.clear()
-    user = User(u["id"], email)
+    user = User(u["id"], email, bool(row.get("is_admin")))
     _verified[token] = (user, monotonic() + TOKEN_TTL)
+    return user
+
+
+def forget_user(user_id):
+    """Drops a user's cached tokens so a deactivation applies on their next request, not after TOKEN_TTL."""
+    for t in [t for t, (u, _) in _verified.items() if u.id == user_id]:
+        del _verified[t]
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Dependency for every /admin route. Checked on the server; hiding the button is not access control."""
+    if not user.is_admin:
+        raise HTTPException(403, "Administrators only")
     return user
