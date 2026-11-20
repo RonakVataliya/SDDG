@@ -7,6 +7,8 @@ import type { components, paths } from './schema'
 
 export type Schemas = components['schemas']
 export type Project = Schemas['Project']
+export type Member = Schemas['Member']
+export type Role = Schemas['Role']
 export type Job = Schemas['Job']
 export type ExtractedItem = Schemas['ExtractedItem']
 export type ItemCategory = Schemas['ItemCategory']

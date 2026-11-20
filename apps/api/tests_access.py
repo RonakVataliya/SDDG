@@ -93,7 +93,8 @@ def check(client):
     # 1. A stranger gets 404 on every route that takes a resource id, whatever the method.
     ids = {'project_id': pid, 'item_id': item['id'], 'statement_id': statement['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id,
            'condition_id': tdb.get_conditions(pid)[0]['id'], 'criterion_id': tdb.get_criteria(pid)[0]['id'],
-           'case_id': case['id'], 'run_id': run['id'], 'story_id': story['id'], 'kind': 'goals', 'document_id': 'doc_' + uuid.uuid4().hex}
+           'case_id': case['id'], 'run_id': run['id'], 'story_id': story['id'], 'kind': 'goals', 'document_id': 'doc_' + uuid.uuid4().hex,
+           'member_id': OWNER_ID}
     bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
               '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
@@ -109,6 +110,7 @@ def check(client):
               '/results/{case_id}': {'status': 'pass'},
               '/stories': {'role': 'r', 'goal': 'g', 'reason': 'r', 'statement_ids': [statement['id']]},
               '/stories/{story_id}': {'status': 'done'},
+              '/members/{member_id}': {'role': 'viewer'},  # the stranger tries to demote the owner
               '/design/{kind}': {'content': {'goals': [{'name': 'Reliability', 'reason': 'Hacked', 'statement_ids': []}]}},
               '/style': styling.DEFAULT_STYLE, '/preview': styling.DEFAULT_STYLE}
     swept = 0
@@ -120,7 +122,7 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 64, swept  # a new route with a resource id must be added to this check (34 + 3 style + 15 Tests + 4 documents + 4 Stories + 4 Design routes)
+    assert swept == 67, swept  # a new route with a resource id must be added to this check (34 + 3 style + 15 Tests + 4 documents + 4 Stories + 4 Design + 3 Members routes)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)

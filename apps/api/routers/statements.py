@@ -52,7 +52,7 @@ def edit_statement(project_id: str, statement_id: str, body: StatementUpdate, us
         raise HTTPException(422, EMPTY)
     if not db.get_statement(project_id, statement_id):
         raise HTTPException(404, NOT_FOUND)
-    statement = db.update_statement(project_id, statement_id, text, clean_label(body.label))
+    statement = db.update_statement(project_id, statement_id, text, clean_label(body.label), by=user.id)
     db.reset_model(project_id)
     if text is not None:
         detect(project_id, [statement_id])
