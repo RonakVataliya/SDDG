@@ -51,7 +51,9 @@ def invite(project_id: str, body: InvitationCreate, user: User = Depends(get_cur
     inv = invites.create(project_id, email, body.role, user.id)
     if inv is None:
         raise HTTPException(409, "That person already has an open invitation. Revoke it first to send a new one.")
-    invites.log(project_id, user.id, "member.invited", inv["id"], {"role": body.role})
+    # The Activity tab reads this as "<who> invited <email> as <Role>". log_event drops a detail value over
+    # 100 characters, and an address may be longer than that, so it is cut rather than losing the event.
+    invites.log(project_id, user.id, "member.invited", inv["id"], {"role": body.role, "email": email[:100]})
     if how == "admin":  # an administrator who is not an Owner invited someone: the Owners are told
         for owner_id in invites.owner_ids(project_id):
             if owner_id != user.id:
