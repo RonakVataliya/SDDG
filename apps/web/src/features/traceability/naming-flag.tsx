@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { NamingIssue } from '@/api/client'
+import type { NamingIssue, Role } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { useApplyName, useNamingIssues } from '@/api/queries'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/lib/toast'
 import { cn, plural } from '@/lib/utils'
 
-function Issue({ projectId, issue }: { projectId: string; issue: NamingIssue }) {
+function Issue({ projectId, issue, canApply }: { projectId: string; issue: NamingIssue; canApply: boolean }) {
   const names = issue.names
   const [chosen, setChosen] = useState(() => issue.item_name ?? names[0].label)
   const apply = useApplyName(projectId)
@@ -35,6 +35,7 @@ function Issue({ projectId, issue }: { projectId: string; issue: NamingIssue }) 
         ))}
         .
       </p>
+      {canApply && (
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <div role="radiogroup" aria-label="Name to use" className="flex flex-wrap gap-1">
           {names.map((n) => (
@@ -57,6 +58,7 @@ function Issue({ projectId, issue }: { projectId: string; issue: NamingIssue }) 
           {apply.isPending ? <Spinner label="" /> : null} Apply this name to all diagrams
         </Button>
       </div>
+      )}
       {apply.isError && (
         <p role="alert" className="mt-1.5 text-xs text-danger">
           {errorMessage(apply.error, "That name couldn't be applied.")}
@@ -69,8 +71,12 @@ function Issue({ projectId, issue }: { projectId: string; issue: NamingIssue }) 
 /**
  * FR17e: the same model item labelled differently on different diagrams. Items are matched by model item ID, so two
  * different items that happen to share a name are never flagged.
+ *
+ * Renaming writes a new version of every diagram that disagrees, so it needs Editor. A Viewer is shown the
+ * finding without the controls: the server refuses the rename anyway, and a button that always fails is worse
+ * than no button. Hiding it is not the access check, only the UI.
  */
-export function NamingFlag({ projectId }: { projectId: string }) {
+export function NamingFlag({ projectId, role }: { projectId: string; role: Role }) {
   const { data } = useNamingIssues(projectId)
   const issues = data?.issues ?? []
   if (!issues.length) return null
@@ -79,7 +85,7 @@ export function NamingFlag({ projectId }: { projectId: string }) {
     <Notice tone="warning" title={`${plural(issues.length, 'item is', 'items are')} named differently across diagrams`} className="p-0">
       <ul className="divide-y divide-amber/20">
         {issues.map((i) => (
-          <Issue key={i.model_item_id} projectId={projectId} issue={i} />
+          <Issue key={i.model_item_id} projectId={projectId} issue={i} canApply={role !== 'viewer'} />
         ))}
       </ul>
     </Notice>
