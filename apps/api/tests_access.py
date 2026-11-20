@@ -32,7 +32,8 @@ OWNER_ID, STRANGER_ID, VIEWER_ID = f'dev:{OWNER}', f'dev:{STRANGER}', f'dev:{VIE
 mine = {'Authorization': f'Bearer mock-token:{OWNER}'}
 theirs = {'Authorization': f'Bearer mock-token:{STRANGER}'}
 viewers = {'Authorization': f'Bearer mock-token:{VIEWER}'}
-VIEWER_MAY = {('post', '/api/v1/diagrams/{diagram_id}/preview')}  # a style preview saves nothing
+VIEWER_MAY = {('post', '/api/v1/diagrams/{diagram_id}/preview'),  # a style preview saves nothing
+              ('post', '/api/v1/projects/{project_id}/comments')}  # any member, a Viewer too, can comment (FR32)
 # Belong to one user, not to the project's roles: someone else's invitation or notification is simply not found.
 NOT_THE_VIEWERS = {('post', '/api/v1/invitations/{invitation_id}/accept'), ('post', '/api/v1/notifications/{notification_id}/read')}
 OWNER_READS = {('get', '/api/v1/projects/{project_id}/activity')}  # the activity log is for Owners only (FR22)
@@ -100,13 +101,17 @@ def check(client):
     invitation = client.post(f'{api}/projects/{pid}/invitations', headers=mine,
                              json={'email': f'acc-{uuid.uuid4().hex[:8]}@example.com'}).json()
     note = notify(OWNER_ID, 'mention', {'project_id': pid})
+    comment = client.post(f'{api}/projects/{pid}/comments', headers=mine,
+                          json={'target_type': 'statement', 'target_id': statement['id'], 'body': SECRET_TEXT}).json()
 
     # 1. A stranger gets 404 on every route that takes a resource id, whatever the method.
     ids = {'project_id': pid, 'item_id': item['id'], 'statement_id': statement['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id,
            'condition_id': tdb.get_conditions(pid)[0]['id'], 'criterion_id': tdb.get_criteria(pid)[0]['id'],
            'case_id': case['id'], 'run_id': run['id'], 'story_id': story['id'], 'kind': 'goals', 'document_id': 'doc_' + uuid.uuid4().hex,
-           'member_id': OWNER_ID, 'invitation_id': invitation['id'], 'notification_id': note['id']}
-    bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
+           'member_id': OWNER_ID, 'invitation_id': invitation['id'], 'notification_id': note['id'],
+           'comment_id': comment['id']}
+    bodies = {'/comments': {'target_type': 'project', 'target_id': pid, 'body': 'Hacked'},
+              '/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
               '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
               '/layout': {'positions': {}}, '/projects/{project_id}': {'name': 'Hacked', 'confirm_name': 'Secret project'}, '/client': {'client_name': 'Hacked'},
@@ -136,9 +141,9 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 76, swept  # a new route with a resource id must be added to this check
+    assert swept == 80, swept  # a new route with a resource id must be added to this check
     # (34 + 3 style + 15 Tests + 4 documents + 4 Stories + 4 Design
-    #  + 3 Members + 8 invitations/notifications/traceability + 1 Activity)
+    #  + 3 Members + 8 invitations/notifications/traceability + 1 Activity + 4 Comments)
 
     # 1b. A Viewer can read every route but every change is refused with 403, not 404 (FR24e).
     sql('INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, %s)', pid, VIEWER_ID, 'viewer')
@@ -158,7 +163,7 @@ def check(client):
             else:
                 assert r.status_code == 403, (method, path, r.status_code, r.text)
                 refused += 1
-    assert refused == 43, refused  # every project route that changes something; a new one needs a deliberate role
+    assert refused == 44, refused  # every project route that changes something; a new one needs a deliberate role
     sql('DELETE FROM project_members WHERE project_id=%s AND user_id=%s', pid, VIEWER_ID)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
