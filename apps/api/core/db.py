@@ -1,5 +1,6 @@
 """Supabase Postgres access. Schema: apps/api/migrations/ (python -m core.migrate, or AUTO_MIGRATE=true; see README)."""
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ JSON_COLS = (
     "skipped_pages", "metadata",
     "confirmations",  # stories (3.4)
     "section_content",  # design sections (4)
+    "detail",  # activity_log
 )
 # Columns holding user content; stored encrypted (core/crypto.py), decrypted when read.
 SECRET = {
@@ -139,9 +141,23 @@ def run(sql, *args):
 def get_user(email, user_id):
     return one(
         "INSERT INTO users(id, email) VALUES (%s, %s) "
-        "ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email RETURNING *",
+        "ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, last_seen_at = now() RETURNING *",
         user_id, email,
     )
+
+
+def log_event(project_id, actor_id, action, target=None, detail=None):
+    """Appends to activity_log (FR22). IDs and small values only, never requirement text. Never breaks the caller."""
+    try:
+        if any(isinstance(v, str) and len(v) > 100 for v in (detail or {}).values()):
+            raise ValueError("activity_log detail holds IDs only, not text")
+        run(
+            "INSERT INTO activity_log(id, project_id, actor_id, action, target, detail, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            uid("act"), project_id, actor_id, action, target, json.dumps(detail) if detail else None, now(),
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("activity_log write failed: %s", action)
 
 
 def get_project(pid):
