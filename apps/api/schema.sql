@@ -10,7 +10,12 @@ CREATE TABLE IF NOT EXISTS project_members (
   project_id text NOT NULL REFERENCES projects ON DELETE CASCADE, user_id text NOT NULL,
   PRIMARY KEY (project_id, user_id));
 CREATE INDEX IF NOT EXISTS project_members_user_idx ON project_members (user_id);
-INSERT INTO project_members (project_id, user_id) SELECT id, owner_id FROM projects ON CONFLICT DO NOTHING;
+-- Projects from before project_members existed get their creator as a member. Only projects with no members at
+-- all, so running this file again never brings back a creator who left or was removed (Members page).
+INSERT INTO project_members (project_id, user_id)
+  SELECT p.id, p.owner_id FROM projects p
+  WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id)
+ON CONFLICT DO NOTHING;
 ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS statements (
   id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects ON DELETE CASCADE,
