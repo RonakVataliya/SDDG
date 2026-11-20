@@ -2,13 +2,13 @@ import type { DiagramType } from '@/api/client'
 
 export const DIAGRAM_TYPES: { value: DiagramType; label: string; shows: string; available: boolean }[] = [
   { value: 'use_case', label: 'Use Case', shows: 'Actors and what they can do in the system', available: true },
-  { value: 'class', label: 'Class', shows: 'Entities, their attributes and relationships', available: false },
-  { value: 'activity', label: 'Activity', shows: 'Process flow with decisions', available: false },
-  { value: 'sequence', label: 'Sequence', shows: 'Who talks to whom, in order', available: false },
-  { value: 'dfd', label: 'Data Flow (DFD)', shows: 'Processes, flows, stores and external entities', available: false },
-  { value: 'component', label: 'Component', shows: 'System parts and their interfaces', available: false },
+  { value: 'class', label: 'Class', shows: 'Entities, their attributes and relationships', available: true },
+  { value: 'activity', label: 'Activity', shows: 'Process flow with decisions', available: true },
+  { value: 'sequence', label: 'Sequence', shows: 'Who talks to whom, in order', available: true },
+  { value: 'dfd', label: 'Data Flow (DFD)', shows: 'Processes, flows, stores and external entities', available: true },
+  { value: 'component', label: 'Component', shows: 'System parts and their interfaces', available: true },
   // Drawn when the subsystem decomposition is confirmed in the Design step; never generated here.
-  { value: 'package', label: 'Package', shows: 'Subsystems by layer, from the Design step', available: false },
+  { value: 'package', label: 'Package', shows: 'Subsystems by layer, from the Design step', available: true },
 ]
 
 export const typeLabel = Object.fromEntries(DIAGRAM_TYPES.map((t) => [t.value, t.label])) as Record<DiagramType, string>
