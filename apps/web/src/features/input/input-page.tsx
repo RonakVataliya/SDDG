@@ -23,7 +23,7 @@ import { Label, Textarea } from '@/components/ui/input'
 import { Notice } from '@/components/ui/notice'
 import { Spinner } from '@/components/ui/spinner'
 import { ConsentDialog } from '@/features/privacy/consent-dialog'
-import { useWorkspace } from '@/routes/workspace-layout'
+import { useCanEdit, useWorkspace } from '@/routes/workspace-layout'
 import { cn, formatBytes, MAX_DOCUMENTS_PER_PROJECT, MAX_FILE_BYTES, MAX_PROJECT_PAGES, pastedPageCount, plural } from '@/lib/utils'
 import { SAMPLE_REQUIREMENTS, SAMPLE_USER_STORIES } from './sample'
 
@@ -38,6 +38,7 @@ const HOW = [
 
 export function InputPage() {
   const { project } = useWorkspace()
+  const canEdit = useCanEdit()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<'paste' | 'upload'>('paste')
@@ -299,7 +300,7 @@ export function InputPage() {
                 )}
                 <Button
                   className={cn(!consent.data?.consented && 'ml-auto')}
-                  disabled={!text.trim() || overLimit || overProject || submit.isPending || consent.isPending}
+                  disabled={!canEdit || !text.trim() || overLimit || overProject || submit.isPending || consent.isPending}
                   onClick={onExtract}
                 >
                   {submit.isPending ? <Spinner className="text-on-ink" label="Submitting" /> : failed && text ? <RefreshCwIcon /> : null}
@@ -350,7 +351,7 @@ export function InputPage() {
                 />
                 <Button
                   variant="secondary"
-                  disabled={uploadDoc.isPending || documents.length >= MAX_DOCUMENTS_PER_PROJECT || totalDocumentPages >= MAX_PROJECT_PAGES}
+                  disabled={!canEdit || uploadDoc.isPending || documents.length >= MAX_DOCUMENTS_PER_PROJECT || totalDocumentPages >= MAX_PROJECT_PAGES}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   {uploadDoc.isPending && <Spinner label="Uploading" />}
@@ -418,6 +419,7 @@ export function InputPage() {
                         variant="ghost"
                         size="icon"
                         className="size-7 text-slate hover:text-danger"
+                        disabled={!canEdit}
                         onClick={() => setDeletingDoc(doc)}
                         aria-label={`Delete ${doc.filename}`}
                       >
