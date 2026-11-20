@@ -64,7 +64,7 @@ export function PendingInvitations({ projectId, canManage }: { projectId: string
                 Invited by {displayName(i.invited_by.email)} {formatRelative(i.created_at)}
               </p>
             </div>
-            <Badge tone={i.role === 'owner' ? 'violet' : i.role === 'editor' ? 'teal' : 'neutral'}>{roleLabel[i.role]}</Badge>
+            <Badge tone={i.role === 'owner' ? 'violet' : i.role === 'editor' ? 'accent' : 'neutral'}>{roleLabel[i.role]}</Badge>
             <Badge tone="amber">{expiresIn(i.expires_at)}</Badge>
             {canManage && i.token && (
               <Button variant="ghost" size="sm" onClick={() => copy(i.token!, i.id)}>

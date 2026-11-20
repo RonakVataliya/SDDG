@@ -60,13 +60,13 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 
 export function CaseDetail({ c, canEdit, onEdit, onClose }: { c: TestCase; canEdit: boolean; onEdit: () => void; onClose: () => void }) {
   return (
-    <aside aria-label={`Case ${c.number}`} className="min-w-0 space-y-4 overflow-y-auto rounded-lg border border-rule bg-surface p-4">
+    <aside aria-label={`Case ${c.number}`} className="min-w-0 space-y-4 overflow-y-auto rounded-xl border border-rule bg-field p-4">
       <div className="flex flex-wrap items-center gap-1.5">
         <RefTag>{c.number}</RefTag>
         <Badge title={TECHNIQUE[c.technique]}>{c.technique}</Badge>
         <Badge tone={KIND[c.kind].tone}>{KIND[c.kind].label}</Badge>
         <Badge>{PRIORITY[c.priority]}</Badge>
-        <Badge tone={c.status === 'ready' ? 'teal' : 'neutral'} className="ml-auto">
+        <Badge tone={c.status === 'ready' ? 'accent' : 'neutral'} className="ml-auto">
           {c.status === 'ready' ? 'Ready' : 'Draft'}
         </Badge>
         <Button variant="ghost" size="icon" className="size-7" aria-label="Close case" onClick={onClose}>

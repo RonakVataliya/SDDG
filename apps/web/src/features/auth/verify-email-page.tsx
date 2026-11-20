@@ -94,7 +94,7 @@ export function VerifyEmailPage() {
         )}
         <p className="text-sm text-slate">
           Already verified?{' '}
-          <Link to="/login" className="font-medium text-teal hover:underline">
+          <Link to="/login" className="font-medium text-accent hover:underline">
             Log in
           </Link>
         </p>

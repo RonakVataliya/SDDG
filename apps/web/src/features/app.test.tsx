@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getDb } from '@/mocks/db'
 import { renderApp } from '@/test/render'
@@ -7,7 +7,7 @@ import { seedDiagram, seedProject } from '@/test/seed'
 describe('NFR4a login required', () => {
   it('redirects a signed-out visitor to login', async () => {
     renderApp('/projects', { signedIn: false })
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
   })
 })
 
@@ -53,10 +53,27 @@ describe('FR3c / FR3a projects', () => {
     seedProject()
     const user = userEvent.setup()
     renderApp('/projects')
-    await user.click(await screen.findByRole('button', { name: /new project/i }))
+    await user.click((await screen.findAllByRole('button', { name: /new project/i }))[0])
     await user.type(screen.getByLabelText('Project name'), 'library system')
     await user.click(screen.getByRole('button', { name: 'Create project' }))
     expect(await screen.findByText(/already have a project called/i)).toBeInTheDocument()
+  })
+
+  it('lists archived projects apart, under Archived, and shows the client', async () => {
+    seedProject()
+    const at = new Date().toISOString()
+    getDb().projects.push({
+      id: 'pr_2', name: 'Old catalogue', owner: 'dev@sddg.test', created_at: at, updated_at: at, confirmed_at: null,
+      client_name: 'Acme Libraries', archived_at: at, archived_by: 'dev@sddg.test',
+    })
+    renderApp('/projects')
+    const archived = await screen.findByRole('region', { name: 'Archived' })
+    expect(within(archived).getByText('Old catalogue')).toBeInTheDocument()
+    expect(within(archived).getByText('Archived', { selector: 'span' })).toBeInTheDocument()
+    expect(within(archived).getByText(/Acme Libraries/)).toBeInTheDocument()
+    const active = screen.getByRole('list', { name: 'Active projects' })
+    expect(within(active).getByText('Library system')).toBeInTheDocument()
+    expect(within(active).queryByText('Old catalogue')).not.toBeInTheDocument()
   })
 })
 
@@ -81,8 +98,8 @@ describe('NFR5d AI consent before first submission', () => {
     await user.click(within(again).getByRole('button', { name: 'Agree and extract' }))
 
     await waitFor(() => expect(getDb().jobs.filter((j) => j.payload)).toHaveLength(1))
-    expect(getDb().consent['dev@sddg.test'].version).toBe('2026-09-01')
-    expect(await screen.findByText('Finding your requirements')).toBeInTheDocument()
+    expect(getDb().consent['dev@sddg.test'].version).toBe('2026-11-16')
+    expect(await screen.findByRole('heading', { name: /Queued|Finding your requirements/ })).toBeInTheDocument()
   })
 })
 
@@ -91,7 +108,7 @@ describe('requirements-first review', () => {
     seedProject({ confirmed: true })
     const user = userEvent.setup()
     renderApp('/projects/pr_1/review')
-    expect(await screen.findByRole('button', { name: 'Continue to Generate' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Choose diagrams/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Edit R-001' }))
     const box = screen.getByLabelText('Requirement text')
     await user.clear(box)
@@ -100,9 +117,23 @@ describe('requirements-first review', () => {
     await user.type(box, 'The librarian shall lend a book to a member.')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('The librarian shall lend a book to a member.')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Confirm 1 requirement' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Confirm 1 requirement/ })).toBeInTheDocument()
     expect(getDb().items.pr_1).toHaveLength(0)
     expect(getDb().projects[0].confirmed_at).toBeNull()
+  })
+
+  it('shows a requirement’s stories as links to the backlog filtered to it', async () => {
+    seedProject()
+    const at = new Date().toISOString()
+    getDb().stories = [
+      { id: 'us_1', project_id: 'pr_1', ref: 'S-001', role: 'librarian', goal: 'issue a book', reason: 'members can borrow it', priority: 'must', estimate: 3, status: 'todo', assignee_id: null, confirmations: [], statement_ids: ['st_1'], created_at: at, updated_at: at },
+    ]
+    const user = userEvent.setup()
+    const { router } = renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('link', { name: 'S-001' }))
+    expect(router.state.location.pathname).toBe('/projects/pr_1/backlog')
+    expect(router.state.location.search).toBe('?requirement=st_1')
+    expect(await screen.findByRole('list', { name: 'Stories' })).toHaveTextContent('As a librarian I want to issue a book')
   })
 
   it('adds and deletes requirements, then confirms', async () => {
@@ -116,7 +147,7 @@ describe('requirements-first review', () => {
     await user.click(screen.getByRole('button', { name: 'Delete R-002' }))
     await user.click(screen.getByRole('button', { name: 'Delete R-002' }))
     await waitFor(() => expect(getDb().statements.pr_1).toHaveLength(1))
-    await user.click(await screen.findByRole('button', { name: 'Confirm 1 requirement' }))
+    await user.click(await screen.findByRole('button', { name: /Confirm 1 requirement/ }))
     await waitFor(() => expect(getDb().projects[0].confirmed_at).not.toBeNull())
   })
 
@@ -130,7 +161,7 @@ describe('requirements-first review', () => {
     expect(res.status).toBe(409)
   })
 
-  it('shows Generate as locked until confirmed', async () => {
+  it('shows Choose diagrams as locked until confirmed', async () => {
     seedProject()
     renderApp('/projects/pr_1/generate')
     expect(await screen.findByText('Confirm the requirements first')).toBeInTheDocument()
@@ -149,6 +180,7 @@ describe('requirements-first review', () => {
     expect(screen.getByText('Edited by you')).toBeInTheDocument()
     expect(getDb().items.pr_1[0].origin).toBe('user-edited')
     expect(getDb().projects[0].confirmed_at).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Redraw 1 diagram/ })).toBeInTheDocument()
   })
 })
 
@@ -180,5 +212,307 @@ describe('diagram edits by chat', () => {
     expect(await screen.findByText(/didn.t understand that change/)).toBeInTheDocument()
     expect(box).toHaveValue('make it prettier')
     expect(getDb().diagrams).toHaveLength(1)
+  })
+})
+
+describe('FR1 and FR2 requirements input and document management', () => {
+  it('calculates page count accurately and rejects whitespace-only paste', async () => {
+    seedProject({ consent: true })
+    renderApp('/projects/pr_1/input')
+    const textarea = await screen.findByLabelText('Requirement text')
+    const extractBtn = screen.getByRole('button', { name: /Extract requirements/ })
+    expect(extractBtn).toBeDisabled()
+
+    const user = userEvent.setup()
+    await user.click(textarea)
+    await user.paste('   \n   \t  ')
+    expect(extractBtn).toBeDisabled()
+
+    await user.clear(textarea)
+    await user.click(textarea)
+    await user.paste('A'.repeat(3000))
+    expect(screen.getByText(/counts as 1 of 100 pages/)).toBeInTheDocument()
+
+    await user.paste('B')
+    expect(screen.getByText(/counts as 2 of 100 pages/)).toBeInTheDocument()
+  })
+
+  it('shows warnings for unnumbered FR/NFR and malformed user stories', async () => {
+    seedProject({ consent: true })
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/input')
+    const textarea = await screen.findByLabelText('Requirement text')
+
+    await user.click(textarea)
+    await user.paste('FR1: Valid requirement\nUnnumbered line here')
+    expect(await screen.findByText(/Some lines do not have numbered FR\/NFR IDs/)).toBeInTheDocument()
+
+    await user.clear(textarea)
+    await user.click(textarea)
+    await user.paste('As a user I want something without so that')
+    expect(await screen.findByText(/Some user stories did not match the 'As a … I want … so that …' pattern/)).toBeInTheDocument()
+  })
+
+  it('validates file type and size restrictions on upload (FR2a, FR2b)', async () => {
+    seedProject({ consent: true })
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/input')
+
+    await user.click(await screen.findByRole('tab', { name: /upload srs document/i }))
+
+    // Unsupported file type
+    const txtFile = new File(['plain text content'], 'requirements.txt', { type: 'text/plain' })
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [txtFile] } })
+    expect(await screen.findByText(/Supported file types are PDF \(\.pdf\) and DOCX \(\.docx\)/)).toBeInTheDocument()
+
+    // File exceeding 10 MiB
+    const largeFile = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.pdf', { type: 'application/pdf' })
+    fireEvent.change(fileInput, { target: { files: [largeFile] } })
+    expect(await screen.findByText(/maximum allowed size is 10 MB/)).toBeInTheDocument()
+  })
+
+  it('uploads valid PDF document and allows deleting it with confirmation (FR1b, Doc Management)', async () => {
+    seedProject({ consent: true })
+
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/input')
+
+    await user.click(await screen.findByRole('tab', { name: /upload srs document/i }))
+    const validPdf = new File(['%PDF-1.4 test content'], 'srs-spec.pdf', { type: 'application/pdf' })
+    const g = globalThis as unknown as { Buffer?: { from: (s: string) => unknown } }
+    ;(validPdf as unknown as { _buffer: unknown })._buffer = g.Buffer ? g.Buffer.from('%PDF-1.4 test content') : new Uint8Array(0)
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [validPdf] } })
+
+    expect(await screen.findByText('srs-spec.pdf', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText('Uploaded project documents')).toBeInTheDocument()
+
+    // Delete document flow
+    const deleteBtn = screen.getByRole('button', { name: /delete srs-spec\.pdf/i })
+    await user.click(deleteBtn)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/Are you sure you want to delete/)).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete document' }))
+    await waitFor(() => expect(screen.queryByText('srs-spec.pdf')).not.toBeInTheDocument())
+  })
+
+  it('displays extracted FR/NFR tags and structured user stories in Review and preserves them across reload', async () => {
+    seedProject({ consent: true })
+    const db = getDb()
+    db.statements.pr_1 = [
+      {
+        id: 'st_1',
+        ref: 'R-001',
+        text: 'The user shall be able to log in.',
+        label: 'functional',
+        source_label: 'FR1',
+        metadata: null,
+        source: { document: 'spec.pdf', page: 1, paragraph: 1 },
+      },
+      {
+        id: 'st_2',
+        ref: 'R-002',
+        text: 'As a member, I want to search books, so that I find titles.',
+        label: 'functional',
+        source_label: null,
+        metadata: {
+          role: 'member',
+          goal: 'to search books',
+          reason: 'I find titles',
+          structured: true,
+        },
+        source: { document: 'spec.pdf', page: 1, paragraph: 2 },
+      },
+    ]
+
+    const { unmount } = renderApp('/projects/pr_1/review')
+
+    // The redesigned Review page lists every requirement directly (no accordion).
+    // Verify FR1 tag is displayed
+    expect(await screen.findByText('FR1')).toBeInTheDocument()
+
+    // Verify structured user story is displayed
+    expect(screen.getByText(/Role:/)).toBeInTheDocument()
+    expect(screen.getByText('member')).toBeInTheDocument()
+    expect(screen.getByText('to search books')).toBeInTheDocument()
+    expect(screen.getAllByText(/I find titles/).length).toBeGreaterThanOrEqual(1)
+
+    // Simulate page reload by unmounting and re-rendering Review page
+    unmount()
+    renderApp('/projects/pr_1/review')
+
+    expect(await screen.findByText('FR1')).toBeInTheDocument()
+    expect(screen.getByText(/Role:/)).toBeInTheDocument()
+    expect(screen.getByText('member')).toBeInTheDocument()
+    expect(screen.getByText('to search books')).toBeInTheDocument()
+    expect(screen.getAllByText(/I find titles/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('displays document statuses (Extracted, Failed), error messages, and preserves them after reload', async () => {
+    seedProject({ consent: true })
+    const db = getDb()
+    db.documents = db.documents ?? {}
+    db.documents.pr_1 = [
+      {
+        id: 'doc_1',
+        project_id: 'pr_1',
+        filename: 'architecture.pdf',
+        storage_path: 'pr_1/doc_1/architecture.pdf',
+        content_type: 'application/pdf',
+        size_bytes: 102400,
+        page_count: 5,
+        status: 'processed',
+        warning: null,
+        skipped_pages: [],
+        job_id: 'job_1',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 'doc_2',
+        project_id: 'pr_1',
+        filename: 'invalid.docx',
+        storage_path: 'pr_1/doc_2/invalid.docx',
+        content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        size_bytes: 20480,
+        page_count: 2,
+        status: 'failed',
+        warning: 'Extraction failed: Model timeout',
+        skipped_pages: [],
+        job_id: 'job_2',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]
+
+    const user = userEvent.setup()
+    const { unmount } = renderApp('/projects/pr_1/input')
+
+    // Navigate to upload tab
+    await user.click(await screen.findByRole('tab', { name: /upload srs document/i }))
+
+    // Verify document filenames
+    expect(await screen.findByText('architecture.pdf')).toBeInTheDocument()
+    expect(screen.getByText('invalid.docx')).toBeInTheDocument()
+
+    // Verify status badges: 'processed' -> 'Extracted', 'failed' -> 'Failed'
+    expect(screen.getByText('Extracted')).toBeInTheDocument()
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+
+    // Verify failure error message
+    expect(screen.getByText('Extraction failed: Model timeout')).toBeInTheDocument()
+
+    // Verify page reload preserves statuses and warnings
+    unmount()
+    renderApp('/projects/pr_1/input')
+    await user.click(await screen.findByRole('tab', { name: /upload srs document/i }))
+
+    expect(await screen.findByText('architecture.pdf')).toBeInTheDocument()
+    expect(screen.getByText('invalid.docx')).toBeInTheDocument()
+    expect(screen.getByText('Extracted')).toBeInTheDocument()
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Extraction failed: Model timeout')).toBeInTheDocument()
+  })
+
+  it('uploads SDDG_FR1_FR2_Test_SRS.pdf, renders extracted items and statements in Review page, and persists after reload', async () => {
+    seedProject({ consent: true })
+
+    const user = userEvent.setup()
+    const { unmount } = renderApp('/projects/pr_1/input')
+
+    // Navigate to upload tab
+    await user.click(await screen.findByRole('tab', { name: /upload srs document/i }))
+
+    // Upload test SRS PDF
+    const testPdf = new File(['%PDF-1.4 test SRS content'], 'SDDG_FR1_FR2_Test_SRS.pdf', { type: 'application/pdf' })
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [testPdf] } })
+
+    // Wait for document to appear and be marked Extracted
+    expect(await screen.findByText('SDDG_FR1_FR2_Test_SRS.pdf', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(await screen.findByText('Extracted', {}, { timeout: 3000 })).toBeInTheDocument()
+
+    // Unmount input and navigate to Review page
+    unmount()
+    const reviewApp = renderApp('/projects/pr_1/review')
+
+    // Wait for Review page to finish loading and display Confirm button
+    expect(await screen.findByRole('button', { name: /^Confirm \d+ requirements?/ })).toBeInTheDocument()
+    // Check that extracted items are present
+    expect((await screen.findAllByText(/Student/i)).length).toBeGreaterThanOrEqual(1)
+
+    // The redesigned Review page lists the statements directly (no accordion)
+    // Check that FR/NFR source tags and structured user stories are displayed
+    expect((await screen.findAllByText('FR-001')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('NFR-001').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Role:/).length).toBeGreaterThanOrEqual(1)
+
+    // Test reload persistence: unmount and re-render Review page
+    reviewApp.unmount()
+    renderApp('/projects/pr_1/review')
+
+    expect(screen.queryByText('Nothing to review yet')).not.toBeInTheDocument()
+    expect((await screen.findAllByText(/Student/i)).length).toBeGreaterThanOrEqual(1)
+    expect((await screen.findAllByText('FR-001')).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('uploading a document with no extractable requirements marks it as failed and does not mark it as extracted', async () => {
+    seedProject({ consent: true })
+
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/input')
+
+    await user.click(await screen.findByRole('tab', { name: /upload srs document/i }))
+
+    // Empty/unextractable PDF
+    const emptyPdf = new File(['%PDF-1.4 empty'], 'empty_spec.pdf', { type: 'application/pdf' })
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [emptyPdf] } })
+
+    expect(await screen.findByText('empty_spec.pdf', {}, { timeout: 3000 })).toBeInTheDocument()
+    // Must NOT be marked Extracted; must be marked Failed
+    expect(await screen.findByText('Failed', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getAllByText(/No requirements could be extracted from this document/).length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+
+describe('requirement flags (issue #34)', () => {
+  it('apply fix rewrites the requirement and resolves the flag', async () => {
+    seedProject({ flagged: true })
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('button', { name: /1 open flags on R-002/ }))
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByText('quickly')).toBeInTheDocument() // trigger_text is highlighted
+    await user.click(within(drawer).getByRole('button', { name: 'Apply fix' }))
+    await waitFor(() => expect(getDb().statements.pr_1[1].text).toBe('The system shall respond within 2 seconds.'))
+    expect(getDb().flags.pr_1[0].status).toBe('resolved')
+    expect(await within(drawer).findByText('No open flags. Nice and clear.')).toBeInTheDocument()
+  })
+
+  it('an answer resolves the flag without changing the text', async () => {
+    seedProject({ flagged: true })
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/review')
+    await user.click(await screen.findByRole('button', { name: /Go through flags/ }))
+    const drawer = await screen.findByRole('dialog')
+    await user.type(await within(drawer).findByLabelText('Your answer'), 'Under 2 seconds')
+    await user.click(within(drawer).getByRole('button', { name: /Save answer/ }))
+    await waitFor(() => expect(getDb().flags.pr_1[0]).toMatchObject({ status: 'resolved', answer: 'Under 2 seconds' }))
+    expect(getDb().statements.pr_1[1].text).toBe('The system should respond quickly.')
+  })
+
+  it('the pill shows the open flag type, not the type of a resolved one', async () => {
+    seedProject({ flagged: true })
+    const db = getDb()
+    db.flags.pr_1.unshift({ ...db.flags.pr_1[0], id: 'fl_0', type: 'conflict', status: 'resolved', resolved_by: 'dev@sddg.test', resolved_at: new Date().toISOString() })
+    renderApp('/projects/pr_1/review')
+    const pill = await screen.findByRole('button', { name: /1 open flags on R-002/ })
+    await waitFor(() => expect(pill).toHaveTextContent('Ambiguous'))
+    expect(pill).not.toHaveTextContent('Conflict')
   })
 })

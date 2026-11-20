@@ -14,10 +14,10 @@ export function DialogContent({
 }: React.ComponentProps<typeof D.Content>) {
   return (
     <D.Portal>
-      <D.Overlay className="fixed inset-0 z-40 bg-ink/40" />
+      <D.Overlay className="fixed inset-0 z-40 bg-[rgb(17_19_24/0.45)] backdrop-blur-[2px]" />
       <D.Content
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-rule bg-surface p-6 shadow-[0_24px_48px_-12px_rgb(26_34_51/0.25)]',
+          'fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-rule bg-surface p-7 shadow-[var(--shadow)]',
           className,
         )}
         {...props}
@@ -32,7 +32,7 @@ export function DialogContent({
 }
 
 export function DialogTitle({ className, ...props }: React.ComponentProps<typeof D.Title>) {
-  return <D.Title className={cn('pr-8 text-lg font-semibold tracking-tight', className)} {...props} />
+  return <D.Title className={cn('pr-8 font-display text-xl font-semibold tracking-tight', className)} {...props} />
 }
 
 export function DialogDescription({ className, ...props }: React.ComponentProps<typeof D.Description>) {

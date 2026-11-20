@@ -107,6 +107,9 @@ def lines(dtype, spec):
 
 
 def layout_view(d):
+    if d["type"] == "package":  # drawn from the design's subsystem decomposition, which is where it changes
+        raise HTTPException(422, "Arranging is not available for package diagrams. Change the subsystem "
+                                 "decomposition in the Design step.")
     nodes = {e["element_id"]: e for e in d["elements"] if e["kind"] not in LINE_KINDS}
     # Line labels come from the stored elements (the same text the Kroki image shows), else from the spec.
     labels = {e["element_id"]: e["label"] for e in d["elements"] if e["kind"] in LINE_KINDS and e.get("label")}

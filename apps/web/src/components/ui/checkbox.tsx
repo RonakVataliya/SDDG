@@ -7,7 +7,7 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof C.
   return (
     <C.Root
       className={cn(
-        'peer grid size-[18px] shrink-0 place-items-center rounded-sm border border-rule-strong bg-surface data-[state=checked]:border-teal data-[state=checked]:bg-teal data-[state=checked]:text-white',
+        'peer grid size-[18px] shrink-0 place-items-center rounded-[4px] border-[1.5px] border-rule-strong bg-field data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-on-ink',
         className,
       )}
       {...props}

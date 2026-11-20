@@ -46,7 +46,7 @@ function Issue({ projectId, issue }: { projectId: string; issue: NamingIssue }) 
               onClick={() => setChosen(n.label)}
               className={cn(
                 'rounded-sm border px-2 py-1 text-xs font-medium',
-                chosen === n.label ? 'border-teal bg-teal-wash text-teal-deep' : 'border-rule-strong text-slate hover:text-ink',
+                chosen === n.label ? 'border-accent bg-accent-wash text-accent-deep' : 'border-rule-strong text-slate hover:text-ink',
               )}
             >
               {n.label}

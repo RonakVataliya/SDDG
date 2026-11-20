@@ -262,7 +262,7 @@ def main():
     try:
         with TestClient(app) as client:
             h = {"Authorization": f"Bearer mock-token:{EMAIL}"}
-            assert client.post("/api/v1/me/consent", headers=h, json={"policy_version": "2026-09-01"}).status_code == 201
+            assert client.post("/api/v1/me/consent", headers=h, json={"policy_version": "2026-11-16"}).status_code == 201
             pid = client.post("/api/v1/projects", headers=h, json={"name": "Diagrams"}).json()["id"]
             assert client.post(f"/api/v1/projects/{pid}/inputs", headers=h, json={"text": "x"}).status_code == 202
             assert client.post(f"/api/v1/projects/{pid}/confirmation", headers=h).status_code == 201

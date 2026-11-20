@@ -1,144 +1,86 @@
-import { CheckIcon, LockIcon } from 'lucide-react'
-import { Link, Navigate, NavLink, Outlet, useMatch, useOutletContext, useParams } from 'react-router'
+import { CheckIcon, ChevronRightIcon, LockIcon } from 'lucide-react'
+import { Fragment } from 'react'
+import { Link, Navigate, NavLink, Outlet, useLocation, useOutletContext, useParams } from 'react-router'
 import type { Project } from '@/api/client'
 import { ApiError, errorMessage } from '@/api/errors'
-import { useDiagrams, useProject } from '@/api/queries'
+import { useDiagrams, useFlagSummary, useProject } from '@/api/queries'
+import { Badge } from '@/components/ui/badge'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
-import { GeneratePanel } from '@/features/generate/generate-panel'
 import { projectStage } from '@/features/projects/stage'
 import { cn, plural } from '@/lib/utils'
 import { NotFoundPage } from './not-found-page'
 
-type StepState = 'done' | 'active' | 'open' | 'locked' | 'working'
-type Step = { n: number; to: string; label: string; detail: string; state: StepState }
+type StepState = 'done' | 'open' | 'locked' | 'working'
+type Step = { n: number; to: string; label: string; state: StepState }
 
 function buildSteps(project: Project, latestDiagramId?: string): Step[] {
   const stage = projectStage(project)
   return [
-    {
-      n: 1,
-      to: 'input',
-      label: 'Requirements',
-      detail: stage === 'extracting' ? 'Extracting…' : project.statement_count ? plural(project.statement_count, 'statement') : 'Paste text',
-      state: stage === 'extracting' ? 'working' : project.statement_count ? 'done' : 'open',
-    },
-    {
-      n: 2,
-      to: 'review',
-      label: 'Review and confirm',
-      detail: project.confirmed
-        ? 'Confirmed'
-        : project.statement_count
-          ? `${plural(project.statement_count, 'requirement')} to check`
-          : 'Waiting for requirements',
-      state: project.confirmed ? 'done' : project.statement_count ? 'open' : 'locked',
-    },
-    {
-      n: 3,
-      to: 'generate',
-      label: 'Generate',
-      detail: project.confirmed ? 'Use Case diagram' : 'Locked until you confirm',
-      state: project.confirmed ? (project.diagram_count ? 'done' : 'open') : 'locked',
-    },
-    {
-      n: 4,
-      to: latestDiagramId ? `diagrams/${latestDiagramId}` : 'generate',
-      label: 'Diagram',
-      detail: project.diagram_count ? 'View and export' : 'Not generated yet',
-      state: latestDiagramId ? 'done' : 'locked',
-    },
-    {
-      // Tests (Sprint 3, stream 6) work straight from the requirements, so they do not wait for diagrams.
-      n: 5,
-      to: 'tests',
-      label: 'Tests',
-      detail: project.statement_count ? 'Test cases and runs' : 'Locked until requirements exist',
-      state: project.statement_count && stage !== 'extracting' ? 'open' : 'locked',
-    },
-    {
-      // FR17b / FR17e: what the diagrams cover and where they name the same item differently.
-      n: 6,
-      to: 'traceability',
-      label: 'Traceability',
-      detail: project.diagram_count ? 'Coverage and naming' : 'Locked until a diagram exists',
-      state: project.diagram_count ? 'open' : 'locked',
-    },
+    { n: 1, to: 'input', label: 'Requirements', state: stage === 'extracting' ? 'working' : project.statement_count ? 'done' : 'open' },
+    { n: 2, to: 'review', label: 'Review', state: project.confirmed ? 'done' : project.statement_count ? 'open' : 'locked' },
+    { n: 3, to: 'generate', label: 'Choose diagrams', state: project.confirmed ? (project.diagram_count ? 'done' : 'open') : 'locked' },
+    { n: 4, to: latestDiagramId ? `diagrams/${latestDiagramId}` : 'generate', label: 'Diagrams', state: latestDiagramId ? 'done' : 'locked' },
   ]
 }
 
-function StepMarker({ n, state, current }: { n: number; state: StepState; current: boolean }) {
+/** The 4 steps drawn as a tiny flow diagram: nodes joined by arrows, dashed once the path is locked. */
+function Pipeline({ steps }: { steps: Step[] }) {
   return (
-    <span
-      className={cn(
-        'grid size-7 shrink-0 place-items-center rounded-full border text-xs font-semibold tabular-nums',
-        current
-          ? 'border-teal bg-teal text-white'
-          : state === 'done'
-            ? 'border-teal/40 bg-teal-wash text-teal-deep'
-            : state === 'locked'
-              ? 'border-dashed border-rule-strong text-slate'
-              : 'border-rule-strong bg-surface text-ink',
-      )}
-    >
-      {state === 'working' ? (
-        <Spinner className={cn('size-3.5', current && 'text-white')} label="In progress" />
-      ) : state === 'locked' && !current ? (
-        <LockIcon className="size-3" aria-label="Locked" />
-      ) : state === 'done' && !current ? (
-        <CheckIcon className="size-3.5" strokeWidth={3} aria-label="Done" />
-      ) : (
-        n
-      )}
-    </span>
-  )
-}
-
-function PipelineRail({ steps }: { steps: Step[] }) {
-  return (
-    <nav aria-label="Project steps">
-      <ol className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:gap-0 lg:overflow-visible">
+    <nav aria-label="Project steps" className="overflow-x-auto">
+      <ol className="flex items-center">
         {steps.map((s, i) => {
           const locked = s.state === 'locked'
-          const inner = (current: boolean) => (
+          const node = (current: boolean) => (
             <>
-              <span className="relative flex flex-col items-center self-stretch">
-                <StepMarker n={s.n} state={s.state} current={current} />
-                {i < steps.length - 1 && (
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'mt-1 hidden w-px flex-1 lg:block',
-                      steps[i + 1].state === 'locked' ? 'border-l border-dashed border-rule-strong' : 'bg-teal/35',
-                    )}
-                  />
+              <span
+                className={cn(
+                  'grid size-7 shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-[11px] font-semibold',
+                  current
+                    ? 'border-accent bg-accent text-on-ink shadow-[0_0_0_4px_var(--accent-wash)]'
+                    : s.state === 'done'
+                      ? 'border-ink text-ink'
+                      : locked
+                        ? 'border-dashed border-rule-strong text-slate'
+                        : 'border-rule-strong bg-field text-slate',
+                )}
+              >
+                {s.state === 'working' ? (
+                  <Spinner className={cn('size-3.5', current && 'text-on-ink')} label="In progress" />
+                ) : s.state === 'done' && !current ? (
+                  <CheckIcon className="size-3.5" strokeWidth={3} aria-label="Done" />
+                ) : locked && !current ? (
+                  <LockIcon className="size-3" aria-label="Locked" />
+                ) : (
+                  String(s.n).padStart(2, '0')
                 )}
               </span>
-              <span className="min-w-0 pb-6 lg:pb-7">
-                <span className={cn('block text-sm font-medium', locked && 'text-slate', current && 'text-teal-deep')}>
-                  {s.label}
-                </span>
-                <span className="block text-xs whitespace-nowrap text-slate">{s.detail}</span>
+              <span className={cn('text-[13px] whitespace-nowrap', current ? 'font-semibold text-ink' : s.state === 'done' ? 'text-ink-2' : 'text-slate')}>
+                {s.label}
               </span>
             </>
           )
+          const next = steps[i + 1]
           return (
-            <li key={s.label} className="shrink-0 lg:shrink">
-              {locked ? (
-                <span aria-disabled className="flex cursor-not-allowed gap-3 rounded-md px-2 pt-2 opacity-80">
-                  {inner(false)}
-                </span>
-              ) : (
-                <NavLink
-                  to={s.to}
-                  className={({ isActive }) =>
-                    cn('flex gap-3 rounded-md px-2 pt-2 hover:bg-ink/4', isActive && 'bg-surface ring-1 ring-rule')
-                  }
-                >
-                  {({ isActive }) => inner(isActive)}
-                </NavLink>
+            <Fragment key={s.label}>
+              <li>
+                {locked ? (
+                  <span aria-disabled className="flex cursor-not-allowed items-center gap-2.5 px-1 py-1">
+                    {node(false)}
+                  </span>
+                ) : (
+                  <NavLink to={s.to} className="flex items-center gap-2.5 rounded-full px-1 py-1 hover:bg-ink/5">
+                    {({ isActive }) => node(isActive)}
+                  </NavLink>
+                )}
+              </li>
+              {next && (
+                <li aria-hidden className="mx-3 flex items-center">
+                  <span className={cn('h-[1.5px] w-10', next.state === 'locked' ? 'bg-[repeating-linear-gradient(90deg,var(--rule-strong)_0_5px,transparent_5px_9px)]' : 'bg-ink')} />
+                  <span className={cn('border-y-4 border-l-[6px] border-y-transparent', next.state === 'locked' ? 'border-l-rule-strong' : 'border-l-ink')} />
+                </li>
               )}
-            </li>
+            </Fragment>
           )
         })}
       </ol>
@@ -146,7 +88,60 @@ function PipelineRail({ steps }: { steps: Step[] }) {
   )
 }
 
-const panel = 'min-w-0 rounded-xl border border-rule bg-surface xl:overflow-y-auto'
+type Area = { to: string; label: string; locked?: string }
+
+/** Areas beyond the 4-step pipeline: same visual language, one quieter row under the pipeline header. */
+function buildAreas(project: Project): Area[] {
+  const stage = projectStage(project)
+  const areas: Area[] = [
+    // Tests work straight from the requirements, so they do not wait for diagrams.
+    { to: 'tests', label: 'Tests', locked: project.statement_count && stage !== 'extracting' ? undefined : 'Locked until requirements exist' },
+    { to: 'design', label: 'Design', locked: project.confirmed ? undefined : 'Locked until you confirm' },
+    { to: 'backlog', label: 'Backlog' },
+    { to: 'coverage', label: 'Coverage' },
+    { to: 'items', label: 'Building blocks', locked: project.item_count > 0 ? undefined : 'Nothing extracted yet' },
+    { to: 'search', label: 'Search' },
+  ]
+  if (project.is_owner) areas.push({ to: 'settings', label: 'Settings' })
+  return areas
+}
+
+function AreaNav({ areas }: { areas: Area[] }) {
+  return (
+    <nav aria-label="Project areas" className="overflow-x-auto">
+      <ul className="flex items-center gap-1">
+        {areas.map((a) => (
+          <li key={a.to}>
+            {a.locked ? (
+              <span
+                aria-disabled
+                title={a.locked}
+                className="flex cursor-not-allowed items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] whitespace-nowrap text-slate opacity-70"
+              >
+                <LockIcon className="size-3" aria-label="Locked" /> {a.label}
+              </span>
+            ) : (
+              <NavLink
+                to={a.to}
+                className={({ isActive }) =>
+                  cn(
+                    'block rounded-full px-3 py-1.5 text-[13px] whitespace-nowrap',
+                    isActive ? 'bg-accent-wash font-semibold text-accent-deep' : 'text-ink-2 hover:bg-ink/5 hover:text-ink',
+                  )
+                }
+              >
+                {a.label}
+              </NavLink>
+            )}
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+/** Pages that came from the older panel layout get the same card frame the pipeline pages draw themselves. */
+const FRAMED = ['tests', 'design', 'backlog', 'coverage', 'search', 'settings']
 
 export type WorkspaceContext = { project: Project }
 export const useWorkspace = () => useOutletContext<WorkspaceContext>()
@@ -155,8 +150,9 @@ export function WorkspaceLayout() {
   const { projectId = '' } = useParams()
   const { data: project, isPending, error } = useProject(projectId)
   const { data: diagrams } = useDiagrams(projectId)
-  // The Tests page needs the full width for its two-column layout, so the Generate panel steps aside there.
-  const onTests = useMatch('/projects/:projectId/tests') !== null
+  const { data: flagSummary } = useFlagSummary(projectId)
+  const { pathname } = useLocation()
+  const area = pathname.split('/')[3] ?? ''
 
   if (isPending) return <PageLoading label="Loading project" />
   if (error instanceof ApiError && error.status === 404) return <NotFoundPage />
@@ -169,36 +165,44 @@ export function WorkspaceLayout() {
       </div>
     )
 
+  const openFlags = (flagSummary ?? []).reduce((n, s) => n + s.open, 0)
   return (
-    <div className="px-4 py-4 sm:px-6">
-      <div className="flex min-w-0 items-baseline gap-1.5">
-        <Link to="/projects" className="shrink-0 text-sm text-slate hover:text-ink hover:underline">
-          Projects
-        </Link>
-        <span className="text-sm text-rule-strong">/</span>
-        <h1 className="truncate text-lg font-semibold tracking-tight">{project.name}</h1>
-        <Link to="search" className="ml-auto shrink-0 text-sm font-medium text-teal hover:underline">
-          Search
-        </Link>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-rule bg-surface px-4 py-3.5 sm:px-7">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1.5 text-[13px] text-slate">
+            <Link to="/projects" className="hover:text-ink hover:underline">
+              Projects
+            </Link>
+            <ChevronRightIcon className="size-3.5" aria-hidden />
+          </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-[20px] leading-tight font-semibold">{project.name}</h1>
+            <Badge className="capitalize">{project.role}</Badge>
+            {project.archived_at && <Badge tone="amber">Archived</Badge>}
+          </div>
+          <p className="mt-0.5 text-[12.5px] text-slate">
+            {plural(project.statement_count, project.confirmed ? 'confirmed requirement' : 'requirement')}
+            {project.diagram_count > 0 && ` · ${plural(project.diagram_count, 'diagram')}`}
+            {openFlags > 0 && <span className="text-amber"> · {plural(openFlags, 'open flag')}</span>}
+          </p>
+        </div>
+        <div className="ml-auto">
+          <Pipeline steps={buildSteps(project, diagrams?.[0]?.id)} />
+        </div>
       </div>
-      {/* Three panels: steps | current step | generate. Below xl the generate panel drops under the current step. */}
-      <div
-        className={cn(
-          'mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:h-[calc(100dvh-7.5rem)] xl:min-h-[34rem]',
-          !onTests && 'xl:grid-cols-[15rem_minmax(0,1fr)_19rem]',
-        )}
-      >
-        <aside className={cn(panel, 'p-3 lg:row-span-2 xl:row-span-1')} aria-label="Steps">
-          <h2 className="hidden px-2 pb-3 text-sm font-medium text-slate lg:block">Steps</h2>
-          <PipelineRail steps={buildSteps(project, diagrams?.[0]?.id)} />
-        </aside>
-        <section className={cn(panel, 'flex flex-col p-5')}>
+      <div className="border-b border-rule bg-surface px-3 py-1.5 sm:px-6">
+        <AreaNav areas={buildAreas(project)} />
+      </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {FRAMED.includes(area) ? (
+          <div className="mx-auto flex w-full max-w-[1400px] min-h-0 flex-1 flex-col p-4 sm:p-7">
+            <section className="flex min-w-0 flex-1 flex-col rounded-xl border border-rule bg-surface p-5">
+              <Outlet context={{ project } satisfies WorkspaceContext} />
+            </section>
+          </div>
+        ) : (
           <Outlet context={{ project } satisfies WorkspaceContext} />
-        </section>
-        {!onTests && (
-          <aside className={cn(panel, 'p-4 lg:col-start-2 xl:col-start-3')} aria-label="Generate">
-            <GeneratePanel project={project} />
-          </aside>
         )}
       </div>
     </div>

@@ -1,15 +1,21 @@
 import { cn } from '@/lib/utils'
 
-/** A use-case ellipse beside an actor: the product's own first diagram type as its mark. */
+/** The mark: a sentence (three lines) wired into a node. Text in, diagram out. */
+export function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={cn('size-7 shrink-0', className)} aria-hidden>
+      <rect width="32" height="32" rx="8" fill="var(--ink)" />
+      <path d="M7 10h8M7 15h6M7 20h8" stroke="var(--paper)" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M16 15h3.5a2 2 0 0 1 2 2" stroke="var(--accent)" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <circle cx="22" cy="21" r="4" fill="var(--accent)" />
+    </svg>
+  )
+}
+
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-2 font-semibold tracking-tight text-ink', className)}>
-      <svg viewBox="0 0 32 32" className="size-6" aria-hidden>
-        <rect width="32" height="32" rx="7" fill="var(--color-teal)" />
-        <ellipse cx="19.5" cy="16" rx="8" ry="5" fill="none" stroke="#fff" strokeWidth="2" />
-        <circle cx="7" cy="10" r="2.4" fill="#fff" />
-        <path d="M7 13v6M4 15h6M7 19l-2.5 4M7 19l2.5 4" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
+    <span className={cn('inline-flex items-center gap-2.5 font-display text-[16px] font-bold tracking-tight text-ink', className)}>
+      <LogoMark />
       SDDG
     </span>
   )

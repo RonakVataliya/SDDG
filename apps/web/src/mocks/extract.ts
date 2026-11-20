@@ -18,19 +18,30 @@ const stripArticles = (s: string) => s.replace(ARTICLE, '').replace(/\b(a|an|the
 export function splitStatements(text: string): Omit<RequirementStatement, 'id'>[] {
   const out: Omit<RequirementStatement, 'id'>[] = []
   text
-    .split(/\n\s*\n|\n(?=\s*(?:[-*•]|\d+[.)]|[A-Z]{1,4}\d+[a-z]?[:.)]))/)
+    .split(/\n\s*\n|\n(?=\s*(?:[-*•\x7f\u2022]|\d+[.)]|[A-Z]{1,4}[-_\s]*\d+[a-z]?[:.)]))/i)
     .forEach((para, pIdx) => {
       para
         .split(/(?<=[.!?])\s+(?=[A-Z])/)
-        .map((s) => s.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+        .map((s) => s.replace(/^\s*(?:[-*•\x7f\u2022]|\d+[.)])\s*/, '').trim())
         .filter((s) => s.length > 3)
         .forEach((s) => {
-          const labelMatch = s.match(/^([A-Z]{1,4}\d+[a-z]?)[:.)]\s*/)
+          const labelMatch = s.match(/^([A-Z]{1,4}[-_\s]*\d+[a-z]?)[:.)]\s*/i)
+          const cleanText = labelMatch ? s.slice(labelMatch[0].length) : s
+          const userStoryMatch = cleanText.match(/^As an?\s+(.+?),\s+I want\s+(.+?)\s+so that\s+(.+)$/i)
           out.push({
             ref: `R-${String(out.length + 1).padStart(3, '0')}`,
-            text: labelMatch ? s.slice(labelMatch[0].length) : s,
+            text: cleanText,
             label: labelMatch?.[1] ?? null,
-            source: { document: 'Pasted text', page: null, paragraph: pIdx + 1 },
+            source_label: labelMatch?.[1] ? labelMatch[1].toUpperCase().replace(/[\s_]+/g, '-') : null,
+            metadata: userStoryMatch
+              ? {
+                  role: userStoryMatch[1].trim(),
+                  goal: userStoryMatch[2].trim(),
+                  reason: userStoryMatch[3].trim(),
+                  structured: true,
+                }
+              : null,
+            source: { document: 'Uploaded document', page: null, paragraph: pIdx + 1 },
           })
         })
     })
@@ -63,7 +74,33 @@ export function extractItems(statements: RequirementStatement[]): Draft[] {
   }
 
   for (const st of statements) {
+    if (st.metadata?.structured && st.metadata.role && st.metadata.goal) {
+      const actorName = title(st.metadata.role)
+      const actorKey = add({
+        category: 'actor',
+        name: actorName,
+        qualifiers: [],
+        statement: st.id,
+      })
+      const goalText = String(st.metadata.goal).replace(/^to\s+/i, '')
+      const processKey = add({
+        category: 'process',
+        name: title(goalText.split(/\s+/).slice(0, 4).join(' ')),
+        qualifiers: [],
+        statement: st.id,
+      })
+      add({
+        category: 'relationship',
+        name: `${actorName} — ${title(goalText.split(/\s+/).slice(0, 4).join(' '))}`,
+        qualifiers: [],
+        statement: st.id,
+        source_item_id: actorKey,
+        target_item_id: processKey,
+        relation_type: 'association',
+      })
+    }
     if (st.label?.startsWith('NFR')) continue // quality attributes don't yield actors or use cases
+
     const modal = st.text.match(MODAL)
     if (!modal || modal.index === undefined) continue
     const subjectRaw = st.text.slice(0, modal.index)

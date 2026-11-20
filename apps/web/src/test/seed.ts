@@ -5,7 +5,7 @@ import { renderUseCase, type UseCaseModel } from '@/mocks/render'
 
 const EMAIL = 'dev@sddg.test'
 
-export function seedProject({ confirmed = false, consent = false } = {}) {
+export function seedProject({ confirmed = false, consent = false, flagged = false } = {}) {
   const db = getDb()
   const at = new Date().toISOString()
   db.projects.push({ id: 'pr_1', name: 'Library system', owner: EMAIL, created_at: at, updated_at: at, confirmed_at: confirmed ? at : null, extracted_nodes: confirmed ? ['actors', 'processes', 'interactions'] : [] })
@@ -16,13 +16,19 @@ export function seedProject({ confirmed = false, consent = false } = {}) {
     { id: 'it_1', category: 'actor', name: 'Librarian', description: null, origin: 'system-extracted', qualifiers: [], statement_ids: ['st_1'] },
     { id: 'it_2', category: 'process', name: 'Issue book', description: null, origin: 'system-extracted', qualifiers: [], statement_ids: ['st_1'] },
   ]
+  if (flagged) {
+    statements.push({ id: 'st_2', ref: 'R-002', text: 'The system should respond quickly.', label: null, source: { document: 'Pasted text', page: null, paragraph: 2 } })
+    db.flags.pr_1 = [
+      { id: 'fl_1', statement_id: 'st_2', type: 'ambiguous', reason: '“quickly” has no measurable target.', trigger_text: 'quickly', related_statement_id: null, question: 'What response time is acceptable?', answer: null, suggestion: 'The system shall respond within 2 seconds.', status: 'open', resolved_by: null, resolved_at: null },
+    ]
+  }
   db.statements.pr_1 = statements
   db.items.pr_1 = items
   db.jobs.push({
     id: 'job_x', project_id: 'pr_1', kind: 'extraction', status: 'succeeded', applied: true,
     progress: { step: 3, total: 3, label: 'Done' }, created_at: at, started_at: at, finished_at: at,
   })
-  if (consent) db.consent[EMAIL] = { version: '2026-09-01', at }
+  if (consent) db.consent[EMAIL] = { version: '2026-11-16', at }
   save()
 }
 

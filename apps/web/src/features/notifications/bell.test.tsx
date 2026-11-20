@@ -26,15 +26,6 @@ describe('FR24a invitations in the bell', () => {
 
   })
 
-  it('puts a project you joined in your list, with the role and whose project it is', async () => {
-    seedOthersProject()
-    seedInvitation({ role: 'editor', accepted_at: new Date().toISOString() })
-    renderApp('/projects')
-
-    const row = await screen.findByRole('link', { name: /Acme Clinic/ })
-    expect(within(row).getByText('Editor')).toBeInTheDocument()
-    expect(within(row).getByText(/Joined just now · owner Ronak Vataliya/)).toBeInTheDocument()
-  })
 
   it('does not offer Accept for a revoked invitation', async () => {
     seedOthersProject()

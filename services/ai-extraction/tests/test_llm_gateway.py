@@ -218,6 +218,73 @@ def test_a_call_too_large_for_one_request_must_be_chunked(monkeypatch, wired):
         ai_service.AIService().structured_extract(node_name="n", system_prompt="s", user_content="x" * 60_000, schema=Out)
 
 
+def test_a_call_too_large_for_the_pinned_provider_goes_to_one_it_fits():
+    """The logged bug: X-LLM-Provider: groq pinned a ~7000-token class_spec call to Groq (6000 per call) and the
+    service answered RequestTooLarge instead of using Gemini, whose key was set."""
+    gw = gateway()
+    token = requested_provider.set("groq")
+    try:
+        assert gw.choose(100) == "groq"
+        assert gw.choose(7_072) == "gemini"
+        assert gw.choose(200_000) == "gemini"  # fits neither: the largest budget, so the error is the true limit
+    finally:
+        requested_provider.reset(token)
+    assert gateway().choose(7_072) == "gemini"  # unpinned too
+    assert gateway(LLM_PROVIDERS="groq").choose(7_072) == "groq"  # explicit single provider: no failover
+
+
+def test_an_oversized_call_is_served_by_the_fallback_provider(monkeypatch):
+    gw = gateway()
+    monkeypatch.setattr(ai_service, "get_gateway", lambda: gw)
+    used = []
+
+    def llm(provider=None, **kw):
+        used.append(provider)
+        return ScriptedLlm([Out(x=7)])
+
+    monkeypatch.setattr(ai_service, "_get_llm", llm)
+    token = requested_provider.set("groq")
+    try:
+        result, meta = ai_service.AIService().structured_extract(
+            node_name="class_spec", system_prompt="s", user_content="x" * 25_000, schema=Out)
+    finally:
+        requested_provider.reset(token)
+    assert result.x == 7 and meta["provider"] == "gemini" and used == ["gemini"]
+
+
+def request_too_large_error():
+    import groq
+    response = httpx.Response(413, request=httpx.Request("POST", "https://api.groq.com/x"))
+    return groq.APIStatusError("Request too large for model on tokens per minute (TPM)", response=response, body=None)
+
+
+def test_a_provider_error_fails_over_to_the_next_provider(monkeypatch):
+    """The logged activity_spec 500: Groq rejected the call (413, an APIStatusError); Gemini should get it next."""
+    gw = gateway()
+    monkeypatch.setattr(ai_service, "get_gateway", lambda: gw)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    scripts = {"groq": ScriptedLlm([request_too_large_error()]), "gemini": ScriptedLlm([Out(x=3)])}
+    monkeypatch.setattr(ai_service, "_get_llm", lambda provider=None, **kw: scripts[provider])
+    from app.llm.gateway import call_log, usage_header
+    log_token = call_log.set([])
+    try:
+        result, meta = ai_service.AIService().structured_extract(
+            node_name="activity_spec", system_prompt="s", user_content="u", schema=Out)
+        calls = call_log.get()
+    finally:
+        call_log.reset(log_token)
+    assert result.x == 3 and meta["provider"] == "gemini"
+    assert [(c["provider"], c["status"]) for c in calls] == [("groq", "error"), ("gemini", "ok")]
+    assert json.loads(usage_header(calls))["mixed_models"] is True
+
+
+def test_a_provider_error_with_no_fallback_still_raises(monkeypatch, wired):
+    monkeypatch.setattr(ai_service, "_get_llm", lambda **kw: ScriptedLlm([request_too_large_error()]))
+    with pytest.raises(Exception) as err:
+        ai_service.AIService().structured_extract(node_name="n", system_prompt="s", user_content="u", schema=Out)
+    assert ai_service._status(err.value) == 413
+
+
 def test_busy_is_a_429_with_retry_after_and_calls_come_back_in_the_usage_header(monkeypatch, wired):
     from app.main import app
     from app.schemas.requirements import RequirementSplitResult, RequirementStatement

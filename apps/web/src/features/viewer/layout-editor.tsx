@@ -55,7 +55,7 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
 
   return (
     <>
-      <div className="relative mx-5 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border-2 border-teal/40 bg-white xl:h-auto xl:min-h-72 xl:flex-1">
+      <div className="relative mx-4 mt-3 h-[min(60vh,560px)] overflow-hidden rounded-lg border-2 border-accent/40 bg-field xl:h-auto xl:min-h-72 xl:flex-1">
         <LayoutCanvas
           elements={layout.elements}
           lines={layout.lines}
@@ -65,7 +65,7 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
           className="p-2"
         />
         {save.isPending && (
-          <div className="absolute inset-0 grid place-items-center bg-white/70 backdrop-blur-[1px]">
+          <div className="absolute inset-0 grid place-items-center bg-paper/70 backdrop-blur-[1px]">
             <p className="flex items-center gap-2 rounded-full border border-rule bg-surface px-4 py-2 text-sm shadow-sm">
               <Spinner label="" /> Saving the new positions…
             </p>
@@ -74,7 +74,7 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
       </div>
 
       {blocker.state === 'blocked' && (
-        <Notice tone="warning" title="Leave without saving your moves?" className="mx-5 mt-3">
+        <Notice tone="warning" title="Leave without saving your moves?" className="mx-4 mt-3">
           <span className="block">
             {moved.length} {moved.length === 1 ? 'element has' : 'elements have'} moved since the last save. Leaving puts them back.
           </span>
@@ -90,12 +90,12 @@ export function LayoutEditor({ projectId, layout, title, onClose }: { projectId:
       )}
 
       {save.isError && (
-        <Notice tone="error" title="The new positions were not saved" className="mx-5 mt-3">
+        <Notice tone="error" title="The new positions were not saved" className="mx-4 mt-3">
           {errorMessage(save.error)} Your moves are still here: try again, or cancel to put everything back.
         </Notice>
       )}
 
-      <div className="mx-5 mt-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="mx-4 mt-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate" aria-live="polite">
           {moved.length
             ? `${moved.length} ${moved.length === 1 ? 'element' : 'elements'} moved, not saved yet.`

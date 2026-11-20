@@ -3,7 +3,7 @@ import { dismissToast, useToasts } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 const tones = {
-  success: { cls: 'border-teal/30', Icon: CircleCheckIcon, icon: 'text-teal' },
+  success: { cls: 'border-accent/30', Icon: CircleCheckIcon, icon: 'text-accent' },
   info: { cls: 'border-rule-strong', Icon: InfoIcon, icon: 'text-slate' },
   error: { cls: 'border-danger/30', Icon: CircleAlertIcon, icon: 'text-danger' },
 }

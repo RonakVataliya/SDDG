@@ -41,12 +41,12 @@ export function RunsTab({ projectId }: { projectId: string }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4" aria-label={latestFinished ? `Results of ${latestFinished.name}` : 'No finished run yet'}>
         {(['pass', 'fail', 'blocked', 'skipped'] as const).map((s) => (
-          <div key={s} className="rounded-lg border border-rule bg-surface px-4 py-3">
+          <div key={s} className="rounded-xl border border-rule bg-field px-4 py-3">
             <p className="text-xs text-slate">{s === 'pass' ? 'Passed' : s === 'fail' ? 'Failed' : s === 'blocked' ? 'Blocked' : 'Skipped'}</p>
             <p
               className={cn(
                 'text-3xl font-semibold tabular-nums',
-                s === 'pass' && 'text-teal-deep',
+                s === 'pass' && 'text-accent-deep',
                 s === 'fail' && tally?.fail && 'text-danger',
                 s === 'blocked' && tally?.blocked && 'text-amber',
               )}
@@ -57,7 +57,7 @@ export function RunsTab({ projectId }: { projectId: string }) {
         ))}
       </div>
 
-      <section aria-label="Runs" className="overflow-hidden rounded-lg border border-rule bg-surface">
+      <section aria-label="Runs" className="overflow-hidden rounded-xl border border-rule bg-field">
         <header className="flex items-center justify-between border-b border-rule px-4 py-2.5">
           <h3 className="text-sm font-semibold">Runs</h3>
           {canEdit && (
@@ -93,7 +93,7 @@ export function RunsTab({ projectId }: { projectId: string }) {
       </section>
 
       {notes.length > 0 && latestFinished && (
-        <section aria-label="Notes from the last run" className="rounded-lg border border-rule bg-surface px-4 py-3">
+        <section aria-label="Notes from the last run" className="rounded-xl border border-rule bg-field px-4 py-3">
           <h4 className="text-xs font-semibold tracking-wide text-slate uppercase">Notes from {latestFinished.name}</h4>
           <ul className="mt-2 space-y-1.5 text-sm">
             {notes.map(({ case: c, result }) => (

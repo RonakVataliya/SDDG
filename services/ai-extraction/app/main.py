@@ -18,6 +18,7 @@ from app.rendering.engines import check_engine_config
 from app.routers.activity import router as activity_router
 from app.routers.class_diagram import router as class_router
 from app.routers.component import router as component_router
+from app.routers.design import router as design_router
 from app.routers.dfd import router as dfd_router
 from app.routers.extraction import router as extraction_router
 from app.routers.health import router as health_router
@@ -62,6 +63,7 @@ for router in (
     llm_router,
     testgen_router,
     testgen_derive_router,
+    design_router,
 ):
     app.include_router(router, prefix=settings.API_V1_PREFIX, dependencies=[Depends(require_internal_key)])
 

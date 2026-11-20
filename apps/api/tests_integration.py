@@ -158,7 +158,7 @@ def main():
             no_consent = client.post(f'/api/v1/projects/{pid}/inputs', headers=headers, json={'text': 'A user logs in.'})
             assert no_consent.status_code == 403 and no_consent.json()['code'] == 'consent_required', no_consent.text
             assert client.post('/api/v1/me/consent', headers=headers,
-                               json={'policy_version': '2026-09-01'}).status_code == 201
+                               json={'policy_version': '2026-11-16'}).status_code == 201
             for bad_text in ('   \n ', 'x' * 300_001):  # blank, and over the 100-page limit
                 bad = client.post(f'/api/v1/projects/{pid}/inputs', headers=headers, json={'text': bad_text})
                 assert bad.status_code == 422, bad.text

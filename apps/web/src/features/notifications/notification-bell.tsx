@@ -58,9 +58,9 @@ function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => v
   }
 
   return (
-    <li className={cn('flex gap-2.5 border-b border-rule px-4 py-3 last:border-0', unread && 'bg-teal-wash/40')}>
+    <li className={cn('flex gap-2.5 border-b border-rule px-4 py-3 last:border-0', unread && 'bg-accent-wash/40')}>
       <Icon
-        className={cn('mt-0.5 size-4 shrink-0', failed ? 'text-danger' : unread ? 'text-teal' : 'text-slate')}
+        className={cn('mt-0.5 size-4 shrink-0', failed ? 'text-danger' : unread ? 'text-accent' : 'text-slate')}
         n={n}
       />
       <div className="min-w-0 flex-1">
@@ -70,7 +70,7 @@ function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => v
           {n.invitation && (
             <>
               <span aria-hidden>·</span>
-              <Badge tone={n.invitation.role === 'owner' ? 'violet' : n.invitation.role === 'editor' ? 'teal' : 'neutral'}>
+              <Badge tone={n.invitation.role === 'owner' ? 'violet' : n.invitation.role === 'editor' ? 'accent' : 'neutral'}>
                 {roleLabel[n.invitation.role]}
               </Badge>
             </>
@@ -81,7 +81,7 @@ function NotificationRow({ n, onDone }: { n: ServerNotification; onDone: () => v
         {where && (
           <Link
             to={where.to}
-            className="mt-1 inline-block text-xs font-medium text-teal hover:underline"
+            className="mt-1 inline-block text-xs font-medium text-accent hover:underline"
             onClick={() => {
               if (unread) markRead.mutate(n.id)
               onDone()
@@ -130,7 +130,7 @@ export function NotificationBell() {
       <D.Trigger asChild>
         <button
           type="button"
-          className="relative rounded-full p-2 text-slate hover:bg-ink/5 hover:text-ink focus-visible:outline-2 focus-visible:outline-teal/40"
+          className="relative rounded-full p-2 text-slate hover:bg-ink/5 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent/40"
           aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
         >
           <BellIcon className="size-5" aria-hidden />

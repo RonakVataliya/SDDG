@@ -1,0 +1,87 @@
+# Unit and integration tests for the three apps, on every push and pull request. No AI provider, Kroki or
+# Supabase is called: the tests use fakes, and the API tests run against the Postgres service below.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  ai-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/ai-extraction
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/ai-extraction/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            apps/api/requirements.txt
+            services/ai-extraction/requirements.txt
+      # tests_design.py also loads code from the AI service
+      # reportlab and pytest: only tests_input_processing.py needs them (it builds PDFs and runs under pytest)
+      - run: pip install -r apps/api/requirements.txt -r services/ai-extraction/requirements.txt reportlab pytest
+      - name: Database (schema.sql, then every migration in number order)
+        run: |
+          # Supabase has these; plain Postgres needs stand-ins for migrations that touch Storage
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE authenticated; CREATE SCHEMA auth;
+            CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS 'SELECT NULL::uuid';
+            CREATE SCHEMA storage; CREATE TABLE storage.buckets (id text PRIMARY KEY, name text, public boolean);
+            CREATE TABLE storage.objects (id serial, bucket_id text, owner uuid, name text);"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f apps/api/schema.sql
+          for f in apps/api/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"; done
+      - name: tests_*.py
+        working-directory: apps/api
+        run: |
+          export DATA_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+          export INTERNAL_API_KEY=ci DEV_AUTH_BYPASS=true
+          for t in tests_*.py; do echo "::group::$t"; python "$t" || exit 1; echo "::endgroup::"; done

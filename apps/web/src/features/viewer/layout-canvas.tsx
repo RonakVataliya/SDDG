@@ -32,7 +32,6 @@ export function LayoutCanvas({
   lines,
   positions,
   onMove,
-  onSelect,
   label,
   className,
 }: {
@@ -40,8 +39,6 @@ export function LayoutCanvas({
   lines: LayoutLine[]
   positions: Record<string, Point>
   onMove?: (ids: string[], dx: number, dy: number) => void
-  /** FR17a: told which element was clicked, so the page can show the requirements behind it. */
-  onSelect?: (id: string | null) => void
   label: string
   className?: string
 }) {
@@ -49,7 +46,6 @@ export function LayoutCanvas({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [drag, setDrag] = useState<{ ids: string[]; last: Point; pointerId: number; view: Rect } | null>(null)
   const editable = !!onMove
-  const clickable = editable || !!onSelect
 
   const boxes = useMemo(() => new Map<string, Box>(elements.map((e) => [e.id, boxFor(e.kind, e.label)])), [elements])
   const placed = elements.map((e) => ({ el: e, box: boxes.get(e.id)!, at: positions[e.id] ?? { x: e.x, y: e.y } }))
@@ -71,19 +67,12 @@ export function LayoutCanvas({
   }
 
   function onElementPointerDown(e: PointerEvent, id: string) {
-    if (e.button !== 0) return
-    if (!editable) {
-      e.stopPropagation()
-      setSelected(new Set([id]))
-      onSelect?.(id)
-      return
-    }
+    if (!editable || e.button !== 0) return
     e.stopPropagation()
     e.preventDefault() // no text selection while dragging, so focus is moved by hand for the arrow keys
     const element = e.currentTarget as SVGGElement
     element.focus()
     const ids = pick(id, e.shiftKey)
-    onSelect?.(ids.includes(id) ? id : null)
     if (!ids.includes(id)) return // shift-click took it out of the group
     svgRef.current!.setPointerCapture?.(e.pointerId)
     setDrag({ ids, last: toDrawing(svgRef.current!, e.clientX, e.clientY), pointerId: e.pointerId, view })
@@ -106,17 +95,6 @@ export function LayoutCanvas({
   }
 
   function onElementKeyDown(e: KeyboardEvent, id: string) {
-    if (!editable) {
-      if (e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault()
-        setSelected(new Set([id]))
-        onSelect?.(id)
-      } else if (e.key === 'Escape') {
-        setSelected(new Set())
-        onSelect?.(null)
-      }
-      return
-    }
     const dir = ARROWS[e.key]
     if (dir) {
       e.preventDefault()
@@ -139,16 +117,7 @@ export function LayoutCanvas({
       viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
       className={cn('block h-full w-full touch-none select-none', className)}
       fontFamily="inherit"
-      onPointerDown={
-        editable
-          ? (e) => !e.shiftKey && setSelected(new Set())
-          : onSelect
-            ? () => {
-                setSelected(new Set())
-                onSelect(null)
-              }
-            : undefined
-      }
+      onPointerDown={editable ? (e) => !e.shiftKey && setSelected(new Set()) : undefined}
       onPointerMove={editable ? onPointerMove : undefined}
       onPointerUp={editable ? endDrag : undefined}
       onPointerCancel={editable ? endDrag : undefined}
@@ -209,17 +178,13 @@ export function LayoutCanvas({
             key={el.id}
             data-element={el.id}
             transform={`translate(${p.x} ${p.y})`}
-            role={clickable ? 'button' : undefined}
-            tabIndex={clickable ? 0 : undefined}
-            aria-label={clickable ? `${el.label} (${el.kind.replace(/_/g, ' ')})` : undefined}
-            aria-pressed={clickable ? isSelected : undefined}
-            className={cn(
-              editable && 'cursor-grab focus:outline-none [&:focus-visible_.shape-edge]:stroke-teal',
-              !editable && onSelect && 'cursor-pointer focus:outline-none [&:focus-visible_.shape-edge]:stroke-teal',
-              drag && 'cursor-grabbing',
-            )}
-            onPointerDown={clickable ? (e) => onElementPointerDown(e, el.id) : undefined}
-            onKeyDown={clickable ? (e) => onElementKeyDown(e, el.id) : undefined}
+            role={editable ? 'button' : undefined}
+            tabIndex={editable ? 0 : undefined}
+            aria-label={editable ? `${el.label} (${el.kind.replace(/_/g, ' ')})` : undefined}
+            aria-pressed={editable ? isSelected : undefined}
+            className={cn(editable && 'cursor-grab focus:outline-none [&:focus-visible_.shape-edge]:stroke-accent', drag && 'cursor-grabbing')}
+            onPointerDown={editable ? (e) => onElementPointerDown(e, el.id) : undefined}
+            onKeyDown={editable ? (e) => onElementKeyDown(e, el.id) : undefined}
           >
             <ElementShape box={box} selected={isSelected} />
             <ElementText box={box} />
@@ -232,12 +197,12 @@ export function LayoutCanvas({
 
 function ElementShape({ box, selected }: { box: Box; selected: boolean }) {
   const { w, h } = box
-  const cls = cn('shape-edge', selected ? 'fill-teal-wash stroke-teal' : 'fill-surface stroke-ink')
+  const cls = cn('shape-edge', selected ? 'fill-accent-wash stroke-accent' : 'fill-surface stroke-ink')
   const sw = selected ? 2.4 : 1.4
   switch (box.shape) {
     case 'actor':
       return (
-        <g className={cn('fill-none', selected ? 'stroke-teal' : 'stroke-ink')} strokeWidth={sw} strokeLinecap="round">
+        <g className={cn('fill-none', selected ? 'stroke-accent' : 'stroke-ink')} strokeWidth={sw} strokeLinecap="round">
           <rect x={-w / 2} y={-h / 2} width={w} height={h} className="shape-edge fill-transparent stroke-transparent" />
           <circle cy={-h / 2 + 8} r="8" />
           <path d={`M0 ${-h / 2 + 16}v18M-12 ${-h / 2 + 24}h24M0 ${-h / 2 + 34}l-10 ${h / 2 - 8}M0 ${-h / 2 + 34}l10 ${h / 2 - 8}`} />
@@ -248,19 +213,19 @@ function ElementShape({ box, selected }: { box: Box; selected: boolean }) {
     case 'diamond':
       return <path d={`M0 ${-h / 2}L${w / 2} 0L0 ${h / 2}L${-w / 2} 0Z`} className={cls} strokeWidth={sw} />
     case 'start':
-      return <circle r={w / 2} className={cn('shape-edge', selected ? 'fill-teal stroke-teal' : 'fill-ink stroke-ink')} strokeWidth={sw} />
+      return <circle r={w / 2} className={cn('shape-edge', selected ? 'fill-accent stroke-accent' : 'fill-ink stroke-ink')} strokeWidth={sw} />
     case 'end':
       return (
         <g>
           <circle r={w / 2} className={cls} strokeWidth={sw} />
-          <circle r={w / 2 - 5} className={selected ? 'fill-teal' : 'fill-ink'} />
+          <circle r={w / 2 - 5} className={selected ? 'fill-accent' : 'fill-ink'} />
         </g>
       )
     case 'store':
       return (
         <g>
           <rect x={-w / 2} y={-h / 2} width={w} height={h} className={cn(cls, 'stroke-transparent')} />
-          <path d={`M${w / 2} ${-h / 2}H${-w / 2}V${h / 2}H${w / 2}`} fill="none" className={cn('shape-edge', selected ? 'stroke-teal' : 'stroke-ink')} strokeWidth={sw} />
+          <path d={`M${w / 2} ${-h / 2}H${-w / 2}V${h / 2}H${w / 2}`} fill="none" className={cn('shape-edge', selected ? 'stroke-accent' : 'stroke-ink')} strokeWidth={sw} />
         </g>
       )
     default:

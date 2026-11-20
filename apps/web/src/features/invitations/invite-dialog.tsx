@@ -80,7 +80,7 @@ export function InviteDialog({ projectId, projectName, trigger }: { projectId: s
                   onClick={() => setRole(r)}
                   className={cn(
                     'flex-1 rounded-[5px] px-3 py-1.5 text-sm font-medium',
-                    role === r ? 'bg-teal text-white' : 'text-slate hover:bg-ink/5 hover:text-ink',
+                    role === r ? 'bg-accent text-white' : 'text-slate hover:bg-ink/5 hover:text-ink',
                   )}
                 >
                   {roleLabel[r]}
