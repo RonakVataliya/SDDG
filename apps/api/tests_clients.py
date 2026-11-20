@@ -32,7 +32,7 @@ def sql(query, *args):
 def new_project(client, name, **extra):
     r = client.post(f'{API}/projects', headers=owner, json={'name': name, **extra})
     assert r.status_code == 201, r.text
-    sql('INSERT INTO project_members(project_id, user_id) VALUES (%s, %s)', r.json()['id'], IDS[1])
+    sql('INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, %s)', r.json()['id'], IDS[1], 'editor')
     return r.json()
 
 
@@ -46,7 +46,7 @@ def check_client_details(client):
     url = f'{API}/projects/{p["id"]}/client'
     r = client.patch(url, headers=owner, json={'client_name': 'Acme Health', 'contact_email': 'ops@acme.example'})
     assert r.status_code == 200 and r.json()['client_name'] == 'Acme Health', r.text
-    assert client.patch(url, headers=member, json={'client_name': 'Hacked'}).status_code == 404
+    assert client.patch(url, headers=member, json={'client_name': 'Hacked'}).status_code == 403  # an Editor, not an Owner
     assert client.patch(url, headers=stranger, json={'client_name': 'Hacked'}).status_code == 404
     assert client.patch(url, headers=owner, json={'contact_email': 'x@'}).status_code == 422
     # Home groups by the client name it gets from the project list.

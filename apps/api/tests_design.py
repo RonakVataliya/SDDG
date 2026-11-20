@@ -217,12 +217,12 @@ def check(c):
     assert (after['status'], after['version'], after['content']) == (before['status'], 0, None)
     AI['down'] = False
 
-    # Access: an outsider gets the standard 404 on all four routes; a member who is not the owner may use them.
+    # Access: an outsider gets the standard 404 on all four routes; an Editor (not an Owner) may use them.
     routes = (('GET', d), ('POST', f'{d}/goals/draft-jobs'), ('PUT', f'{d}/goals'), ('POST', f'{d}/goals/confirm'))
     for method, url in routes:
         r = c.request(method, url, headers=THEIRS, json={'content': content})
         assert (r.status_code, r.json()['detail']) == (404, integrated.NOT_FOUND), (method, url, r.text)
-    sql('INSERT INTO project_members(project_id, user_id) VALUES (%s, %s)', pid, f'dev:{OTHER}')
+    sql('INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, %s)', pid, f'dev:{OTHER}', 'editor')
     assert goals_section(c, pid, THEIRS)['version'] == 4
     content['goals'][1]['statement_ids'] = [r1]
     assert c.put(f'{d}/goals', headers=THEIRS, json={'content': content}).json()['version'] == 5
