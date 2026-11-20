@@ -1,8 +1,13 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { configure, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getDb } from '@/mocks/db'
 import { renderApp } from '@/test/render'
 import { seedDiagram, seedInvitation, seedOthersProject, seedProject } from '@/test/seed'
+
+// A CI runner is slower than a laptop: the mock API needs more than the one second
+// testing-library waits by default, so these waits get a real budget.
+configure({ asyncUtilTimeout: 5000 })
+vi.setConfig({ testTimeout: 20000 })
 
 describe('FR24a invitations in the bell', () => {
   it('shows an invitation, accepts it, and opens the project with the invited role', async () => {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { configure, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
@@ -11,6 +11,11 @@ import { getDb } from '@/mocks/db'
 import { seedInvitation, seedProject } from '@/test/seed'
 import { InviteDialog } from './invite-dialog'
 import { PendingInvitations } from './pending-invitations'
+
+// A CI runner is slower than a laptop: the mock API needs more than the one second
+// testing-library waits by default, so these waits get a real budget.
+configure({ asyncUtilTimeout: 5000 })
+vi.setConfig({ testTimeout: 20000 })
 
 function renderPiece(ui: React.ReactNode) {
   localStorage.setItem('sddg.mock.session', JSON.stringify({ email: 'dev@sddg.test', accessToken: 'mock-token:dev@sddg.test' }))

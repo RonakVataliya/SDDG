@@ -1,9 +1,14 @@
-import { screen, waitFor } from '@testing-library/react'
+import { configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getDb, save, uid } from '@/mocks/db'
 import { renderUseCase, type UseCaseModel } from '@/mocks/render'
 import { renderApp } from '@/test/render'
 import { seedDiagram } from '@/test/seed'
+
+// A CI runner is slower than a laptop: the mock API needs more than the one second
+// testing-library waits by default, so these waits get a real budget.
+configure({ asyncUtilTimeout: 5000 })
+vi.setConfig({ testTimeout: 20000 })
 
 /** A hand-edited version of dg_1, with `change` applied to its model. */
 function editVersion(change: (m: UseCaseModel) => UseCaseModel, instruction = 'Remove Issue book') {

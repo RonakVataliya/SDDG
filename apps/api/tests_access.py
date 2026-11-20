@@ -23,6 +23,7 @@ from core import design_db as ddb
 from core import stories_db as sdb
 from core import testing_db as tdb
 from core.crypto import PREFIX
+from core.notifications import notify
 from main import app
 
 SECRET_TEXT = f'Zebra{uuid.uuid4().hex} logs in.'  # must never show up in the database or the logs
