@@ -87,6 +87,38 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
         '422': { description: Invalid e-mail address }
+  /projects/{project_id}/documents:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: List documents uploaded to a project
+      responses:
+        '200': { description: List of project documents, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ProjectDocument' } } } } }
+    post:
+      summary: Upload a PDF or DOCX document and start extraction
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties: { file: { description: 'The PDF or DOCX file (sent as FormData)' } }
+      responses:
+        '202': { description: Upload accepted and extraction started, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentUploadResponse' } } } }
+  /projects/{project_id}/documents/{document_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: document_id, in: path, required: true, schema: { type: string } }
+    delete:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, id]
+                properties: { deleted: { type: boolean }, id: { type: string } }
   /projects/{project_id}/inputs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     post:
@@ -564,6 +596,31 @@ components:
         diagram_count: { type: integer }
         open_flag_count: { type: integer }
         extracted_nodes: { type: array, items: { type: string }, description: 'Extraction nodes already run on the confirmed requirements (actors, entities, ...)' }
+        document_count: { type: integer }
+        document_page_count: { type: integer }
+    ProjectDocument:
+      type: object
+      required: [id, project_id, filename, storage_path, content_type, size_bytes, page_count, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        filename: { type: string }
+        storage_path: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        page_count: { type: integer }
+        status: { type: string, enum: [uploaded, processing, processed, failed] }
+        warning: { type: [string, 'null'] }
+        skipped_pages: { type: array, items: { type: integer } }
+        job_id: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DocumentUploadResponse:
+      type: object
+      required: [document, job]
+      properties:
+        document: { $ref: '#/components/schemas/ProjectDocument' }
+        job: { $ref: '#/components/schemas/Job' }
     ProjectCreate:
       type: object
       required: [name]
@@ -603,6 +660,11 @@ components:
         ref: { type: string, description: Project-unique, never reused, e.g. R-001 }
         text: { type: string }
         label: { type: [string, 'null'], description: Label the input already carried, e.g. FR3 }
+        source_label: { type: [string, 'null'] }
+        metadata:
+          type: [object, 'null']
+          additionalProperties: true
+          properties: { role: { type: string }, goal: { type: string }, reason: { type: string }, structured: { type: boolean } }
         source: { $ref: '#/components/schemas/SourceLocation' }
         revision: { type: integer, minimum: 1, description: 'Counts up on every save, from 1. The edit conflict check compares it with the revision an edit was based on' }
     StatementWrite:
