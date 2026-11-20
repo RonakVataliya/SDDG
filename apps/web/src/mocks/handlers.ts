@@ -10,6 +10,7 @@ import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
+import { activityHandlers } from './activity'
 import { adminHandlers } from './admin'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
@@ -80,6 +81,8 @@ export const handlers = [
   ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
   // Admin console (FR23): src/mocks/admin.ts
   ...adminHandlers({ u, authed, fail }),
+  // Project Activity tab (FR22): src/mocks/activity.ts
+  ...activityHandlers({ u, authed, ownedProject, notFound }),
   // System design (Feature 4): src/mocks/design.ts
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
   // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts

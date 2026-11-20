@@ -934,6 +934,18 @@ export function useAdminErrors(type: AdminErrorType | '', severity: AdminErrorSe
   })
 }
 
+export type ActivityGroup = 'all' | 'members' | 'requirements' | 'diagrams' | 'comments'
+
+/** Activity tab (FR22): the project's log, newest first, 25 per page. Owners and administrators only (else 403). */
+export function useProjectActivity(projectId: string, group: ActivityGroup, actor: string, page: number) {
+  return useQuery({
+    queryKey: [...keys.project(projectId), 'activity', group, actor, page] as const,
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/activity', { params: { path: { project_id: projectId }, query: { group, actor: actor || undefined, page } } })),
+    placeholderData: keepPreviousData,
+    retry: false,
+  })
+}
+
 /* ---------- notifications bell (FR24a, FR32) ---------- */
 
 export const BELL_POLL_MS = 30_000

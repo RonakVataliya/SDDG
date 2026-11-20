@@ -3236,6 +3236,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** The project's activity log (FR22), newest first, 25 per page. Owners and administrators only (Editor or Viewer 403, not a member 404). IDs and small values only, never requirement text. */
+        get: {
+            parameters: {
+                query?: {
+                    group?: "all" | "members" | "requirements" | "diagrams" | "comments";
+                    /** @description Only this person's actions (a user id from actors) */
+                    actor?: string;
+                    page?: number;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActivityPage"];
+                    };
+                };
+                /** @description Not an Owner or administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications": {
         parameters: {
             query?: never;
@@ -4653,6 +4714,41 @@ export interface components {
         };
         AdminErrorPage: {
             errors: components["schemas"]["AdminError"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        ActivityEvent: {
+            id: string;
+            /** @description member.invited, member.joined, role.changed, member.removed, member.left, statement.edited, statement.conflict_saved, comment.created, comment.resolved, diagram.saved, diagram.regenerated, ... */
+            action: string;
+            /**
+             * @description Which filter the action belongs to
+             * @enum {string|null}
+             */
+            group: "members" | "requirements" | "diagrams" | "comments" | null;
+            /** @description Who did it (a user id) */
+            actor_id: string;
+            actor_email: string | null;
+            /** @description Who it was done to (invited, role changed, removed) */
+            subject_email: string | null;
+            /** @description What it was done to, e.g. "R-004 - rev 3" */
+            target: string | null;
+            /** @description IDs and small values only */
+            detail: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: date-time */
+            at: string;
+        };
+        ActivityActor: {
+            id: string;
+            email: string | null;
+        };
+        ActivityPage: {
+            events: components["schemas"]["ActivityEvent"][];
+            /** @description Everyone who appears in this project's log */
+            actors: components["schemas"]["ActivityActor"][];
             total: number;
             page: number;
             page_size: number;

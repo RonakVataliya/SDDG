@@ -614,6 +614,18 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminErrorPage' } } } }
         '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /projects/{project_id}/activity:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: The project's activity log (FR22), newest first, 25 per page. Owners and administrators only (Editor or Viewer 403, not a member 404). IDs and small values only, never requirement text.
+      parameters:
+        - { name: group, in: query, required: false, schema: { type: string, enum: [all, members, requirements, diagrams, comments], default: all } }
+        - { name: actor, in: query, required: false, schema: { type: string, maxLength: 200 }, description: Only this person's actions (a user id from actors) }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityPage' } } } }
+        '403': { description: Not an Owner or administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not a member, or no such project }
   /notifications:
     get:
       summary: The bell (FR24a, FR32). Newest 50 notifications and the unread count.
@@ -1556,6 +1568,34 @@ components:
       required: [errors, total, page, page_size]
       properties:
         errors: { type: array, items: { $ref: '#/components/schemas/AdminError' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    ActivityEvent:
+      type: object
+      required: [id, action, group, actor_id, actor_email, subject_email, target, detail, at]
+      properties:
+        id: { type: string }
+        action: { type: string, description: 'member.invited, member.joined, role.changed, member.removed, member.left, statement.edited, statement.conflict_saved, comment.created, comment.resolved, diagram.saved, diagram.regenerated, ...' }
+        group: { type: string, nullable: true, enum: [members, requirements, diagrams, comments], description: Which filter the action belongs to }
+        actor_id: { type: string, description: Who did it (a user id) }
+        actor_email: { type: string, nullable: true }
+        subject_email: { type: string, nullable: true, description: 'Who it was done to (invited, role changed, removed)' }
+        target: { type: string, nullable: true, description: 'What it was done to, e.g. "R-004 - rev 3"' }
+        detail: { type: object, nullable: true, additionalProperties: true, description: IDs and small values only }
+        at: { type: string, format: date-time }
+    ActivityActor:
+      type: object
+      required: [id, email]
+      properties:
+        id: { type: string }
+        email: { type: string, nullable: true }
+    ActivityPage:
+      type: object
+      required: [events, actors, total, page, page_size]
+      properties:
+        events: { type: array, items: { $ref: '#/components/schemas/ActivityEvent' } }
+        actors: { type: array, items: { $ref: '#/components/schemas/ActivityActor' }, description: Everyone who appears in this project's log, for the person filter }
         total: { type: integer }
         page: { type: integer }
         page_size: { type: integer }
