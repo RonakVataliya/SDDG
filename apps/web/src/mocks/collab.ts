@@ -42,6 +42,8 @@ const state = (): CollabState => {
   db.collab ??= emptyCollab()
   return db.collab
 }
+/** The same store, for the comments mock to add a 'mention' to the bell (FR32). */
+export const collabState = state
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const DAY = 86_400_000

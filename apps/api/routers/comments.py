@@ -16,6 +16,7 @@ from core import comments as store
 from core import db
 from core.activity import log_event
 from core.auth import User, get_current_user
+from core.notifications import notify_mentions
 from routers.integrated import NOT_FOUND, NOT_PERMITTED, TYPE_LABELS, require_project
 
 router = APIRouter()
@@ -98,9 +99,7 @@ def post_comment(project_id: str, body: CommentCreate, user: User = Depends(get_
         raise HTTPException(422, NOT_MEMBERS)
     comment = store.create(project_id, body.target_type, body.target_id, user.id, text, body.is_issue_report)
     log_event(project_id, user.id, "comment.created", label)
-    # --- @mentions: notify each person in `mentioned` here (FR32, Triambika). They are already checked to be members.
-    # Send IDs and the target label only, never the comment's text.
-    # --- end @mentions
+    notify_mentions(project_id, mentioned, user.id, comment["id"], body.target_type, body.target_id, label)
     return comment_view(comment, label)
 
 

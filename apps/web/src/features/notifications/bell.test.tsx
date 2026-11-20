@@ -1,6 +1,7 @@
 import { configure, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { getDb } from '@/mocks/db'
+import { collabState } from '@/mocks/collab'
+import { getDb, membersOf } from '@/mocks/db'
 import { renderApp } from '@/test/render'
 import { seedDiagram, seedInvitation, seedOthersProject, seedProject } from '@/test/seed'
 
@@ -105,5 +106,66 @@ describe('#36 generation finished or failed', () => {
     expect(screen.queryByText(/Kroki/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: 'Try again' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/projects/pr_1/generate'))
+  })
+})
+
+describe('FR32 an @mention in a comment', () => {
+  /** What the API writes: IDs and the target's short label, never the comment's text. */
+  function seedMention(over: Record<string, string> = {}) {
+    seedProject()
+    collabState().notifications.push({
+      id: 'nt_m1', user: 'dev@sddg.test', type: 'mention',
+      payload: {
+        project_id: 'pr_1', comment_id: 'cm_1', from_user_id: 'priya.shah@sddg.test',
+        target_type: 'statement', target_id: 'st_1', target: 'R-001', ...over,
+      },
+      read_at: null, created_at: new Date().toISOString(),
+    })
+  }
+
+  it('says who mentioned you and on what, and takes you to the requirement', async () => {
+    seedMention()
+    const user = userEvent.setup()
+    const { router } = renderApp('/projects')
+
+    await user.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }))
+    expect(await screen.findByText('Priya Shah mentioned you on R-001 in Library system')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'View requirement' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects/pr_1/review'))
+    // Following the link marks it read, like every other row.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Notifications' })).toBeInTheDocument())
+  })
+
+  it('takes you to the diagram when the comment was on one', async () => {
+    seedMention({ target_type: 'diagram', target_id: 'dg_1', target: 'Use Case diagram v3' })
+    const user = userEvent.setup()
+    const { router } = renderApp('/projects')
+
+    await user.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }))
+    expect(await screen.findByText(/mentioned you on Use Case diagram v3/)).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'View diagram' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/projects/pr_1/diagrams/dg_1'))
+  })
+
+  it('posting a comment puts a mention in the other person\'s bell, with no comment text in it', async () => {
+    seedProject()
+    membersOf('pr_1').push({ email: 'priya.shah@sddg.test', role: 'editor', joined_at: new Date().toISOString() })
+    const secret = 'Zebra-this-text-must-not-travel'
+
+    const r = await fetch('http://localhost/api/v1/projects/pr_1/comments', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer mock-token:dev@sddg.test' },
+      body: JSON.stringify({
+        target_type: 'statement', target_id: 'st_1', body: secret,
+        mentions: ['dev:priya.shah@sddg.test', 'dev:priya.shah@sddg.test', 'dev:dev@sddg.test'],
+      }),
+    })
+    expect(r.status).toBe(201)
+
+    const mentions = collabState().notifications.filter((n) => n.type === 'mention')
+    expect(mentions).toHaveLength(1) // named twice is once, and the author is not told
+    expect(mentions[0].user).toBe('priya.shah@sddg.test')
+    expect(mentions[0].payload.target).toBe('R-001')
+    expect(JSON.stringify(mentions[0])).not.toContain(secret)
   })
 })
