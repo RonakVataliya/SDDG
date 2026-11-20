@@ -87,6 +87,66 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
         '422': { description: Invalid e-mail address }
+  /projects/{project_id}/documents:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: List documents uploaded to a project
+      responses:
+        '200': { description: List of project documents, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ProjectDocument' } } } } }
+    post:
+      summary: Upload a PDF or DOCX document and start extraction
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties: { file: { description: 'The PDF or DOCX file (sent as FormData)' } }
+      responses:
+        '202': { description: Upload accepted and extraction started, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentUploadResponse' } } } }
+  /projects/{project_id}/documents/{document_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: document_id, in: path, required: true, schema: { type: string } }
+    delete:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, id]
+                properties: { deleted: { type: boolean }, id: { type: string } }
+  /projects/{project_id}/members:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Everyone in the project with their role and join date (any member, FR24c)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } }
+        '404': { description: Not a member, or no such project }
+  /projects/{project_id}/members/{member_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: member_id, in: path, required: true, schema: { type: string }, description: The member's user id }
+    patch:
+      summary: Change a member's role (Owner only); applies on their next request
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MemberRoleUpdate' } } }
+      responses:
+        '200': { description: The members after the change, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } }
+        '403': { description: Not an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Would leave the project without an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      summary: Remove a member (Owner only), or leave the project (your own id, any member)
+      responses:
+        '204': { description: Removed; access stops on their next request }
+        '403': { description: Not an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Would leave the project without an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /projects/{project_id}/inputs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     post:
@@ -564,6 +624,31 @@ components:
         diagram_count: { type: integer }
         open_flag_count: { type: integer }
         extracted_nodes: { type: array, items: { type: string }, description: 'Extraction nodes already run on the confirmed requirements (actors, entities, ...)' }
+        document_count: { type: integer }
+        document_page_count: { type: integer }
+    ProjectDocument:
+      type: object
+      required: [id, project_id, filename, storage_path, content_type, size_bytes, page_count, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        filename: { type: string }
+        storage_path: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        page_count: { type: integer }
+        status: { type: string, enum: [uploaded, processing, processed, failed] }
+        warning: { type: [string, 'null'] }
+        skipped_pages: { type: array, items: { type: integer } }
+        job_id: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DocumentUploadResponse:
+      type: object
+      required: [document, job]
+      properties:
+        document: { $ref: '#/components/schemas/ProjectDocument' }
+        job: { $ref: '#/components/schemas/Job' }
     ProjectCreate:
       type: object
       required: [name]
@@ -579,6 +664,20 @@ components:
       type: object
       required: [confirm_name]
       properties: { confirm_name: { type: string, maxLength: 200, description: The project's exact name } }
+    Member:
+      type: object
+      required: [user_id, email, role, joined_at, is_creator, is_you]
+      properties:
+        user_id: { type: string }
+        email: { type: [string, 'null'] }
+        role: { $ref: '#/components/schemas/Role' }
+        joined_at: { type: [string, 'null'], format: date-time }
+        is_creator: { type: boolean, description: Created the project }
+        is_you: { type: boolean, description: This member is the caller }
+    MemberRoleUpdate:
+      type: object
+      required: [role]
+      properties: { role: { $ref: '#/components/schemas/Role' } }
     ProjectClient:
       type: object
       properties:
@@ -603,7 +702,13 @@ components:
         ref: { type: string, description: Project-unique, never reused, e.g. R-001 }
         text: { type: string }
         label: { type: [string, 'null'], description: Label the input already carried, e.g. FR3 }
+        source_label: { type: [string, 'null'] }
+        metadata:
+          type: [object, 'null']
+          additionalProperties: true
+          properties: { role: { type: string }, goal: { type: string }, reason: { type: string }, structured: { type: boolean } }
         source: { $ref: '#/components/schemas/SourceLocation' }
+        revision: { type: integer, minimum: 1, description: 'Counts up on every save, from 1. The edit conflict check compares it with the revision an edit was based on' }
     StatementWrite:
       type: object
       properties:
@@ -641,6 +746,7 @@ components:
         source_item_id: { type: [string, 'null'], description: For flows, interactions, relationships }
         target_item_id: { type: [string, 'null'] }
         relation_type: { type: [string, 'null'], description: e.g. association, include, extend, generalization }
+        revision: { type: integer, minimum: 1, description: Counts up on every save, from 1 }
     ItemPage:
       type: object
       required: [items, total, page, page_size, counts]
@@ -696,6 +802,7 @@ components:
         created_at: { type: string, format: date-time }
         parent_id: { type: [string, 'null'], description: The version this one was edited from; null for a fresh generation }
         instruction: { type: [string, 'null'], description: The edit request that produced this version; null for a fresh generation }
+        revision: { type: integer, minimum: 1, description: 1 for a fresh generation; each edited version is its parent's revision plus one }
     DiagramElement:
       type: object
       required: [element_id, kind, label, statement_ids]

@@ -23,6 +23,7 @@ import type { paths } from './schema'
 export const keys = {
   projects: ['projects'] as const,
   project: (id: string) => ['projects', id] as const,
+  members: (id: string) => ['projects', id, 'members'] as const,
   statements: (id: string) => ['projects', id, 'statements'] as const,
   items: (id: string) => ['projects', id, 'items'] as const,
   itemPage: (id: string, category: ItemCategory | undefined, page: number) =>
@@ -117,6 +118,51 @@ export function useDeleteProject(projectId: string) {
     onSuccess: () => {
       qc.removeQueries({ queryKey: keys.project(projectId) }) // the project and everything under it
       void qc.invalidateQueries({ queryKey: keys.projects, exact: true })
+    },
+  })
+}
+
+/** FR24c Members page: everyone in the project with their role. */
+export function useMembers(projectId: string) {
+  return useQuery({
+    queryKey: keys.members(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/members', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+/** Owner only. The server answers with the updated list; 409 if it would leave the project with no Owner. */
+export function useChangeMemberRole(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: Schemas['Role'] }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/members/{member_id}', {
+          params: { path: { project_id: projectId, member_id: userId } },
+          body: { role },
+        }),
+      ),
+    onSuccess: (members) => {
+      qc.setQueryData(keys.members(projectId), members)
+      void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true }) // my own role may have changed
+    },
+  })
+}
+
+/** Remove someone (Owner), or leave (your own id). Leaving drops the project from this browser's cache. */
+export function useRemoveMember(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId }: { userId: string; leaving: boolean }) =>
+      unwrap(
+        api.DELETE('/projects/{project_id}/members/{member_id}', {
+          params: { path: { project_id: projectId, member_id: userId } },
+        }),
+      ),
+    onSuccess: (_, { leaving }) => {
+      if (leaving) {
+        qc.removeQueries({ queryKey: keys.project(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.projects, exact: true })
+      } else void qc.invalidateQueries({ queryKey: keys.members(projectId) })
     },
   })
 }

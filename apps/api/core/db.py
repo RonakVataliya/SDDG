@@ -49,6 +49,7 @@ SECRET = {
     "documents": ("filename",),
     "stories": ("role_text", "goal_text", "reason_text", "confirmations"),  # 3.4
     "design_sections": ("section_content",),  # 4: {content, derived} of each design section
+    "comments": ("body",),  # comments and issue reports (FR32, FR27)
 }
 SECRET_COLS = {c for cols in SECRET.values() for c in cols} | {"statement_text"}  # statement_text: alias in list_flags
 
@@ -166,14 +167,75 @@ def get_project(pid):
 
 def member_project(pid, user_id):
     return one(
-        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
+        "SELECT p.*, m.role FROM projects p JOIN project_members m ON m.project_id=p.id WHERE p.id=%s AND m.user_id=%s",
         pid, user_id,
     )
 
 
+ROLES = ("viewer", "editor", "owner")  # lowest to highest
+
+
+def project_with_role(pid, user_id):
+    """The project with the caller's role as "role", or None when it is not theirs to see. A System Administrator
+    (users.is_admin) counts as owner on every project, member or not. Read on every request, never cached, so a
+    role change applies to the person's next request."""
+    r = one(
+        "SELECT p.*, CASE WHEN u.is_admin THEN 'owner' ELSE m.role END AS role FROM projects p "
+        "LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=%s "
+        "LEFT JOIN users u ON u.id=%s WHERE p.id=%s",
+        user_id, user_id, pid,
+    )
+    return r if r and r["role"] else None
+
+
+def list_members(pid):
+    """A project's members, oldest first, with their email: from users, or from the id of a DEV_AUTH_BYPASS user
+    (dev:<email>), who has no users row. is_creator marks the person who created the project."""
+    return many(
+        "SELECT m.user_id, m.role, m.joined_at, p.owner_id = m.user_id AS is_creator, "
+        "COALESCE(u.email, CASE WHEN m.user_id LIKE 'dev:%%' THEN substr(m.user_id, 5) END) AS email "
+        "FROM project_members m JOIN projects p ON p.id = m.project_id LEFT JOIN users u ON u.id = m.user_id "
+        "WHERE m.project_id=%s ORDER BY m.joined_at, m.user_id",
+        pid,
+    )
+
+
+LAST_OWNER = "last_owner"
+
+
+def _member_change(pid, user_id, sql, args):
+    """Runs one change to a member in a transaction that locks the project's members first, so two owners demoting
+    each other at the same moment cannot leave a project with no owner. None if they are not a member,
+    LAST_OWNER if the change would remove the last owner, else True."""
+    with pool.connection() as c, c.transaction():
+        rows = c.execute("SELECT user_id, role FROM project_members WHERE project_id=%s FOR UPDATE", (pid,)).fetchall()
+        member = next((r for r in rows if r["user_id"] == user_id), None)
+        if not member:
+            return None
+        owners = [r for r in rows if r["role"] == "owner"]
+        if member["role"] == "owner" and len(owners) == 1 and args.get("role") != "owner":
+            return LAST_OWNER
+        c.execute(sql, {**args, "pid": pid, "uid": user_id})
+        return True
+
+
+def set_member_role(pid, user_id, role):
+    """FR24c: None (not a member), LAST_OWNER (would leave no owner) or True. Applies on the member's next request."""
+    return _member_change(pid, user_id,
+                          "UPDATE project_members SET role=%(role)s WHERE project_id=%(pid)s AND user_id=%(uid)s",
+                          {"role": role})
+
+
+def remove_member(pid, user_id):
+    """FR24c, Remove or Leave: None (not a member), LAST_OWNER (would leave no owner) or True. Access stops on the
+    person's next request; their past work in the project stays."""
+    return _member_change(pid, user_id,
+                          "DELETE FROM project_members WHERE project_id=%(pid)s AND user_id=%(uid)s", {})
+
+
 def project_rows(user_id):
     return many(
-        "SELECT p.* FROM projects p JOIN project_members m ON m.project_id=p.id "
+        "SELECT p.*, m.role FROM projects p JOIN project_members m ON m.project_id=p.id "
         "WHERE m.user_id=%s ORDER BY p.created_at DESC",
         user_id,
     )
@@ -348,7 +410,7 @@ def get_statements(pid):
                         source_label = re.sub(r"[\s_]+", "-", m.group(1)).upper()
                         break
         results.append({
-            "id": r["id"], "ref": r["ref"], "text": r["text"], "label": r["label"],
+            "id": r["id"], "ref": r["ref"], "text": r["text"], "label": r["label"], "revision": r["revision"],
             "source_label": source_label,
             "metadata": meta,
             "source": {
@@ -418,13 +480,15 @@ def get_items(pid):
     return [_item(r) for r in many("SELECT * FROM items WHERE project_id=%s ORDER BY seq", pid)]
 
 
-def update_item(pid, iid, name, description):
-    """Edit an item; a system-extracted item becomes user-edited. name=None keeps the name."""
+def update_item(pid, iid, name, description, by=None):
+    """Edit an item; a system-extracted item becomes user-edited. name=None keeps the name.
+    Every save counts the revision up; by = the editing user's id."""
     r = one(
         "UPDATE items SET name=COALESCE(%s, name), description=%s, "
-        "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END "
+        "origin=CASE WHEN origin='system-extracted' THEN 'user-edited' ELSE origin END, "
+        "revision=revision+1, revised_by=%s, revised_at=%s "
         "WHERE id=%s AND project_id=%s RETURNING *",
-        encrypt(name), encrypt(description), iid, pid,
+        encrypt(name), encrypt(description), by, now(), iid, pid,
     )
     return _item(r) if r else None
 
@@ -496,17 +560,19 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None):
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None, by=None):
+    """A new diagram, or a new version of parent_id: its revision is the parent's plus one (1 for a fresh one)."""
     # One transaction: a new version never exists without the accepted warnings it carries over.
     with pool.connection() as c:
         d = c.execute(
             "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
-            "plantuml_source, parent_id, instruction, spec, layout, model_used) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "plantuml_source, parent_id, instruction, spec, layout, model_used, revision, revised_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+            "COALESCE((SELECT revision + 1 FROM diagrams WHERE id=%s), 1),%s) RETURNING *",
             (uid("dg"), pid, dtype, encrypt(title), now(), encrypt(svg), encrypt(json.dumps(elements)),
              json.dumps(statement_ids), encrypt(plantuml_source), parent_id, encrypt(instruction),
              encrypt(json.dumps(spec)) if spec is not None else None,
-             json.dumps(layout) if layout else None, model_used),
+             json.dumps(layout) if layout else None, model_used, parent_id, by),
         ).fetchone()
         if parent_id:  # accepted warnings stay accepted on versions made from this one
             c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
@@ -531,7 +597,8 @@ def member_diagram(did, user_id):
 
 def list_diagrams(pid):
     return many(
-        "SELECT id, type, title, created_at, parent_id, instruction FROM diagrams WHERE project_id=%s ORDER BY created_at DESC",
+        "SELECT id, type, title, created_at, parent_id, instruction, revision FROM diagrams WHERE project_id=%s "
+        "ORDER BY created_at DESC",
         pid,
     )
 
@@ -599,18 +666,21 @@ def update_flag(pid, fid, **fields):
     run(f"UPDATE flags SET {sets} WHERE id=%s AND project_id=%s", *fields.values(), fid, pid)
 
 
-def set_statement_text(pid, sid, text):
-    run("UPDATE statements SET text=%s WHERE id=%s AND project_id=%s", encrypt(text), sid, pid)
+def set_statement_text(pid, sid, text, by=None):
+    """Every save of a requirement counts its revision up; by = the editing user's id."""
+    run("UPDATE statements SET text=%s, revision=revision+1, revised_by=%s, revised_at=%s WHERE id=%s AND project_id=%s",
+        encrypt(text), by, now(), sid, pid)
 
 
 def get_statement(pid, sid):
     return next((s for s in get_statements(pid) if s["id"] == sid), None)
 
 
-def update_statement(pid, sid, text=None, label=None):
-    """text/label None keeps the current value."""
-    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label) WHERE id=%s AND project_id=%s",
-        encrypt(text), label, sid, pid)
+def update_statement(pid, sid, text=None, label=None, by=None):
+    """text/label None keeps the current value. Every save counts the revision up; by = the editing user's id."""
+    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label), "
+        "revision=revision+1, revised_by=%s, revised_at=%s WHERE id=%s AND project_id=%s",
+        encrypt(text), label, by, now(), sid, pid)
     return get_statement(pid, sid)
 
 
