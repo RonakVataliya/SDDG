@@ -31,6 +31,7 @@ from routers.stories import router as stories_router  # noqa: E402
 from routers.design import router as design_router  # noqa: E402
 from routers.admin import router as admin_router  # noqa: E402
 from routers.members import router as members_router  # noqa: E402
+from routers.activity import router as activity_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -81,6 +82,7 @@ app.include_router(stories_router, prefix="/api/v1")
 app.include_router(design_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(members_router, prefix="/api/v1")
+app.include_router(activity_router, prefix="/api/v1")
 
 
 @app.get("/health")
