@@ -871,6 +871,24 @@ export interface paths {
                         "application/json": components["schemas"]["RequirementStatement"];
                     };
                 };
+                /** @description A Viewer cannot edit requirements */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Someone saved since base_revision; nothing was overwritten (Raj */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StatementConflict"];
+                    };
+                };
             };
         };
         trace?: never;
@@ -4000,6 +4018,23 @@ export interface components {
             text?: string;
             /** @enum {string|null} */
             label?: "functional" | "non_functional" | "user_story" | "constraint" | "unknown" | null;
+            /** @description The revision this edit was based on; a newer stored revision answers 409. Optional: without it the save works as before */
+            base_revision?: number;
+            /** @description This save resolves an edit conflict (recorded in the activity log); false when left out */
+            resolves_conflict?: boolean;
+        };
+        /** @description A save based on an older revision. Nothing was overwritten; the editor shows the current version next to the change */
+        StatementConflict: {
+            /** @description "Priya saved revision 3 while you were editing revision 2. Nothing was overwritten." */
+            detail: string;
+            /** @enum {string} */
+            code: "edit_conflict";
+            /** @description The part of their email before the @, capitalised */
+            changed_by: string;
+            /** Format: date-time */
+            changed_at: string | null;
+            base_revision: number;
+            current: components["schemas"]["RequirementStatement"];
         };
         FlagSummary: {
             statement_id: string;

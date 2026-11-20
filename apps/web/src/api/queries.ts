@@ -21,6 +21,7 @@ import {
   type TestCaseCreate,
   type TestCaseUpdate,
 } from './client'
+import { ApiError } from './errors'
 import type { paths } from './schema'
 
 export const keys = {
@@ -386,6 +387,10 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
   const qc = useQueryClient()
   return useMutation({
     mutationFn: fn,
+    // FR24f: after an edit conflict the list must show the version someone else saved.
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === 'edit_conflict') void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
       void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
@@ -407,7 +412,7 @@ export function useAddStatement(projectId: string) {
 }
 
 export function useUpdateStatement(projectId: string) {
-  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel }) =>
+  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel; base_revision?: number; resolves_conflict?: boolean }) =>
     unwrap(api.PATCH('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } }, body })),
   )
 }

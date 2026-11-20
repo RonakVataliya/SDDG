@@ -13,6 +13,7 @@ export type Job = Schemas['Job']
 export type ExtractedItem = Schemas['ExtractedItem']
 export type ItemCategory = Schemas['ItemCategory']
 export type RequirementStatement = Schemas['RequirementStatement']
+export type StatementConflict = Schemas['StatementConflict']
 // Notifications bell, invitations (FR24a) and traceability (FR17)
 export type ServerNotification = Schemas['Notification'] // not "Notification": that is a browser global
 export type NotificationList = Schemas['NotificationList']
@@ -103,7 +104,7 @@ export async function unwrap<T>(
   if (response.ok) return data as T
   const body = (error ?? {}) as { detail?: unknown; code?: string }
   const detail = typeof body.detail === 'string' ? body.detail : defaultMessage(response.status)
-  throw new ApiError(response.status, detail, body.code)
+  throw new ApiError(response.status, detail, body.code, error)
 }
 
 function defaultMessage(status: number) {

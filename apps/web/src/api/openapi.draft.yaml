@@ -181,6 +181,8 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/StatementWrite' } } }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementStatement' } } } }
+        '403': { description: A Viewer cannot edit requirements, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Someone saved since base_revision; nothing was overwritten (Raj, FR24f), content: { application/json: { schema: { $ref: '#/components/schemas/StatementConflict' } } } }
     delete:
       responses:
         '204': { description: Deleted }
@@ -861,6 +863,21 @@ components:
       properties:
         text: { type: string, maxLength: 2000 }
         label: { type: [string, 'null'], enum: [functional, non_functional, user_story, constraint, unknown, null] }
+        # Raj: edit conflict check (FR24f)
+        base_revision: { type: integer, minimum: 1, description: 'The revision this edit was based on; a newer stored revision answers 409. Optional: without it the save works as before' }
+        resolves_conflict: { type: boolean, description: 'This save resolves an edit conflict (recorded in the activity log); false when left out' }
+    # Raj: edit conflict check (FR24f)
+    StatementConflict:
+      type: object
+      description: 'A save based on an older revision. Nothing was overwritten; the editor shows the current version next to the change'
+      required: [detail, code, changed_by, changed_at, base_revision, current]
+      properties:
+        detail: { type: string, description: '"Priya saved revision 3 while you were editing revision 2. Nothing was overwritten."' }
+        code: { type: string, enum: [edit_conflict] }
+        changed_by: { type: string, description: 'The part of their email before the @, capitalised' }
+        changed_at: { type: [string, 'null'], format: date-time }
+        base_revision: { type: integer }
+        current: { $ref: '#/components/schemas/RequirementStatement' }
     FlagSummary:
       type: object
       required: [statement_id, statement_ref, total, open, types]
