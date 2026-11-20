@@ -11,12 +11,14 @@ This module coordinates the complete lifecycle of diagram generation:
 """
 
 import asyncio
+import functools
 import html
 import io
 import logging
 import math
 import os
 import re
+import time
 import zipfile
 
 import httpx
@@ -342,7 +344,7 @@ async def queued(worker, *args):
         await worker(*args)
 
 
-def fail_job(job_id, message):
+def fail_job(job_id, message, total=3):
     """Updates a job record with failure status and error details."""
     db.update_job(
         job_id,
@@ -350,8 +352,8 @@ def fail_job(job_id, message):
         queue_position=None,
         error=message,
         finished_at=db.now(),
-        progress_step=3,
-        progress_total=3,
+        progress_step=total,
+        progress_total=total,
         progress_label=message.split(":")[0],
     )
 
@@ -453,11 +455,15 @@ async def extraction_worker(
 async def extract_building_blocks(ai, project, diagram_types):
     """Runs the extraction nodes the chosen diagrams need over the confirmed requirements (skipping nodes already
     run) and stores the new items. Returns the nodes that ran."""
-    statements = db.get_statements(project["id"])
+    statements = await asyncio.to_thread(db.get_statements, project["id"])
     by_ref = {s["ref"]: s["id"] for s in statements}
     ref_of = {s["id"]: s["ref"] for s in statements}
-    items = db.get_items(project["id"])
+    items = await asyncio.to_thread(db.get_items, project["id"])
     model = build_ai_model(items, statements)
+    logger.info(
+        "building_blocks_start project=%s diagram_types=%s requirements=%d existing_items=%d",
+        project["id"], diagram_types, len(statements), len(items),
+    )
     as_refs = lambda els: [dict(e, source_refs=[ref_of.get(r, r) for r in e["source_refs"]]) for e in els]  # noqa: E731
     labels = {"functional", "non_functional", "user_story", "constraint", "unknown"}
     payload = {
@@ -470,11 +476,27 @@ async def extract_building_blocks(ai, project, diagram_types):
         "done_nodes": project.get("extracted_nodes") or [],
         "known": {k: as_refs(model[k]) for k in ("actors", "entities", "processes", "data_stores")},
     }
+    ai_started = time.monotonic()
     result = await ai.post("/extraction/extract", payload)
-    db.add_system_items(project["id"], convert_extraction_to_items(result, by_ref, known_ids={i["id"] for i in items}),
-                        model_used=ai.model_used)
+    logger.info(
+        "building_blocks_ai_complete project=%s duration_seconds=%.3f nodes_run=%s",
+        project["id"], time.monotonic() - ai_started, result.get("metadata", {}).get("nodes_run", []),
+    )
+    converted = convert_extraction_to_items(result, by_ref, known_ids={i["id"] for i in items})
+    logger.info("building_blocks_converted project=%s item_count=%d", project["id"], len(converted))
+    db_started = time.monotonic()
+    # db.* is synchronous. Move the potentially large write off the event loop so
+    # /jobs polling and other requests remain responsive while items are persisted.
+    await asyncio.to_thread(
+        db.add_system_items,
+        project["id"],
+        converted,
+        model_used=ai.model_used,
+    )
+    logger.info("building_blocks_db_saved project=%s duration_seconds=%.3f", project["id"], time.monotonic() - db_started)
     ran = result.get("metadata", {}).get("nodes_run", [])
-    db.set_extracted_nodes(project["id"], list(payload["done_nodes"]) + list(ran))
+    await asyncio.to_thread(db.set_extracted_nodes, project["id"], list(payload["done_nodes"]) + list(ran))
+    logger.info("building_blocks_complete project=%s nodes_run=%s", project["id"], ran)
     return ran
 
 
@@ -522,13 +544,17 @@ async def generate_one(ai, project, diagram_type, items, actors, processes, mode
             "processes": processes,
             "interactions": interactions,
         })
-        return store_diagram(project["id"], f"{project['name']} · Use Case", result, actors, processes,
-                             model_used=ai.model_used)
+        # SVG post-processing and the DB insert are synchronous; keep them off the event loop.
+        return await asyncio.to_thread(
+            store_diagram, project["id"], f"{project['name']} · Use Case", result, actors, processes,
+            model_used=ai.model_used,
+        )
 
     pipeline = DIAGRAM_PIPELINES[diagram_type]
     result = await ai.post(f"/{pipeline.endpoint}/generate", pipeline.payload(project, model))
-    return store_generated_diagram(
-        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", result, model, model_used=ai.model_used
+    return await asyncio.to_thread(
+        store_generated_diagram,
+        project["id"], diagram_type, f"{project['name']} · {pipeline.label}", result, model, model_used=ai.model_used,
     )
 
 
@@ -540,9 +566,9 @@ async def generation_worker(job_id, project_id, diagram_types):
     """
     total = len(diagram_types) + 2
     labels = ", ".join(TYPE_LABELS.get(t, t) for t in diagram_types)
+    update_job = functools.partial(asyncio.to_thread, db.update_job, job_id)  # db.* is sync; keep it off the loop
     try:
-        db.update_job(
-            job_id,
+        await update_job(
             status="running",
             queue_position=None,
             started_at=db.now(),
@@ -550,60 +576,84 @@ async def generation_worker(job_id, project_id, diagram_types):
             progress_total=total,
             progress_label=f"Extracting building blocks for {labels}",
         )
-        project = db.get_project(project_id)
+        project = await asyncio.to_thread(db.get_project, project_id)
         client = httpx.AsyncClient(timeout=AI_TIMEOUT, headers=AI_HEADERS)
         ai = AIJob(client, project_id, job_id)  # one provider for the whole job
         await ai.start()
         await extract_building_blocks(ai, project, diagram_types)
-        items, actors, processes = approved_model(project_id)
-        model = build_ai_model(items, db.get_statements(project_id))
+        await update_job(progress_label="Building blocks extracted; preparing diagram generation")
+        items, actors, processes = await asyncio.to_thread(approved_model, project_id)
+        statements = await asyncio.to_thread(db.get_statements, project_id)
+        model = build_ai_model(items, statements)
+        logger.info(
+            "generation_model_ready job=%s project=%s items=%d actors=%d processes=%d",
+            job_id, project_id, len(items), len(actors), len(processes),
+        )
     except Exception as e:
         logger.exception("generation job %s failed while extracting building blocks", job_id)
-        fail_job(job_id, f"Extracting building blocks failed: {ai_error_detail(e)}")
+        await asyncio.to_thread(fail_job, job_id, f"Extracting building blocks failed: {ai_error_detail(e)}", total)
         if "client" in locals():
             await client.aclose()
         return
 
     saved, failures = [], []
-    async with client:
-        for step, diagram_type in enumerate(diagram_types, start=2):
-            label = TYPE_LABELS.get(diagram_type, diagram_type)
-            db.update_job(job_id, progress_step=step, progress_label=f"Generating and rendering {label} diagram")
-            try:
-                diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
-                saved.append((label, diagram["id"]))
-                db.update_job(job_id, diagram_ids=[d for _, d in saved])
-            except Exception as e:
-                logger.exception("generation job %s: %s diagram failed", job_id, diagram_type)
-                failures.append(f"{label} ({ai_error_detail(e)})")
+    try:
+        async with client:
+            for step, diagram_type in enumerate(diagram_types, start=2):
+                label = TYPE_LABELS.get(diagram_type, diagram_type)
+                diagram_started = time.monotonic()
+                logger.info(
+                    "diagram_generation_start job=%s project=%s type=%s step=%d/%d",
+                    job_id, project_id, diagram_type, step, total,
+                )
+                try:
+                    await update_job(progress_step=step, progress_label=f"Generating and rendering {label} diagram")
+                    diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
+                    saved.append((label, diagram["id"]))
+                    await update_job(diagram_ids=[d for _, d in saved])
+                    logger.info(
+                        "diagram_generation_complete job=%s project=%s type=%s duration_seconds=%.3f diagram_id=%s",
+                        job_id, project_id, diagram_type, time.monotonic() - diagram_started, diagram["id"],
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "diagram_generation_failed job=%s project=%s type=%s duration_seconds=%.3f",
+                        job_id, project_id, diagram_type, time.monotonic() - diagram_started,
+                    )
+                    failures.append(f"{label} ({ai_error_detail(e)})")
 
-    diagram_ids = [diagram_id for _, diagram_id in saved]
-    if failures:
-        message = "Generation failed: " + "; ".join(failures)
-        if saved:
-            message += ". Saved: " + ", ".join(label for label, _ in saved)
-        db.update_job(
-            job_id,
-            status="failed",
+        diagram_ids = [diagram_id for _, diagram_id in saved]
+        if failures:
+            message = "Generation failed: " + "; ".join(failures)
+            if saved:
+                message += ". Saved: " + ", ".join(label for label, _ in saved)
+            await update_job(
+                status="failed",
+                queue_position=None,
+                error=message,
+                finished_at=db.now(),
+                progress_step=total,
+                progress_total=total,
+                progress_label="Generation failed",
+                diagram_ids=diagram_ids,
+            )
+            return
+        await update_job(
+            status="succeeded",
             queue_position=None,
-            error=message,
-            finished_at=db.now(),
             progress_step=total,
             progress_total=total,
-            progress_label="Generation failed",
+            progress_label="Diagram ready" if len(diagram_ids) == 1 else "Diagrams ready",
             diagram_ids=diagram_ids,
+            finished_at=db.now(),
         )
-        return
-    db.update_job(
-        job_id,
-        status="succeeded",
-        queue_position=None,
-        progress_step=total,
-        progress_total=total,
-        progress_label="Diagram ready" if len(diagram_ids) == 1 else "Diagrams ready",
-        diagram_ids=diagram_ids,
-        finished_at=db.now(),
-    )
+    except Exception as e:
+        # Last resort: never leave the job stuck in "running" (the UI would poll forever).
+        logger.exception("generation job %s failed unexpectedly", job_id)
+        try:
+            await asyncio.to_thread(fail_job, job_id, f"Generation failed: {ai_error_detail(e)}", total)
+        except Exception:
+            logger.exception("generation job %s: could not record the failure", job_id)
 
 
 # ============================================================================
