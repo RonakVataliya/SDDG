@@ -570,6 +570,12 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } } }
         '404': { description: Unknown user, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /admin/usage:
+    get:
+      summary: Active users, projects, storage and generation time of the last 7 days (administrators only, else 403)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUsage' } } } }
+        '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -1348,3 +1354,44 @@ components:
         total: { type: integer }
         page: { type: integer }
         page_size: { type: integer }
+    UsageEvent:
+      type: object
+      required: [type, description, duration_seconds, at]
+      properties:
+        type: { type: string, enum: [slow, error, rate_limit] }
+        description: { type: string, description: 'Built from the job kind, AI node and counts only, never requirement or error text' }
+        duration_seconds: { type: number, nullable: true }
+        at: { type: string, format: date-time }
+    UsageGeneration:
+      type: object
+      required: [runs, median_seconds, p95_seconds, median_target_seconds, p95_target_seconds, median_ok, p95_ok]
+      properties:
+        runs: { type: integer, description: Finished generation runs in the window }
+        median_seconds: { type: number, nullable: true }
+        p95_seconds: { type: number, nullable: true }
+        median_target_seconds: { type: integer }
+        p95_target_seconds: { type: integer }
+        median_ok: { type: boolean, nullable: true, description: 'null when there are no runs' }
+        p95_ok: { type: boolean, nullable: true }
+    AdminUsage:
+      type: object
+      required: [window_days, active_window_minutes, active_users, accounts, projects, archived_projects, storage_bytes, storage_limit_bytes, storage_warning, limits, generation, events]
+      properties:
+        window_days: { type: integer }
+        active_window_minutes: { type: integer }
+        active_users: { type: integer }
+        accounts: { type: integer, description: Accounts that are not deactivated }
+        projects: { type: integer, description: Deleted projects are not counted }
+        archived_projects: { type: integer }
+        storage_bytes: { type: integer }
+        storage_limit_bytes: { type: integer }
+        storage_warning: { type: boolean, description: 80% of the limit or more }
+        limits:
+          type: object
+          required: [max_document_bytes, max_documents_per_project, max_pages_per_project]
+          properties:
+            max_document_bytes: { type: integer }
+            max_documents_per_project: { type: integer }
+            max_pages_per_project: { type: integer }
+        generation: { $ref: '#/components/schemas/UsageGeneration' }
+        events: { type: array, items: { $ref: '#/components/schemas/UsageEvent' } }

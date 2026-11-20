@@ -104,3 +104,4 @@ function defaultMessage(status: number) {
 export type Me = Schemas['Me']
 export type AdminUser = Schemas['AdminUser']
 export type AdminUserPage = Schemas['AdminUserPage']
+export type AdminUsage = Schemas['AdminUsage']

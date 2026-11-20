@@ -854,3 +854,8 @@ export function useSetUserActive() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
   })
 }
+
+/** Usage page: refreshed every minute while the page is open (FR25a). */
+export function useAdminUsage() {
+  return useQuery({ queryKey: ['admin', 'usage'] as const, queryFn: () => unwrap(api.GET('/admin/usage')), refetchInterval: 60_000 })
+}
