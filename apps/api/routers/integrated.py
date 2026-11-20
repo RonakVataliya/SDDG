@@ -598,29 +598,28 @@ async def generation_worker(job_id, project_id, diagram_types):
 
     saved, failures = [], []
     try:
-        async with client:
-            for step, diagram_type in enumerate(diagram_types, start=2):
-                label = TYPE_LABELS.get(diagram_type, diagram_type)
-                diagram_started = time.monotonic()
+        for step, diagram_type in enumerate(diagram_types, start=2):
+            label = TYPE_LABELS.get(diagram_type, diagram_type)
+            diagram_started = time.monotonic()
+            logger.info(
+                "diagram_generation_start job=%s project=%s type=%s step=%d/%d",
+                job_id, project_id, diagram_type, step, total,
+            )
+            try:
+                await update_job(progress_step=step, progress_label=f"Generating and rendering {label} diagram")
+                diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
+                saved.append((label, diagram["id"]))
+                await update_job(diagram_ids=[d for _, d in saved])
                 logger.info(
-                    "diagram_generation_start job=%s project=%s type=%s step=%d/%d",
-                    job_id, project_id, diagram_type, step, total,
+                    "diagram_generation_complete job=%s project=%s type=%s duration_seconds=%.3f diagram_id=%s",
+                    job_id, project_id, diagram_type, time.monotonic() - diagram_started, diagram["id"],
                 )
-                try:
-                    await update_job(progress_step=step, progress_label=f"Generating and rendering {label} diagram")
-                    diagram = await generate_one(ai, project, diagram_type, items, actors, processes, model)
-                    saved.append((label, diagram["id"]))
-                    await update_job(diagram_ids=[d for _, d in saved])
-                    logger.info(
-                        "diagram_generation_complete job=%s project=%s type=%s duration_seconds=%.3f diagram_id=%s",
-                        job_id, project_id, diagram_type, time.monotonic() - diagram_started, diagram["id"],
-                    )
-                except Exception as e:
-                    logger.exception(
-                        "diagram_generation_failed job=%s project=%s type=%s duration_seconds=%.3f",
-                        job_id, project_id, diagram_type, time.monotonic() - diagram_started,
-                    )
-                    failures.append(f"{label} ({ai_error_detail(e)})")
+            except Exception as e:
+                logger.exception(
+                    "diagram_generation_failed job=%s project=%s type=%s duration_seconds=%.3f",
+                    job_id, project_id, diagram_type, time.monotonic() - diagram_started,
+                )
+                failures.append(f"{label} ({ai_error_detail(e)})")
 
         diagram_ids = [diagram_id for _, diagram_id in saved]
         if failures:
@@ -654,6 +653,10 @@ async def generation_worker(job_id, project_id, diagram_types):
             await asyncio.to_thread(fail_job, job_id, f"Generation failed: {ai_error_detail(e)}", total)
         except Exception:
             logger.exception("generation job %s: could not record the failure", job_id)
+    finally:
+        # Close here, not with `async with client`: the client was already used for the building blocks, and
+        # httpx refuses to open a used client again ("Cannot open a client instance more than once").
+        await client.aclose()
 
 
 # ============================================================================
