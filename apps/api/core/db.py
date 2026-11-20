@@ -172,6 +172,51 @@ def project_with_role(pid, user_id):
     return r if r and r["role"] else None
 
 
+def list_members(pid):
+    """A project's members, oldest first, with their email: from users, or from the id of a DEV_AUTH_BYPASS user
+    (dev:<email>), who has no users row. is_creator marks the person who created the project."""
+    return many(
+        "SELECT m.user_id, m.role, m.joined_at, p.owner_id = m.user_id AS is_creator, "
+        "COALESCE(u.email, CASE WHEN m.user_id LIKE 'dev:%%' THEN substr(m.user_id, 5) END) AS email "
+        "FROM project_members m JOIN projects p ON p.id = m.project_id LEFT JOIN users u ON u.id = m.user_id "
+        "WHERE m.project_id=%s ORDER BY m.joined_at, m.user_id",
+        pid,
+    )
+
+
+LAST_OWNER = "last_owner"
+
+
+def _member_change(pid, user_id, sql, args):
+    """Runs one change to a member in a transaction that locks the project's members first, so two owners demoting
+    each other at the same moment cannot leave a project with no owner. None if they are not a member,
+    LAST_OWNER if the change would remove the last owner, else True."""
+    with pool.connection() as c, c.transaction():
+        rows = c.execute("SELECT user_id, role FROM project_members WHERE project_id=%s FOR UPDATE", (pid,)).fetchall()
+        member = next((r for r in rows if r["user_id"] == user_id), None)
+        if not member:
+            return None
+        owners = [r for r in rows if r["role"] == "owner"]
+        if member["role"] == "owner" and len(owners) == 1 and args.get("role") != "owner":
+            return LAST_OWNER
+        c.execute(sql, {**args, "pid": pid, "uid": user_id})
+        return True
+
+
+def set_member_role(pid, user_id, role):
+    """FR24c: None (not a member), LAST_OWNER (would leave no owner) or True. Applies on the member's next request."""
+    return _member_change(pid, user_id,
+                          "UPDATE project_members SET role=%(role)s WHERE project_id=%(pid)s AND user_id=%(uid)s",
+                          {"role": role})
+
+
+def remove_member(pid, user_id):
+    """FR24c, Remove or Leave: None (not a member), LAST_OWNER (would leave no owner) or True. Access stops on the
+    person's next request; their past work in the project stays."""
+    return _member_change(pid, user_id,
+                          "DELETE FROM project_members WHERE project_id=%(pid)s AND user_id=%(uid)s", {})
+
+
 def project_rows(user_id):
     return many(
         "SELECT p.*, m.role FROM projects p JOIN project_members m ON m.project_id=p.id "
