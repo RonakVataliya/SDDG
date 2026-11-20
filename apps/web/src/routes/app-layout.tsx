@@ -3,12 +3,12 @@ import { DropdownMenu } from 'radix-ui'
 import { Link, Outlet, useNavigate } from 'react-router'
 import { AppearanceMenu } from '@/components/appearance'
 import { ServerWakingBanner } from '@/components/server-waking-banner'
+import { Toaster } from '@/components/ui/toaster'
 import { Wordmark } from '@/components/wordmark'
+import { NotificationBell } from '@/features/notifications/notification-bell'
 import { useAuth } from '@/features/auth/auth-context'
-import { NotificationBell } from '@/features/notifications/NotificationBell'
 import { useMe } from '@/api/queries'
 import { Button } from '@/components/ui/button'
-import { useJobWatcher } from '@/features/notifications/useJobWatcher'
 
 const item = 'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-[13px] outline-none data-[highlighted]:bg-ink/5'
 
@@ -16,7 +16,6 @@ export function AppLayout() {
   const { session, signOut } = useAuth()
   const me = useMe()
   const navigate = useNavigate()
-  useJobWatcher() // notifications (#46): watch started jobs on every page
   const initials = (session?.email ?? '?').slice(0, 2).toUpperCase()
 
   return (
@@ -66,6 +65,7 @@ export function AppLayout() {
       <main className="flex min-h-0 flex-1 flex-col">
         <Outlet />
       </main>
+      <Toaster />
     </div>
   )
 }

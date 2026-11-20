@@ -5,6 +5,7 @@ import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
 import { detectFlags, type FlagRow } from './flags'
 import { buildUseCaseModel, renderPlaceholder, renderUseCase, type UseCaseModel } from './render'
+import { emptyCollab, type CollabState } from './collab'
 
 type ProjectRow = {
   id: string
@@ -59,7 +60,18 @@ export const emptyTests = (): TestsState => ({
 /** System design sections (Feature 4) per project and kind; shapes live in ./design.ts. */
 export type DesignState = Record<string, Record<string, unknown>>
 
+/** Members page (FR24c). The mock signs in one person at a time, so other members are only listed, never act. */
+export type MemberRow = { email: string; role: 'owner' | 'editor' | 'viewer'; joined_at: string }
+
+export function membersOf(pid: string): MemberRow[] {
+  const db = getDb()
+  const p = db.projects.find((x) => x.id === pid)!
+  db.members ??= {}
+  return (db.members[pid] ??= [{ email: p.owner, role: 'owner', joined_at: p.created_at }])
+}
+
 export type MockDb = {
+  collab: CollabState
   tests: TestsState
   design: DesignState
   consent: Record<string, { version: string; at: string }>
@@ -69,6 +81,8 @@ export type MockDb = {
   jobs: JobRow[]
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
+  /** Members page: missing means just the creator, as owner. */
+  members?: Record<string, MemberRow[]>
   stories: StoryRow[]
   nextStory: Record<string, number>
   documents: Record<string, ProjectDocument[]>
@@ -76,7 +90,7 @@ export type MockDb = {
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), design: {}, consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
+const empty = (): MockDb => ({ collab: emptyCollab(), tests: emptyTests(), design: {}, consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
 
 let db: MockDb = load()
 
@@ -179,6 +193,7 @@ function applyExtraction(job: JobRow) {
     ...s,
     id: uid('st'),
     ref: `R-${String(start + i).padStart(3, '0')}`,
+    revision: 1,
   }))
   db.nextStatement[pid] = start + statements.length
   db.statements[pid] = [...(db.statements[pid] ?? []), ...statements]
@@ -239,6 +254,7 @@ function applyGeneration(job: JobRow) {
       created_at: now(),
       parent_id: null,
       instruction: null,
+      revision: 1,
       model,
       svg: model ? renderUseCase(model) : renderPlaceholder(TYPE_LABEL[type], db.items[pid] ?? []),
     }
@@ -299,6 +315,7 @@ export function diagramView(d: DiagramRow): Diagram {
     created_at: d.created_at,
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
+    revision: d.revision ?? 1,
     svg: d.svg,
     elements: elementsOf(d),
     statements: db.statements[d.project_id] ?? [],

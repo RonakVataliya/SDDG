@@ -147,5 +147,5 @@ def save_layout(diagram_id: str, body: LayoutUpdate, user: User = Depends(get_cu
     layout = {**(d.get("layout") or {}), **{i: [p.x, p.y] for i, p in body.positions.items()}}
     new = db.create_diagram(d["project_id"], d["type"], d["title"], d["svg"], d["elements"], d["statement_ids"],
                             plantuml_source=d["plantuml_source"], parent_id=d["id"], spec=d["spec"], layout=layout,
-                            instruction=f"Moved {len(body.positions)} element(s)")
+                            instruction=f"Moved {len(body.positions)} element(s)", by=user.id)
     return diagram_view(new)
