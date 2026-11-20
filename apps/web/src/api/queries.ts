@@ -3,6 +3,8 @@ import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } f
 import {
   api,
   unwrap,
+  type AdminErrorSeverity,
+  type AdminErrorType,
   type ConditionUpdate,
   type Diagram,
   type DesignKind,
@@ -921,6 +923,15 @@ export function useSetUserActive() {
 /** Usage page: refreshed every minute while the page is open (FR25a). */
 export function useAdminUsage() {
   return useQuery({ queryKey: ['admin', 'usage'] as const, queryFn: () => unwrap(api.GET('/admin/usage')), refetchInterval: 60_000 })
+}
+
+/** Errors page (FR25d): newest first, 25 per page, optionally of one type and/or severity. */
+export function useAdminErrors(type: AdminErrorType | '', severity: AdminErrorSeverity | '', page: number) {
+  return useQuery({
+    queryKey: ['admin', 'errors', type, severity, page] as const,
+    queryFn: () => unwrap(api.GET('/admin/errors', { params: { query: { type: type || undefined, severity: severity || undefined, page } } })),
+    placeholderData: keepPreviousData,
+  })
 }
 
 /* ---------- notifications bell (FR24a, FR32) ---------- */

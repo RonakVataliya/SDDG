@@ -162,6 +162,16 @@ def log_event(project_id, actor_id, action, target=None, detail=None):
         logging.getLogger(__name__).exception("activity_log write failed: %s", action)
 
 
+def record_error(type_, severity, message, project_id=None, ref=None):
+    """Appends to errors (FR25d) for the admin Errors page. Kinds, class names and IDs only: never requirement or
+    document text, so never an exception's message. Never breaks the caller."""
+    try:
+        run("INSERT INTO errors(id, type, severity, message, project_id, ref, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            uid("err"), type_, severity, message[:200], project_id, ref, now())
+    except Exception:
+        logging.getLogger(__name__).exception("errors write failed: %s", type_)
+
+
 def get_project(pid):
     return one("SELECT * FROM projects WHERE id=%s", pid)
 
@@ -558,6 +568,10 @@ def update_job(jid, **fields):
         fields["error"] = encrypt(fields["error"])
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE jobs SET {sets} WHERE id=%s", *fields.values(), jid)
+    if fields.get("status") == "failed":
+        job = one("SELECT kind, project_id FROM jobs WHERE id=%s", jid)  # kind and ID only, never jobs.error
+        if job:
+            record_error("job", "error", job["kind"].replace("_", " ") + " job failed", job["project_id"], jid)
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
@@ -732,6 +746,12 @@ def add_llm_calls(job_id, pid, calls, mixed):
             f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
             [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
         )
+    for call in calls:  # a rate limit is a warning (the call retried); a failed call is an error
+        what = f"{call.get('provider') or 'AI'} {call.get('node') or 'call'}"
+        if call.get("status") == "error":
+            record_error("ai", "error", f"{what} failed, tried {call.get('attempts') or 1} time(s)", pid, job_id)
+        elif call.get("rate_limited"):
+            record_error("rate_limit", "warning", f"{what} hit a rate limit, tried {call.get('attempts') or 1} time(s)", pid, job_id)
 
 # ---------------------------------------------------------------------------
 # Document management

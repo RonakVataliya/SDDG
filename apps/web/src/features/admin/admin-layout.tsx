@@ -5,10 +5,11 @@ import { Notice } from '@/components/ui/notice'
 import { PageLoading } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 
-// Only the pages that exist are listed; Errors, Feedback and Settings are added with their pages.
+// Only the pages that exist are listed; Feedback and Settings are added with their pages.
 const PAGES = [
   { to: 'users', label: 'Users' },
   { to: 'usage', label: 'Usage' },
+  { to: 'errors', label: 'Errors' },
 ]
 
 /** The Admin console shell (FR23). The API refuses every /admin call from a non-administrator; this only hides the UI. */

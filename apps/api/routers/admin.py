@@ -5,7 +5,10 @@
   POST /admin/users/{id}/deactivate     blocks sign-in straight away; their projects are kept
   POST /admin/users/{id}/reactivate     lets them sign in again
   GET  /admin/usage                     active users, projects, storage and generation time of the last 7 days
+  GET  /admin/errors?type=&severity=&page=   recorded errors, newest first, 25 per page (kinds and IDs only)
 """
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core import admin_db, db
@@ -59,3 +62,12 @@ def reactivate(user_id: str, admin: User = Depends(require_admin)):
 @router.get("/admin/usage")
 def usage(_: User = Depends(require_admin)):
     return admin_db.usage()
+
+
+@router.get("/admin/errors")
+def errors(type: Literal["api", "job", "ai", "rate_limit"] | None = None,
+           severity: Literal["error", "warning"] | None = None,
+           page: int = Query(1, ge=1), _: User = Depends(require_admin)):
+    rows, total = admin_db.list_errors(type, severity, page)
+    return {"errors": [{k: r[k] for k in ("id", "type", "severity", "message", "project_id", "at")} for r in rows],
+            "total": total, "page": page, "page_size": admin_db.PAGE_SIZE}

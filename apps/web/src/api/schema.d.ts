@@ -3187,6 +3187,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recorded errors, newest first, 25 per page; filter by type and severity. Kinds and IDs only, never document text (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: {
+                    type?: components["schemas"]["AdminErrorType"];
+                    severity?: components["schemas"]["AdminErrorSeverity"];
+                    page?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminErrorPage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications": {
         parameters: {
             query?: never;
@@ -4584,6 +4633,29 @@ export interface components {
             };
             generation: components["schemas"]["UsageGeneration"];
             events: components["schemas"]["UsageEvent"][];
+        };
+        /**
+         * @description api = a crash in a route, job = a failed job, ai = a failed AI call
+         * @enum {string}
+         */
+        AdminErrorType: "api" | "job" | "ai" | "rate_limit";
+        /** @enum {string} */
+        AdminErrorSeverity: "error" | "warning";
+        AdminError: {
+            id: string;
+            type: components["schemas"]["AdminErrorType"];
+            severity: components["schemas"]["AdminErrorSeverity"];
+            /** @description Built from kinds and class names, e.g. "ValueError in POST /projects/{project_id}/generate" */
+            message: string;
+            project_id: string | null;
+            /** Format: date-time */
+            at: string;
+        };
+        AdminErrorPage: {
+            errors: components["schemas"]["AdminError"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         /** @enum {string} */
         NotificationType: "invitation" | "admin_invited" | "mention" | "generation_ready" | "generation_failed";

@@ -3,7 +3,7 @@
  * in-memory list of 30 users (so paging shows). Only emails in ADMINS are administrators.
  */
 import { http, HttpResponse, type HttpResponseResolver } from 'msw'
-import type { AdminUsage, AdminUser } from '@/api/client'
+import type { AdminError, AdminUsage, AdminUser } from '@/api/client'
 
 type Helpers = {
   u: (path: string) => string
@@ -45,6 +45,16 @@ export const MOCK_USAGE: AdminUsage = {
     { type: 'error', description: 'generation job failed', duration_seconds: 12.5, at: new Date(Date.now() - 86_400_000).toISOString() },
   ],
 }
+/** Shaped like GET /admin/errors: 30 rows (so paging shows), newest first, never any document text. */
+const ERROR_KINDS: Pick<AdminError, 'type' | 'severity' | 'message'>[] = [
+  { type: 'api', severity: 'error', message: 'ValueError in POST /projects/{project_id}/generate' },
+  { type: 'job', severity: 'error', message: 'generation job failed' },
+  { type: 'ai', severity: 'error', message: 'gemini render failed, tried 1 time(s)' },
+  { type: 'rate_limit', severity: 'warning', message: 'groq extract hit a rate limit, tried 3 time(s)' },
+]
+export const MOCK_ERRORS: AdminError[] = Array.from({ length: 30 }, (_, i) => ({
+  id: `err_${i + 1}`, ...ERROR_KINDS[i % 4], project_id: i % 4 === 0 ? null : 'proj_1', at: new Date(Date.now() - (i + 1) * 600_000).toISOString(),
+}))
 const view = ({ shared_owned: _, ...r }: Row): AdminUser => r
 
 export function adminHandlers({ u, authed, fail }: Helpers) {
@@ -68,6 +78,15 @@ export function adminHandlers({ u, authed, fail }: Helpers) {
       }),
     ),
     http.get(u('/admin/usage'), asAdmin(() => HttpResponse.json(MOCK_USAGE))),
+    http.get(
+      u('/admin/errors'),
+      asAdmin((_, __, request) => {
+        const q = new URL(request.url).searchParams
+        const page = Math.max(1, Number(q.get('page') ?? 1))
+        const found = MOCK_ERRORS.filter((e) => (!q.get('type') || e.type === q.get('type')) && (!q.get('severity') || e.severity === q.get('severity')))
+        return HttpResponse.json({ errors: found.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), total: found.length, page, page_size: PAGE_SIZE })
+      }),
+    ),
     http.post(
       u('/admin/users/:user_id/deactivate'),
       asAdmin((email, params) => {
