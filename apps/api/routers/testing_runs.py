@@ -141,7 +141,7 @@ def list_runs(project_id: str, user: User = Depends(get_current_user)):
 
 @router.post("/projects/{project_id}/tests/runs", status_code=201)
 def start_run(project_id: str, body: TestRunCreate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     name = body.name.strip()
     if not name:
         raise HTTPException(422, "Give the run a name.")
@@ -171,7 +171,7 @@ def get_run(project_id: str, run_id: str, user: User = Depends(get_current_user)
 def mark_result(project_id: str, run_id: str, case_id: str, body: TestResultUpdate,
                 user: User = Depends(get_current_user)):
     """Marking again replaces the earlier result; who and when are updated."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     run = _run_or_404(project_id, run_id)
     if case_id not in run["case_ids"]:
         raise HTTPException(404, NOT_FOUND)
@@ -183,6 +183,6 @@ def mark_result(project_id: str, run_id: str, case_id: str, body: TestResultUpda
 
 @router.post("/projects/{project_id}/tests/runs/{run_id}/finish")
 def finish_run(project_id: str, run_id: str, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     _run_or_404(project_id, run_id)
     return run_view(project_id, tdb.finish_run(project_id, run_id))

@@ -38,7 +38,7 @@ def new_project(client, name):
     r = client.post(f'{API}/projects', headers=owner, json={'name': name})
     assert r.status_code == 201, r.text
     pid = r.json()['id']
-    sql('INSERT INTO project_members(project_id, user_id) VALUES (%s, %s)', pid, MEMBER_ID)  # a non-owner member
+    sql('INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, %s)', pid, MEMBER_ID, 'editor')  # not an Owner
     return pid, db.insert_statements(pid, [{'text': f'The clinic handles case {i}.'} for i in range(1, 4)])
 
 

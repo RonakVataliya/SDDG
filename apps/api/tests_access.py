@@ -27,10 +27,15 @@ from core.notifications import notify
 from main import app
 
 SECRET_TEXT = f'Zebra{uuid.uuid4().hex} logs in.'  # must never show up in the database or the logs
-OWNER, STRANGER = (f'acc-{uuid.uuid4().hex[:8]}@example.com' for _ in range(2))
-OWNER_ID, STRANGER_ID = f'dev:{OWNER}', f'dev:{STRANGER}'
+OWNER, STRANGER, VIEWER = (f'acc-{uuid.uuid4().hex[:8]}@example.com' for _ in range(3))
+OWNER_ID, STRANGER_ID, VIEWER_ID = f'dev:{OWNER}', f'dev:{STRANGER}', f'dev:{VIEWER}'
 mine = {'Authorization': f'Bearer mock-token:{OWNER}'}
 theirs = {'Authorization': f'Bearer mock-token:{STRANGER}'}
+viewers = {'Authorization': f'Bearer mock-token:{VIEWER}'}
+VIEWER_MAY = {('post', '/api/v1/diagrams/{diagram_id}/preview')}  # a style preview saves nothing
+# Belong to one user, not to the project's roles: someone else's invitation or notification is simply not found.
+NOT_THE_VIEWERS = {('post', '/api/v1/invitations/{invitation_id}/accept'), ('post', '/api/v1/notifications/{notification_id}/read')}
+OWNER_READS = {('get', '/api/v1/projects/{project_id}/activity')}  # the activity log is for Owners only (FR22)
 
 
 def sql(query, *args):
@@ -53,7 +58,7 @@ def main():
         print('access control, encryption and log test passed')
     finally:
         integrated.httpx.AsyncClient = original
-        sql('DELETE FROM projects WHERE owner_id = ANY(%s)', [OWNER_ID, STRANGER_ID])
+        sql('DELETE FROM projects WHERE owner_id = ANY(%s)', [OWNER_ID, STRANGER_ID, VIEWER_ID])
         sql('DELETE FROM consents WHERE user_id = ANY(%s)', [OWNER_ID, STRANGER_ID])
         sql('DELETE FROM notifications WHERE user_id = ANY(%s)', [OWNER_ID, STRANGER_ID])
 
@@ -134,6 +139,27 @@ def check(client):
     assert swept == 76, swept  # a new route with a resource id must be added to this check
     # (34 + 3 style + 15 Tests + 4 documents + 4 Stories + 4 Design
     #  + 3 Members + 8 invitations/notifications/traceability + 1 Activity)
+
+    # 1b. A Viewer can read every route but every change is refused with 403, not 404 (FR24e).
+    sql('INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, %s)', pid, VIEWER_ID, 'viewer')
+    refused = 0
+    for path, methods in app.openapi()['paths'].items():
+        if not any(f'{{{k}}}' in path for k in ids):
+            continue
+        for method in methods:
+            body = next((b for suffix, b in bodies.items() if path.endswith(suffix)), None)
+            r = client.request(method, path.format(**ids), headers=viewers, json=body)
+            if (method, path) in OWNER_READS:
+                assert r.status_code == 403, (method, path, r.status_code, r.text)
+            elif method == 'get' or (method, path) in VIEWER_MAY:
+                assert r.status_code != 403, (method, path, r.text)
+            elif (method, path) in NOT_THE_VIEWERS:
+                assert r.status_code == 404, (method, path, r.status_code, r.text)
+            else:
+                assert r.status_code == 403, (method, path, r.status_code, r.text)
+                refused += 1
+    assert refused == 43, refused  # every project route that changes something; a new one needs a deliberate role
+    sql('DELETE FROM project_members WHERE project_id=%s AND user_id=%s', pid, VIEWER_ID)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)

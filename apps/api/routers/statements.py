@@ -13,7 +13,7 @@ from core.activity import log_event
 from core.auth import User, get_current_user
 from core.quality import detect
 from core.requirements import on_requirement_edited
-from routers.integrated import NOT_FOUND, require_project, require_role
+from routers.integrated import NOT_FOUND, require_project
 
 router = APIRouter()
 EMPTY = "Requirement text can't be empty."
@@ -41,7 +41,7 @@ def clean_label(label):
 
 @router.post("/projects/{project_id}/statements", status_code=201)
 def add_statement(project_id: str, body: StatementCreate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     text = body.text.strip()
     if not text:
         raise HTTPException(422, EMPTY)
@@ -70,7 +70,7 @@ def edit_conflict(project_id, statement_id, base_revision):
 
 @router.patch("/projects/{project_id}/statements/{statement_id}")
 def edit_statement(project_id: str, statement_id: str, body: StatementUpdate, user: User = Depends(get_current_user)):
-    require_role(project_id, user, "editor")  # Viewer 403, outsider 404 (FR24e)
+    require_project(project_id, user, need="edit")  # Viewer 403, outsider 404 (FR24e)
     text = body.text.strip() if body.text is not None else None
     if text == "":
         raise HTTPException(422, EMPTY)
@@ -92,7 +92,7 @@ def edit_statement(project_id: str, statement_id: str, body: StatementUpdate, us
 
 @router.delete("/projects/{project_id}/statements/{statement_id}", status_code=204)
 def delete_statement(project_id: str, statement_id: str, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     statement = db.get_statement(project_id, statement_id)
     if not db.delete_statement(project_id, statement_id):
         raise HTTPException(404, NOT_FOUND)

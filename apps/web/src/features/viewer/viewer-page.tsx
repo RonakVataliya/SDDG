@@ -18,7 +18,7 @@ import { DEFAULT_STYLE } from '@/features/viewer/style'
 import { sanitizeSvg } from '@/lib/svg'
 import { cn, formatRelative } from '@/lib/utils'
 import { NotFoundPage } from '@/routes/not-found-page'
-import { useWorkspace } from '@/routes/workspace-layout'
+import { useCanEdit, useWorkspace } from '@/routes/workspace-layout'
 import { ExportMenu } from './export-menu'
 
 const MAX_INSTRUCTION = 500
@@ -52,6 +52,7 @@ function exportMessage(e: unknown) {
 
 export function ViewerPage() {
   const { project } = useWorkspace()
+  const canEdit = useCanEdit()
   const { diagramId = '' } = useParams()
   const navigate = useNavigate()
   const { data: diagram, isPending, error } = useDiagram(diagramId)
@@ -147,7 +148,7 @@ export function ViewerPage() {
             </p>
           </div>
           <div className="ml-auto flex items-start gap-2">
-            <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!layout.data || arranging || revise.isPending}>
+            <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!canEdit || !layout.data || arranging || revise.isPending}>
               <MoveIcon /> Move elements
             </Button>
             {/* A moved version is exported as drawn on screen; otherwise the API renders it. */}
@@ -319,9 +320,9 @@ export function ViewerPage() {
                     setDraft(e.target.value)
                     if (revise.isError) revise.reset()
                   }}
-                  disabled={revise.isPending || arranging}
+                  disabled={!canEdit || revise.isPending || arranging}
                 />
-                <Button type="submit" variant="accent" size="icon" className="size-8" aria-label="Apply change" disabled={!draft.trim() || revise.isPending}>
+                <Button type="submit" variant="accent" size="icon" className="size-8" aria-label="Apply change" disabled={!canEdit || !draft.trim() || revise.isPending}>
                   {revise.isPending ? <Spinner className="text-on-ink" label="" /> : <ArrowUpIcon />}
                 </Button>
               </div>

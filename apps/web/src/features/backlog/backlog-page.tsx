@@ -11,7 +11,7 @@ import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { StepHeading } from '@/features/input/input-page'
 import { cn } from '@/lib/utils'
-import { useWorkspace } from '@/routes/workspace-layout'
+import { useCanEdit, useWorkspace } from '@/routes/workspace-layout'
 import { PRIORITY, STATUS } from './labels'
 import { StoryDialog } from './story-dialog'
 
@@ -20,6 +20,7 @@ const selectClass = cn(fieldClass, 'h-9 text-sm')
 /** 3.4: the project's user stories, each written against one or more requirements. */
 export function BacklogPage() {
   const { project } = useWorkspace()
+  const canEdit = useCanEdit()
   const stories = useStories(project.id)
   const statements = useStatements(project.id)
   const [params, setParams] = useSearchParams()
@@ -54,7 +55,7 @@ export function BacklogPage() {
         description="User stories: As a [user role] I want to [goal] so I can [reason]. Each one links to the requirements it delivers."
         actions={
           <div className="flex flex-col items-end gap-1">
-            <Button size="sm" disabled={!requirements.length} onClick={() => setDialog({})}>
+            <Button size="sm" disabled={!canEdit || !requirements.length} onClick={() => setDialog({})}>
               <PlusIcon /> New story
             </Button>
             {!requirements.length && <span className="text-xs text-slate">Add requirements first.</span>}
@@ -142,6 +143,7 @@ function Filter({
 
 function StoryRow({ projectId, story: s, requirements, onEdit }: { projectId: string; story: Story; requirements: RequirementStatement[]; onEdit: () => void }) {
   const update = useUpdateStory(projectId)
+  const canEdit = useCanEdit()
   const remove = useDeleteStory(projectId)
   const [confirming, setConfirming] = useState(false)
   const refs = requirements.filter((r) => s.statement_ids.includes(r.id)).map((r) => r.ref)
@@ -160,7 +162,7 @@ function StoryRow({ projectId, story: s, requirements, onEdit }: { projectId: st
           id={`status-${s.id}`}
           className={cn(selectClass, 'w-32')}
           value={s.status}
-          disabled={update.isPending}
+          disabled={!canEdit || update.isPending}
           onChange={(e) => update.mutate({ storyId: s.id, body: { status: e.target.value as StoryStatus } })}
         >
           {Object.entries(STATUS).map(([k, v]) => (
@@ -181,10 +183,10 @@ function StoryRow({ projectId, story: s, requirements, onEdit }: { projectId: st
           </span>
         ) : (
           <span className="flex shrink-0 gap-0.5">
-            <Button variant="ghost" size="icon" className="size-8" aria-label={`Edit ${s.ref}`} onClick={onEdit}>
+            <Button variant="ghost" size="icon" className="size-8" aria-label={`Edit ${s.ref}`} disabled={!canEdit} onClick={onEdit}>
               <PencilIcon />
             </Button>
-            <Button variant="ghost" size="icon" className="size-8" aria-label={`Delete ${s.ref}`} onClick={() => setConfirming(true)}>
+            <Button variant="ghost" size="icon" className="size-8" aria-label={`Delete ${s.ref}`} disabled={!canEdit} onClick={() => setConfirming(true)}>
               <Trash2Icon />
             </Button>
           </span>

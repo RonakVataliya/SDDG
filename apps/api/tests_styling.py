@@ -140,7 +140,7 @@ def with_fakes(fn):
     saved = {name: getattr(style_router, name) for name in ("require_diagram", "style_for", "save_style", "render_styled")}
     saved_export = (integrated.require_diagram, styling.style_for, integrated.render_styled)
 
-    def require(diagram_id, _user):
+    def require(diagram_id, _user, need="view"):
         if diagram_id != "dg_1":
             raise HTTPException(404, "Not found, or you do not have access to it.")
         return DIAGRAM

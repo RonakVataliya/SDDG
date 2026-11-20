@@ -264,7 +264,7 @@ def start_criteria(project_id: str, body: CriteriaJobCreate, bg: BackgroundTasks
                    user: User = Depends(get_current_user)):
     """Runs AI request 1 for the chosen requirements, replacing any earlier design of them (this is also how a
     changed requirement is regenerated). Cases that already have steps are kept; they show as Out of date."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     refused = consent_required(user)
     if refused:
         return refused
@@ -289,7 +289,7 @@ async def update_condition(project_id: str, condition_id: str, body: ConditionUp
                            user: User = Depends(get_current_user)):
     """Edit a condition ("the limit becomes 60 days") and get the requirement's design back with its classes,
     boundaries and drafts recomputed by the AI service's plain-code engine. No LLM call."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     c = tdb.get_condition(project_id, condition_id)
     if not c:
         raise HTTPException(404, NOT_FOUND)
@@ -327,7 +327,7 @@ async def update_condition(project_id: str, condition_id: str, body: ConditionUp
 
 @router.patch("/projects/{project_id}/tests/criteria/{criterion_id}")
 def update_criterion(project_id: str, criterion_id: str, body: CriterionUpdate, user: User = Depends(get_current_user)):
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     if not tdb.get_criterion(project_id, criterion_id):
         raise HTTPException(404, NOT_FOUND)
     given, when, then = (x.strip() for x in (body.given, body.when, body.then))
@@ -383,7 +383,7 @@ async def steps_worker(job_id, pid, case_ids):
 def start_steps(project_id: str, body: StepJobCreate, bg: BackgroundTasks, user: User = Depends(get_current_user)):
     """Runs AI request 2 for the kept drafts (all of them, or the given ones). Unticked drafts are never sent, so
     nothing is spent on discarded cases."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     refused = consent_required(user)
     if refused:
         return refused

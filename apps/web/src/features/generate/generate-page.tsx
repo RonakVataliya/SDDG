@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } f
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { isConsentError, useConsentRetry } from '@/features/tests/consent-retry'
-import { useWorkspace } from '@/routes/workspace-layout'
+import { useCanEdit, useWorkspace } from '@/routes/workspace-layout'
 import { cn, formatRelative, plural } from '@/lib/utils'
 import { ALL_NODES, DIAGRAM_TYPES, NEEDS, NODE_LABEL, typeLabel } from './diagram-types'
 
@@ -24,6 +24,7 @@ const AVAILABLE = PICKABLE.filter((t) => t.available).map((t) => t.value)
 /** Step 3: pick diagram types (FR9d), confirm, then follow the run here; the first diagram opens when it's done. */
 export function GeneratePage() {
   const { project } = useWorkspace()
+  const canEdit = useCanEdit()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
@@ -151,7 +152,7 @@ export function GeneratePage() {
             {errorMessage(start.error)}
           </Notice>
         )}
-        <Button size="lg" className="mt-5 w-full" disabled={selected.length === 0 || start.isPending} onClick={() => setConfirmOpen(true)}>
+        <Button size="lg" className="mt-5 w-full" disabled={!canEdit || selected.length === 0 || start.isPending} onClick={() => setConfirmOpen(true)}>
           Extract &amp; draw {selected.length === 1 ? `${typeLabel[selected[0]]} diagram` : plural(selected.length, 'diagram')}
           <ArrowRightIcon />
         </Button>

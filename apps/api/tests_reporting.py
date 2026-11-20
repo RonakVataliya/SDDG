@@ -34,7 +34,7 @@ def new_project(client, name):
     r = client.post(f'{API}/projects', headers=owner, json={'name': name})
     assert r.status_code == 201, r.text
     pid = r.json()['id']
-    sql('INSERT INTO project_members(project_id, user_id) VALUES (%s, %s)', pid, MEMBER_ID)  # a non-owner member
+    sql('INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, %s)', pid, MEMBER_ID, 'editor')  # not an Owner
     return pid
 
 
@@ -48,10 +48,10 @@ def check_rename(client):
     assert client.patch(f'{API}/projects/{pid}', headers=owner, json={'name': 'OTHER project'}).status_code == 409
     assert client.patch(f'{API}/projects/{pid}', headers=owner, json={'name': '   '}).status_code == 422
     assert client.patch(f'{API}/projects/{pid}', headers=owner, json={'name': ''}).status_code == 422
-    # A member who is not the owner sees the project but cannot rename it, and is told nothing more than an outsider.
+    # A member who is not an Owner sees the project but cannot rename it (403; an outsider gets 404).
     assert client.get(f'{API}/projects/{pid}', headers=member).json()['is_owner'] is False
     r = client.patch(f'{API}/projects/{pid}', headers=member, json={'name': 'Hacked'})
-    assert r.status_code == 404, r.text
+    assert r.status_code == 403, r.text
     assert client.get(f'{API}/projects/{pid}', headers=owner).json()['name'] == 'acme BOOKING v2'
 
 
@@ -63,7 +63,7 @@ def check_delete(client):
     r = client.request('DELETE', f'{API}/projects/{pid}', headers=owner, json={'confirm_name': 'to delete'})
     assert r.status_code == 422 and r.json()['detail'] == 'Type the project name to confirm.', r.text
     assert client.get(f'{API}/projects/{pid}', headers=owner).status_code == 200  # nothing deleted
-    assert client.request('DELETE', f'{API}/projects/{pid}', headers=member, json={'confirm_name': 'To delete'}).status_code == 404
+    assert client.request('DELETE', f'{API}/projects/{pid}', headers=member, json={'confirm_name': 'To delete'}).status_code == 403
     assert client.request('DELETE', f'{API}/projects/{pid}', headers=owner, json={'confirm_name': 'To delete'}).status_code == 204
     assert client.get(f'{API}/projects/{pid}', headers=owner).status_code == 404
     for table in ('statements', 'diagrams', 'flags', 'project_members'):
@@ -72,14 +72,14 @@ def check_delete(client):
 
 def check_archive(client):
     pid = new_project(client, 'To archive')
-    assert client.post(f'{API}/projects/{pid}/archive', headers=member).status_code == 404
+    assert client.post(f'{API}/projects/{pid}/archive', headers=member).status_code == 403
     r = client.post(f'{API}/projects/{pid}/archive', headers=owner)
     assert r.status_code == 200 and r.json()['archived_at'] and r.json()['archived_by'] == OWNER, r.text
     first = r.json()['archived_at']
     assert client.post(f'{API}/projects/{pid}/archive', headers=owner).json()['archived_at'] == first  # idempotent
     # Reads and exports keep working; the web app shows the project read-only.
     assert client.get(f'{API}/projects/{pid}/statements', headers=member).status_code == 200
-    assert client.delete(f'{API}/projects/{pid}/archive', headers=member).status_code == 404
+    assert client.delete(f'{API}/projects/{pid}/archive', headers=member).status_code == 403
     assert client.delete(f'{API}/projects/{pid}/archive', headers=owner).json()['archived_at'] is None
 
 

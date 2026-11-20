@@ -137,7 +137,7 @@ def get_layout(diagram_id: str, user: User = Depends(get_current_user)):
 @router.post("/diagrams/{diagram_id}/layout", status_code=201)
 def save_layout(diagram_id: str, body: LayoutUpdate, user: User = Depends(get_current_user)):
     """Saves moved elements as a new version (the old one is kept)."""
-    d = require_diagram(diagram_id, user)
+    d = require_diagram(diagram_id, user, need="edit")
     known = {e["id"] for e in layout_view(d)["elements"]}
     unknown = set(body.positions) - known
     if unknown:
