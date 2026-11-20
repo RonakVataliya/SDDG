@@ -604,6 +604,16 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUsage' } } } }
         '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /admin/errors:
+    get:
+      summary: Recorded errors, newest first, 25 per page; filter by type and severity. Kinds and IDs only, never document text (administrators only, else 403)
+      parameters:
+        - { name: type, in: query, required: false, schema: { $ref: '#/components/schemas/AdminErrorType' } }
+        - { name: severity, in: query, required: false, schema: { $ref: '#/components/schemas/AdminErrorSeverity' } }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminErrorPage' } } } }
+        '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /notifications:
     get:
       summary: The bell (FR24a, FR32). Newest 50 notifications and the unread count.
@@ -1529,6 +1539,26 @@ components:
             max_pages_per_project: { type: integer }
         generation: { $ref: '#/components/schemas/UsageGeneration' }
         events: { type: array, items: { $ref: '#/components/schemas/UsageEvent' } }
+    AdminErrorType: { type: string, enum: [api, job, ai, rate_limit], description: 'api = a crash in a route, job = a failed job, ai = a failed AI call' }
+    AdminErrorSeverity: { type: string, enum: [error, warning] }
+    AdminError:
+      type: object
+      required: [id, type, severity, message, project_id, at]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/AdminErrorType' }
+        severity: { $ref: '#/components/schemas/AdminErrorSeverity' }
+        message: { type: string, description: 'Built from kinds and class names, e.g. "ValueError in POST /projects/{project_id}/generate"' }
+        project_id: { type: string, nullable: true }
+        at: { type: string, format: date-time }
+    AdminErrorPage:
+      type: object
+      required: [errors, total, page, page_size]
+      properties:
+        errors: { type: array, items: { $ref: '#/components/schemas/AdminError' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
     NotificationType: { type: string, enum: [invitation, admin_invited, mention, generation_ready, generation_failed] }
     NotificationInvitation:
       type: object

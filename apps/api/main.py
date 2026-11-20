@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -7,8 +8,9 @@ from dotenv import load_dotenv
 load_dotenv()  # must run before core.db / routers read their settings from the environment
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 
 from core import db  # noqa: E402
 from routers.layout import router as layout_router  # noqa: E402
@@ -50,6 +52,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Any crash is recorded for the admin Errors page (FR25d): class name and route template only, never the
+    message or the URL (either can carry requirement text)."""
+    route = getattr(request.scope.get("route"), "path", "unknown route")
+    await asyncio.to_thread(db.record_error, "api", "error", f"{type(exc).__name__} in {request.method} {route}")
+    return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+
+
 app.include_router(layout_router, prefix="/api/v1")
 app.include_router(validation_router, prefix="/api/v1")
 app.include_router(router, prefix="/api/v1")
