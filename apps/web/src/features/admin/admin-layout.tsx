@@ -5,11 +5,11 @@ import { Notice } from '@/components/ui/notice'
 import { PageLoading } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 
-// Only the pages that exist are listed; Feedback is added with its page.
 const PAGES = [
   { to: 'users', label: 'Users' },
   { to: 'usage', label: 'Usage' },
   { to: 'errors', label: 'Errors' },
+  { to: 'feedback', label: 'Feedback' },
   { to: 'settings', label: 'Settings' },
 ]
 

@@ -660,6 +660,25 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminErrorPage' } } } }
         '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  # --- Raj: admin Feedback page (FR27c) ---
+  /admin/feedback:
+    get:
+      summary: Issue reports from every project, newest first, 25 per page; filter open or resolved. Only what members sent as an issue report (administrators only, else 403)
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [open, resolved] } }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminFeedbackPage' } } } }
+        '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /admin/feedback/{report_id}/resolve:
+    parameters: [{ name: report_id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Close a report (administrators only). Closing a closed one changes nothing
+      responses:
+        '200': { description: The report, closed, content: { application/json: { schema: { $ref: '#/components/schemas/AdminFeedback' } } } }
+        '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: No such report (a plain comment is not a report), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  # --- end Raj: admin Feedback ---
   /projects/{project_id}/activity:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     get:
@@ -1671,6 +1690,32 @@ components:
         lock_minutes: { type: integer, nullable: true }
     AdminErrorType: { type: string, enum: [api, job, ai, rate_limit], description: 'api = a crash in a route, job = a failed job, ai = a failed AI call' }
     AdminErrorSeverity: { type: string, enum: [error, warning] }
+    # --- Raj: admin Feedback page (FR27c) ---
+    AdminFeedback:
+      type: object
+      required: [id, report, on, target_type, target_id, project_id, project_name, from, status, resolved_by, resolved_at, at]
+      properties:
+        id: { type: string }
+        report: { type: string, description: The text the member sent as an issue report }
+        on: { type: [string, 'null'], description: 'The requirement ref (R-006), the diagram version (Use Case diagram v3) or Project export' }
+        target_type: { $ref: '#/components/schemas/CommentTargetType' }
+        target_id: { type: string }
+        project_id: { type: string }
+        project_name: { type: string }
+        from: { type: [string, 'null'], description: The author's email }
+        status: { type: string, enum: [open, resolved] }
+        resolved_by: { type: [string, 'null'], description: First name of who closed it }
+        resolved_at: { type: [string, 'null'], format: date-time }
+        at: { type: string, format: date-time }
+    AdminFeedbackPage:
+      type: object
+      required: [reports, total, page, page_size]
+      properties:
+        reports: { type: array, items: { $ref: '#/components/schemas/AdminFeedback' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    # --- end Raj: admin Feedback ---
     AdminError:
       type: object
       required: [id, type, severity, message, project_id, at]

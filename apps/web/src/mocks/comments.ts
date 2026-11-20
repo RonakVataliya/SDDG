@@ -92,3 +92,44 @@ export function commentsHandlers({ u, authed, ownedProject, fail, notFound }: He
     ),
   ]
 }
+
+// --- Raj: admin Feedback page (FR27c) ------------------------------------------------------------------------------
+type AsAdmin = (fn: (email: string, params: Record<string, string | readonly string[] | undefined>, request: Request) => Response) => HttpResponseResolver
+type Feedback = Schemas['AdminFeedback']
+const FEEDBACK_PAGE = 25
+
+function feedbackView(c: Row): Feedback {
+  return {
+    id: c.id, report: c.body, on: c.target_type === 'project' ? 'Project export' : c.target_label, target_type: c.target_type,
+    target_id: c.target_id, project_id: c.project_id, project_name: getDb().projects.find((p) => p.id === c.project_id)?.name ?? '',
+    from: c.author.email, status: c.status, resolved_by: c.resolved_by, resolved_at: c.resolved_at, at: c.created_at,
+  }
+}
+
+/** GET /admin/feedback and POST /admin/feedback/{id}/resolve over the issue reports above; asAdmin comes from admin.ts. */
+export function feedbackHandlers(u: (path: string) => string, asAdmin: AsAdmin, fail: Helpers['fail']) {
+  return [
+    http.get(
+      u('/admin/feedback'),
+      asAdmin((_, __, request) => {
+        const q = new URL(request.url).searchParams
+        const page = Math.max(1, Number(q.get('page') ?? 1))
+        const found = rows()
+          .filter((c) => c.is_issue_report && (!q.get('status') || c.status === q.get('status')))
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        return HttpResponse.json({ reports: found.slice((page - 1) * FEEDBACK_PAGE, page * FEEDBACK_PAGE).map(feedbackView), total: found.length, page, page_size: FEEDBACK_PAGE })
+      }),
+    ),
+    http.post(
+      u('/admin/feedback/:report_id/resolve'),
+      asAdmin((email, params) => {
+        const c = rows().find((x) => x.id === params.report_id && x.is_issue_report)
+        if (!c) return fail(404, 'Report not found')
+        if (c.status === 'open') Object.assign(c, { status: 'resolved', resolved_by: firstName(email), resolved_at: new Date().toISOString() })
+        save()
+        return HttpResponse.json(feedbackView(c))
+      }),
+    ),
+  ]
+}
+// --- end Raj: admin Feedback ---------------------------------------------------------------------------------------
