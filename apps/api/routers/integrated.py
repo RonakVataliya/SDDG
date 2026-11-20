@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.auth import User, get_current_user
 from core.ai_client import AIBusyTimeout, AIJob
+from core.notifications import notify_project
 from core.diagram_models import DIAGRAM_PIPELINES, build_ai_model, kroki_engine_for_source
 from core.input_processing import (
     enrich_extracted_statements,
@@ -584,6 +585,16 @@ async def generate_one(ai, project, diagram_type, items, actors, processes, mode
     )
 
 
+async def tell_project(project_id, type, job_id, diagram_ids=()):
+    """Issue #36: every member of the project hears that a generation finished or failed. IDs only, never the
+    error text. db.* is sync, so it goes off the event loop like the rest of this worker."""
+    payload = {"job_id": job_id, **({"diagram_id": diagram_ids[0]} if diagram_ids else {})}
+    try:
+        await asyncio.to_thread(notify_project, project_id, type, payload)
+    except Exception:  # a notification must never be the reason a job looks failed
+        logger.exception("generation job %s: could not notify the project", job_id)
+
+
 async def generation_worker(job_id, project_id, diagram_types):
     """Background worker for a diagram generation job. One AI client serves the whole job: it is opened once here
     (an httpx client cannot be opened again after it has been used) and closed when the job ends."""
@@ -600,6 +611,7 @@ async def generation_worker(job_id, project_id, diagram_types):
                                         len(diagram_types) + 2)
             except Exception:
                 logger.exception("generation job %s: could not record the failure", job_id)
+            await tell_project(project_id, "generation_failed", job_id)
 
 
 async def _run_generation(client, job_id, project_id, diagram_types):
@@ -635,6 +647,7 @@ async def _run_generation(client, job_id, project_id, diagram_types):
     except Exception as e:
         logger.exception("generation job %s failed while extracting building blocks", job_id)
         await asyncio.to_thread(fail_job, job_id, f"Extracting building blocks failed: {ai_error_detail(e)}", total)
+        await tell_project(project_id, "generation_failed", job_id)
         return
 
     saved, failures = [], []
@@ -677,6 +690,7 @@ async def _run_generation(client, job_id, project_id, diagram_types):
                 progress_label="Generation failed",
                 diagram_ids=diagram_ids,
             )
+            await tell_project(project_id, "generation_failed", job_id, diagram_ids)
             return
         await update_job(
             status="succeeded",
@@ -687,6 +701,7 @@ async def _run_generation(client, job_id, project_id, diagram_types):
             diagram_ids=diagram_ids,
             finished_at=db.now(),
         )
+        await tell_project(project_id, "generation_ready", job_id, diagram_ids)
     except Exception as e:
         # Last resort: never leave the job stuck in "running" (the UI would poll forever).
         logger.exception("generation job %s failed unexpectedly", job_id)
@@ -694,6 +709,7 @@ async def _run_generation(client, job_id, project_id, diagram_types):
             await asyncio.to_thread(fail_job, job_id, f"Generation failed: {ai_error_detail(e)}", total)
         except Exception:
             logger.exception("generation job %s: could not record the failure", job_id)
+        await tell_project(project_id, "generation_failed", job_id)
 
 
 # ============================================================================

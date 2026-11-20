@@ -15,6 +15,7 @@ import { layoutView } from './layout'
 import { renderUseCase } from './render'
 import { storiesHandlers } from './stories'
 import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
+import { acceptedProjects, collabHandlers } from './collab'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
 
@@ -78,6 +79,8 @@ export const handlers = [
   ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
   // System design (Feature 4): src/mocks/design.ts
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts
+  ...collabHandlers({ u, authed, ownedProject, fail, notFound, projectView }, http),
 
   http.get(
     u('/me/consent'),
@@ -108,12 +111,19 @@ export const handlers = [
   http.get(
     u('/projects'),
     authed(({ email }) =>
-      HttpResponse.json(
-        getDb()
+      HttpResponse.json([
+        ...getDb()
           .projects.filter((p) => p.owner === email)
           .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
           .map(projectView),
-      ),
+        // FR24a: a project you joined through an invitation is in your list too, with the role you were given.
+        ...acceptedProjects(email).map(({ project, role, joined_at, owner_email }) => ({
+          ...projectView(project),
+          role,
+          joined_at,
+          owner_email,
+        })),
+      ]),
     ),
   ),
   http.post(

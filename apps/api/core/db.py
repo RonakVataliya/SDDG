@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -560,10 +561,15 @@ def update_job(jid, **fields):
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
-                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None, by=None):
-    """A new diagram, or a new version of parent_id: its revision is the parent's plus one (1 for a fresh one)."""
+                   parent_id=None, instruction=None, spec=None, layout=None, model_used=None, by=None,
+                   conn=None):
+    """A new diagram, or a new version of parent_id: its revision is the parent's plus one (1 for a fresh one).
+
+    by: who saved this version (revised_by), a user id. conn: write inside a transaction the caller owns, so
+    several new versions are all saved or none are (renaming a model item across diagrams). Without it this
+    opens its own transaction, as every caller did."""
     # One transaction: a new version never exists without the accepted warnings it carries over.
-    with pool.connection() as c:
+    with nullcontext(conn) if conn is not None else pool.connection() as c:
         d = c.execute(
             "INSERT INTO diagrams(id, project_id, type, title, created_at, svg, elements, statement_ids, "
             "plantuml_source, parent_id, instruction, spec, layout, model_used, revision, revised_by) "

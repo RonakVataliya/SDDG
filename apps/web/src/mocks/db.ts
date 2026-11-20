@@ -5,6 +5,7 @@ import type { components } from '@/api/schema'
 import { extractItems, splitStatements } from './extract'
 import { detectFlags, type FlagRow } from './flags'
 import { buildUseCaseModel, renderPlaceholder, renderUseCase, type UseCaseModel } from './render'
+import { emptyCollab, type CollabState } from './collab'
 
 type ProjectRow = {
   id: string
@@ -70,6 +71,7 @@ export function membersOf(pid: string): MemberRow[] {
 }
 
 export type MockDb = {
+  collab: CollabState
   tests: TestsState
   design: DesignState
   consent: Record<string, { version: string; at: string }>
@@ -88,7 +90,7 @@ export type MockDb = {
 }
 
 const KEY = 'sddg.mock.db'
-const empty = (): MockDb => ({ tests: emptyTests(), design: {}, consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
+const empty = (): MockDb => ({ collab: emptyCollab(), tests: emptyTests(), design: {}, consent: {}, projects: [], statements: {}, items: {}, jobs: [], diagrams: [], nextStatement: {}, stories: [], nextStory: {}, flags: {}, documents: {} })
 
 let db: MockDb = load()
 

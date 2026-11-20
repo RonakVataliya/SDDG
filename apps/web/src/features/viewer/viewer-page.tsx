@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
+import { DriftBanner } from '@/features/traceability/drift-banner'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
 import { sameStyle, StylePanel } from '@/features/viewer/style-panel'
@@ -217,6 +218,7 @@ export function ViewerPage() {
       </section>
 
       <aside className="flex min-h-0 flex-col border-l border-rule bg-surface">
+        <DriftBanner diagramId={diagram.id} />
         <div className="border-b border-rule p-4">
           {element ? (
             <>

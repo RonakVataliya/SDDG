@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
-import { useJobStore } from '@/features/notifications/useJobWatcher'
 import { isConsentError, useConsentRetry } from '@/features/tests/consent-retry'
 import { useWorkspace } from '@/routes/workspace-layout'
 import { cn, formatRelative, plural } from '@/lib/utils'
@@ -33,7 +32,6 @@ export function GeneratePage() {
   const [selected, setSelected] = useState<DiagramType[]>(['use_case'])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const start = useStartGeneration(project.id)
-  const register = useJobStore((s) => s.register)
   const diagrams = useDiagrams(project.id)
   const consent = useConsentRetry()
 
@@ -219,7 +217,6 @@ export function GeneratePage() {
                 await consent
                   .run(async () => {
                     const job = await start.mutateAsync(types)
-                    register({ runId: job.id, projectId: project.id, projectName: project.name })
                     sessionStorage.setItem(runKey, job.id)
                     setParams({ job: job.id })
                   })

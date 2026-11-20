@@ -5,6 +5,7 @@ import { VerifyEmailPage } from '@/features/auth/verify-email-page'
 import { BacklogPage } from '@/features/backlog/backlog-page'
 import { DesignPage } from '@/features/design/design-page'
 import { GeneratePage } from '@/features/generate/generate-page'
+import { AcceptInvitePage } from '@/features/invitations/accept-invite-page'
 import { InputPage } from '@/features/input/input-page'
 import { MembersPage } from '@/features/members/members-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
@@ -34,6 +35,7 @@ export const routes = [
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: 'projects', element: <ProjectsPage /> },
+          { path: 'invite', element: <AcceptInvitePage /> },
           {
             path: 'projects/:projectId',
             element: <WorkspaceLayout />,
