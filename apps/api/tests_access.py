@@ -100,7 +100,7 @@ def check(client):
     ids = {'project_id': pid, 'item_id': item['id'], 'statement_id': statement['id'], 'job_id': job['id'], 'diagram_id': diagram_id, 'flag_id': flag_id,
            'condition_id': tdb.get_conditions(pid)[0]['id'], 'criterion_id': tdb.get_criteria(pid)[0]['id'],
            'case_id': case['id'], 'run_id': run['id'], 'story_id': story['id'], 'kind': 'goals', 'document_id': 'doc_' + uuid.uuid4().hex,
-           'invitation_id': invitation['id'], 'notification_id': note['id']}
+           'member_id': OWNER_ID, 'invitation_id': invitation['id'], 'notification_id': note['id']}
     bodies = {'/inputs': {'text': 'Hacked.'}, '/generations': {'diagram_types': ['use_case']},
               '/items/{item_id}': {'name': 'Hacked', 'description': 'Hacked'},
               '/revisions': {'instruction': 'Hacked'}, '/answer': {'answer': 'Hacked'},
@@ -116,6 +116,7 @@ def check(client):
               '/results/{case_id}': {'status': 'pass'},
               '/stories': {'role': 'r', 'goal': 'g', 'reason': 'r', 'statement_ids': [statement['id']]},
               '/stories/{story_id}': {'status': 'done'},
+              '/members/{member_id}': {'role': 'viewer'},  # the stranger tries to demote the owner
               '/design/{kind}': {'content': {'goals': [{'name': 'Reliability', 'reason': 'Hacked', 'statement_ids': []}]}},
               '/style': styling.DEFAULT_STYLE, '/preview': styling.DEFAULT_STYLE,
               # Invitations and traceability: valid bodies, so a refusal can only come from the access check
@@ -130,8 +131,9 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=theirs, json=body)
             assert r.status_code == 404, (method, path, r.status_code, r.text)
             swept += 1
-    assert swept == 72, swept  # a new route with a resource id must be added to this check
-    # (34 + 3 style + 15 Tests + 4 documents + 4 Stories + 4 Design + 8 invitations/notifications/traceability)
+    assert swept == 75, swept  # a new route with a resource id must be added to this check
+    # (34 + 3 style + 15 Tests + 4 documents + 4 Stories + 4 Design
+    #  + 3 Members + 8 invitations/notifications/traceability)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
     foreign = client.get(f'{api}/projects/{pid}', headers=theirs)

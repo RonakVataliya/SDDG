@@ -105,9 +105,34 @@ def require_diagram(diagram_id, user):
     return diagram
 
 
+NOT_PERMITTED = "Not permitted: your role on this project does not allow this."
+ROLE_RANK = {role: rank for rank, role in enumerate(db.ROLES)}
+
+
+def require_role(project_id, user, min_role):
+    """FR24e: the project, with the caller's role in project["role"], if that role is at least min_role.
+
+    Not a member: 404, the same answer as a project that does not exist, so nobody can tell it is there.
+    A member whose role is too low: 403. A System Administrator counts as owner (db.project_with_role)."""
+    if min_role not in ROLE_RANK:
+        raise ValueError(f"unknown role {min_role!r}")  # a programming error, never a request error
+    project = db.project_with_role(project_id, user.id)
+    if not project:
+        raise HTTPException(404, NOT_FOUND)
+    if ROLE_RANK[project["role"]] < ROLE_RANK[min_role]:
+        raise HTTPException(403, NOT_PERMITTED)
+    return project
+
+
 # ============================================================================
 # Presentation & Serialization Helpers
 # ============================================================================
+
+def project_role(project_id, user):
+    """The caller's role on a project they can already see (for responses, not for access checks)."""
+    project = db.project_with_role(project_id, user.id)
+    return project["role"] if project else "viewer"
+
 
 def project_view(p, user):
     """Formats a project record and its summary counts for API responses."""
@@ -115,8 +140,8 @@ def project_view(p, user):
     return {
         "id": p["id"],
         "name": p["name"],
-        "role": "owner",
-        "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5); role is still "owner" for everyone until C2
+        "role": p.get("role") or project_role(p["id"], user),  # rows from an UPDATE ... RETURNING carry no role
+        "is_owner": p["owner_id"] == user.id,  # rename, delete, archive (Stream 5): require_owner still checks owner_id
         "archived_at": p["archived_at"],
         "archived_by": p["archived_by"],
         "client_name": p["client_name"],  # Home groups projects by client
@@ -146,6 +171,7 @@ def diagram_view(d):
         "created_at": d["created_at"],
         "parent_id": d["parent_id"],
         "instruction": d["instruction"],
+        "revision": d["revision"],
         "plantuml_source": d["plantuml_source"],
         "svg": d["svg"],
         "elements": d["elements"],
@@ -1058,7 +1084,7 @@ def edit_item(
     name = payload.name.strip() if payload.name is not None else None
     if name == "":
         raise HTTPException(422, "Name cannot be empty.")
-    item = db.update_item(project_id, item_id, name, payload.description)
+    item = db.update_item(project_id, item_id, name, payload.description, by=user.id)
     if not item:
         raise HTTPException(404, NOT_FOUND)
     # Requirements-first: confirmation is about the requirements, so an item fix only makes diagrams stale.

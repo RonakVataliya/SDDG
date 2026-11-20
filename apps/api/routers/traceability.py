@@ -97,7 +97,7 @@ def apply_naming(project_id: str, body: NamingApply, user: User = Depends(get_cu
                 project_id, d["type"], d["title"], changed["svg"], changed["elements"], d["statement_ids"],
                 plantuml_source=changed["plantuml_source"], parent_id=d["id"], spec=changed["spec"],
                 layout=d.get("layout"), model_used=d.get("model_used"),
-                instruction=f'Renamed "{changed["was"][0]}" to "{name}" on all diagrams', conn=c,
+                instruction=f'Renamed "{changed["was"][0]}" to "{name}" on all diagrams', by=user.id, conn=c,
             )
             updated.append({"id": new["id"], "type": new["type"], "title": new["title"], "version": d["version"] + 1})
         if item:

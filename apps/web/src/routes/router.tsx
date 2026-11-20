@@ -7,6 +7,7 @@ import { DesignPage } from '@/features/design/design-page'
 import { GeneratePage } from '@/features/generate/generate-page'
 import { AcceptInvitePage } from '@/features/invitations/accept-invite-page'
 import { InputPage } from '@/features/input/input-page'
+import { MembersPage } from '@/features/members/members-page'
 import { PrivacyPage } from '@/features/privacy/privacy-page'
 import { ProjectsPage } from '@/features/projects/projects-page'
 import { CoveragePage } from '@/features/reporting/coverage-page'
@@ -47,6 +48,7 @@ export const routes = [
               { path: 'search', element: <SearchPage /> },
               { path: 'coverage', element: <CoveragePage /> },
               { path: 'backlog', element: <BacklogPage /> },
+              { path: 'members', element: <MembersPage /> },
               { path: 'settings', element: <SettingsPage /> },
               { path: 'tests', element: <TestsPage /> },
               { path: 'design', element: <DesignPage /> },

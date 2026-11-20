@@ -7,11 +7,12 @@ import type { components, paths } from './schema'
 
 export type Schemas = components['schemas']
 export type Project = Schemas['Project']
+export type Member = Schemas['Member']
+export type Role = Schemas['Role']
 export type Job = Schemas['Job']
 export type ExtractedItem = Schemas['ExtractedItem']
 export type ItemCategory = Schemas['ItemCategory']
 export type RequirementStatement = Schemas['RequirementStatement']
-export type Role = Schemas['Role']
 // Notifications bell, invitations (FR24a) and traceability (FR17)
 export type ServerNotification = Schemas['Notification'] // not "Notification": that is a browser global
 export type NotificationList = Schemas['NotificationList']
