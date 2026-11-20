@@ -1,8 +1,8 @@
 import { ArrowRightIcon, CheckIcon, FlagIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import type { RequirementStatement, Schemas } from '@/api/client'
-import { errorMessage } from '@/api/errors'
+import type { RequirementStatement, Schemas, StatementConflict } from '@/api/client'
+import { ApiError, errorMessage } from '@/api/errors'
 import { useAddStatement, useConfirmExtraction, useDeleteStatement, useFlags, useFlagSummary, useStatements, useStories, useUpdateStatement } from '@/api/queries'
 import { Badge, RefTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,8 @@ import { FieldError, Input, Textarea } from '@/components/ui/input'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { FLAG_LABEL, FLAG_TONE, FlagPill, FlagsDrawer, Highlighted } from '@/features/flags/flags'
+import { toast } from '@/lib/toast'
+import { ConflictDialog } from './conflict-dialog'
 import { useWorkspace } from '@/routes/workspace-layout'
 import { cn, formatRelative, plural } from '@/lib/utils'
 
@@ -31,6 +33,7 @@ export function ReviewPage() {
   const [onlyFlagged, setOnlyFlagged] = useState(false)
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
+  const [savedId, setSavedId] = useState<string | null>(null) // FR24f: the row just saved shows its new revision
   const [adding, setAdding] = useState(false)
   const [drawer, setDrawer] = useState<{ open: boolean; focus?: string | null }>({ open: false })
   const stories = useStories(project.id).data?.stories ?? [] // 3.4: each requirement links to its stories
@@ -108,7 +111,15 @@ export function ReviewPage() {
         <ol>
           {shown.map((s) =>
             editing === s.id ? (
-              <EditRow key={s.id} projectId={project.id} statement={s} onDone={() => setEditing(null)} />
+              <EditRow
+                key={s.id}
+                projectId={project.id}
+                statement={s}
+                onDone={(saved) => {
+                  setEditing(null)
+                  setSavedId(saved ? s.id : null)
+                }}
+              />
             ) : (
               <Row
                 key={s.id}
@@ -119,6 +130,7 @@ export function ReviewPage() {
                 openTypes={openTypes.get(s.id)}
                 storyRefs={stories.filter((st) => st.statement_ids.includes(s.id)).map((st) => st.ref)}
                 highlighted={s.ref === highlight}
+                saved={savedId === s.id}
                 canEdit={canEdit}
                 onEdit={() => setEditing(s.id)}
                 onFlags={() => setDrawer({ open: true, focus: s.id })}
@@ -147,6 +159,7 @@ function Row({
   openTypes,
   storyRefs,
   highlighted,
+  saved = false,
   canEdit,
   onEdit,
   onFlags,
@@ -158,6 +171,7 @@ function Row({
   openTypes?: Schemas['FlagType'][]
   storyRefs: string[]
   highlighted?: boolean
+  saved?: boolean
   canEdit: boolean
   onEdit: () => void
   onFlags: () => void
@@ -175,6 +189,11 @@ function Row({
     >
       <RefTag className="mt-0.5 shrink-0">{s.ref}</RefTag>
       <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] text-slate">{shortLabel(s.label)}</span>
+      {saved && (
+        <span role="status" className="mt-0.5 shrink-0 text-[11.5px] text-success">
+          rev {s.revision ?? 1} · Saved
+        </span>
+      )}
       {/* FR1/FR2: the requirement's own ID from the input (FR-001, NFR-2, …) */}
       {s.source_label && (
         <Badge tone="neutral" className="mt-0.5 h-fit shrink-0 font-mono text-[11px]">
@@ -246,40 +265,71 @@ function LabelPicker({ value, onChange }: { value: Label | null; onChange: (l: L
   )
 }
 
-function EditRow({ projectId, statement: s, onDone }: { projectId: string; statement: RequirementStatement; onDone: () => void }) {
+function EditRow({ projectId, statement: s, onDone }: { projectId: string; statement: RequirementStatement; onDone: (saved: boolean) => void }) {
   const [text, setText] = useState(s.text)
   const [label, setLabel] = useState<Label | null>(LABELS.some((l) => l.id === s.label) ? (s.label as Label) : null)
   const update = useUpdateStatement(projectId)
   const empty = !text.trim()
   const changed = text.trim() !== s.text || (label !== null && label !== s.label)
+  // FR24f: the revision and text this edit started from. The save sends the revision; if someone saved since, the API
+  // refuses it (409) and the dialog shows their version next to this change.
+  const [opened] = useState({ revision: s.revision ?? 1, text: s.text })
+  const [conflict, setConflict] = useState<StatementConflict | null>(null)
+  const conflicted = update.error instanceof ApiError && update.error.code === 'edit_conflict'
+
+  async function save(body: { text: string; base_revision: number; resolves_conflict?: boolean }) {
+    try {
+      const saved = (await update.mutateAsync({ id: s.id, ...body, ...(label ? { label } : {}) })) as RequirementStatement
+      setConflict(null)
+      if (body.resolves_conflict) toast(`Saved ${s.ref} as revision ${saved.revision}`)
+      onDone(true)
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'edit_conflict') setConflict(e.body as StatementConflict)
+    }
+  }
+
   return (
     <li className="border-b border-rule bg-accent-wash px-4 py-3.5 shadow-[inset_3px_0_0_var(--accent)]">
       <div className="flex flex-wrap items-center gap-3">
         <RefTag className="border-accent text-accent">{s.ref}</RefTag>
         <LabelPicker value={label} onChange={setLabel} />
+        <span className="ml-auto text-[11.5px] text-slate">based on rev {opened.revision}</span>
       </div>
       <label htmlFor={`edit-${s.id}`} className="sr-only">
         Requirement text
       </label>
       <Textarea id={`edit-${s.id}`} autoFocus value={text} aria-invalid={empty} onChange={(e) => setText(e.target.value)} className="mt-2.5 min-h-16 text-[13.5px]" />
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <FieldError>{empty ? EMPTY : update.isError ? errorMessage(update.error) : null}</FieldError>
+        <FieldError>{empty ? EMPTY : update.isError && !conflicted ? errorMessage(update.error) : null}</FieldError>
         <span className="text-[11.5px] text-slate">Editing a requirement asks you to confirm the list again.</span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onDone}>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => onDone(false)}>
           Cancel
         </Button>
         <Button
           size="sm"
           disabled={empty || !changed || update.isPending}
-          onClick={async () => {
-            const ok = await update.mutateAsync({ id: s.id, text: text.trim(), ...(label ? { label } : {}) }).catch(() => null)
-            if (ok) onDone()
-          }}
+          onClick={() => void save({ text: text.trim(), base_revision: opened.revision })}
         >
           {update.isPending && <Spinner className="text-on-ink" label="Saving" />}
           Save
         </Button>
       </div>
+      {conflict && (
+        <ConflictDialog
+          conflict={conflict}
+          base={opened.text}
+          mine={text.trim()}
+          saving={update.isPending}
+          onCancel={() => setConflict(null)}
+          onUseTheirs={() => {
+            setConflict(null)
+            onDone(false) // the list was refetched after the conflict and shows their version
+          }}
+          onSave={(merged) =>
+            void save({ text: merged, base_revision: conflict.current.revision ?? conflict.base_revision + 1, resolves_conflict: true })
+          }
+        />
+      )}
     </li>
   )
 }
