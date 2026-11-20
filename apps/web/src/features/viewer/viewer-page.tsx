@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { typeLabel } from '@/features/generate/diagram-types'
+import { CommentsButton } from '@/features/comments/comments-panel'
 import { DriftBanner } from '@/features/traceability/drift-banner'
 import { LayoutCanvas } from '@/features/viewer/layout-canvas'
 import { LayoutEditor } from '@/features/viewer/layout-editor'
@@ -148,6 +149,11 @@ export function ViewerPage() {
             </p>
           </div>
           <div className="ml-auto flex items-start gap-2">
+            <CommentsButton
+              projectId={project.id}
+              className="h-9"
+              target={{ type: 'diagram', id: diagram.id, label: `${typeLabel[diagram.type]} diagram v${index + 1}` }}
+            />
             <Button variant="secondary" onClick={() => setArrangeFor(diagram.id)} disabled={!canEdit || !layout.data || arranging || revise.isPending}>
               <MoveIcon /> Move elements
             </Button>

@@ -12,6 +12,7 @@ import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { FLAG_LABEL, FLAG_TONE, FlagPill, FlagsDrawer, Highlighted } from '@/features/flags/flags'
 import { toast } from '@/lib/toast'
 import { ConflictDialog } from './conflict-dialog'
+import { CommentsButton } from '@/features/comments/comments-panel'
 import { useWorkspace } from '@/routes/workspace-layout'
 import { cn, formatRelative, plural } from '@/lib/utils'
 
@@ -226,6 +227,7 @@ function Row({
           </p>
         )}
       </div>
+      <CommentsButton projectId={projectId} target={{ type: 'statement', id: s.id, label: s.ref, text: s.text }} />
       <FlagPill summary={summary} openTypes={openTypes} onClick={onFlags} />
       {canEdit &&
         (confirming ? (
