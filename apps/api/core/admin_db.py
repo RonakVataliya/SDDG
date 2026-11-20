@@ -13,8 +13,10 @@ def _user(r):
 
 
 def list_users(q, page):
-    """One page of users, most recently active first, whose email contains q (any case). Returns (users, total)."""
-    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    """One page of users, most recently active first, whose email contains q (any case). Returns (users, total).
+    A space in q matches any text, so "priya shah" finds priya.shah@x, the name the Users table shows for it."""
+    esc = lambda w: w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")  # noqa: E731
+    like = "%" + "%".join(esc(w) for w in q.split()) + "%"
     total = db.one("SELECT count(*) AS n FROM users WHERE email ILIKE %s", like)["n"]
     rows = db.many(USER_SQL + " WHERE u.email ILIKE %s ORDER BY u.last_seen_at DESC NULLS LAST, u.email LIMIT %s OFFSET %s",
                    like, PAGE_SIZE, (page - 1) * PAGE_SIZE)
@@ -27,10 +29,14 @@ def get_user(user_id):
 
 
 def shared_projects_owned(user_id):
-    """Projects this user owns that other people are also members of: ownership must move before they go."""
+    """Projects where this user is the only active Owner and other people are members: ownership must move before they
+    go. Follows project_members.role, not who created the project, since ownership can be moved and shared."""
     return db.one(
-        "SELECT count(*) AS n FROM projects p WHERE p.owner_id = %s AND EXISTS "
-        "(SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id <> p.owner_id)", user_id)["n"]
+        "SELECT count(*) AS n FROM project_members me WHERE me.user_id = %s AND me.role = 'owner' "
+        "AND EXISTS (SELECT 1 FROM project_members o WHERE o.project_id = me.project_id AND o.user_id <> me.user_id) "
+        "AND NOT EXISTS (SELECT 1 FROM project_members o JOIN users u ON u.id = o.user_id "
+        "WHERE o.project_id = me.project_id AND o.user_id <> me.user_id AND o.role = 'owner' AND u.deactivated_at IS NULL)",
+        user_id)["n"]
 
 
 def set_deactivated(user_id, deactivated):

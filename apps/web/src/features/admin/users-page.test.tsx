@@ -31,6 +31,10 @@ describe('FR23 admin console', () => {
 
     await user.type(screen.getByLabelText('Search users'), 'person07')
     expect(await screen.findByText('1–1 of 1')).toBeInTheDocument()
+    // A space matches any text, like the API: "person 07" finds person07@acme.test (shown as "Person07").
+    await user.clear(screen.getByLabelText('Search users'))
+    await user.type(screen.getByLabelText('Search users'), 'person 07')
+    expect(await screen.findByText('1–1 of 1')).toBeInTheDocument()
     expect((await rowOf('person07@acme.test')).getByText('never')).toBeInTheDocument() // never signed in
   })
 

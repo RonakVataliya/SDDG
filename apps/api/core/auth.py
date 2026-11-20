@@ -37,6 +37,8 @@ def supabase_user(token):
 
 def get_current_user(cred: HTTPAuthorizationCredentials = Depends(security)) -> User:
     token = cred.credentials
+    # Dev only (main.py refuses to start with this and SUPABASE_URL both set): reads no users row, so deactivation and
+    # is_admin do not apply to a mock token.
     if os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true" and token.startswith("mock-token:"):
         email = token.removeprefix("mock-token:").strip().lower()
         if email:
@@ -59,7 +61,8 @@ def get_current_user(cred: HTTPAuthorizationCredentials = Depends(security)) -> 
 
 
 def forget_user(user_id):
-    """Drops a user's cached tokens so a deactivation applies on their next request, not after TOKEN_TTL."""
+    """Drops a user's cached tokens so a deactivation applies on their next request, not after TOKEN_TTL. The cache is
+    per process: with more than one API worker the others keep a cached token for at most TOKEN_TTL seconds."""
     for t in [t for t, (u, _) in _verified.items() if u.id == user_id]:
         del _verified[t]
 

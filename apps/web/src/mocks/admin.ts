@@ -44,10 +44,12 @@ export function adminHandlers({ u, authed, fail }: Helpers) {
       u('/admin/users'),
       asAdmin((_, __, request) => {
         const url = new URL(request.url)
-        const q = (url.searchParams.get('q') ?? '').toLowerCase()
+        // Like the API: a space in the search matches any text, and the rest is literal.
+        const words = (url.searchParams.get('q') ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+        const match = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'))
         const page = Math.max(1, Number(url.searchParams.get('page') ?? 1))
         const found = rows
-          .filter((r) => r.email.toLowerCase().includes(q))
+          .filter((r) => match.test(r.email.toLowerCase()))
           .sort((a, b) => (b.last_seen_at ?? '').localeCompare(a.last_seen_at ?? '') || a.email.localeCompare(b.email))
         const users = found.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(view)
         return HttpResponse.json({ users, total: found.length, page, page_size: PAGE_SIZE })
