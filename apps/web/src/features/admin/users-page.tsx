@@ -9,12 +9,10 @@ import { Button } from '@/components/ui/button'
 import { fieldClass } from '@/components/ui/input'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading } from '@/components/ui/spinner'
+import { nameOf } from './name'
 import { ago } from './time'
 
 const item = 'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-[13px] outline-none data-[highlighted]:bg-ink/5'
-// Accounts have no name yet, so the Name column is made from the email: priya.shah@x -> Priya Shah.
-const nameOf = (email: string) =>
-  email.split('@')[0].split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
 
 /** FR23a-d: every account, searchable, 25 per page, with deactivate and reactivate. */
 export function UsersPage() {

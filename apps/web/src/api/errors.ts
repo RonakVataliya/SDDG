@@ -3,11 +3,14 @@ export const WAKING_STATUSES = new Set([502, 503, 504])
 export class ApiError extends Error {
   status: number
   code?: string
-  constructor(status: number, detail: string, code?: string) {
+  /** The whole error body, for answers that carry more than a message (an edit conflict carries the current version). */
+  body?: unknown
+  constructor(status: number, detail: string, code?: string, body?: unknown) {
     super(detail)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.body = body
   }
 }
 

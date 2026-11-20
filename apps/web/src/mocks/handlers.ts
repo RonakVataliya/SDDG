@@ -10,6 +10,7 @@ import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
+import { activityHandlers } from './activity'
 import { adminHandlers } from './admin'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
@@ -80,6 +81,8 @@ export const handlers = [
   ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
   // Admin console (FR23): src/mocks/admin.ts
   ...adminHandlers({ u, authed, fail }),
+  // Project Activity tab (FR22): src/mocks/activity.ts
+  ...activityHandlers({ u, authed, ownedProject, notFound }),
   // System design (Feature 4): src/mocks/design.ts
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
   // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts
@@ -479,8 +482,23 @@ export const handlers = [
       const p = ownedProject(email, params.project_id)
       const st = p && (getDb().statements[p.id] ?? []).find((s) => s.id === params.statement_id)
       if (!p || !st) return notFound()
-      const { text, label } = (await request.json()) as { text?: string; label?: string | null }
+      const { text, label, base_revision } = (await request.json()) as { text?: string; label?: string | null; base_revision?: number }
       if (text !== undefined && !text.trim()) return fail(422, 'Requirement text can’t be empty.')
+      // --- Raj: edit conflict check (FR24f): same 409 as the API when the stored revision is newer ---
+      const stored = st.revision ?? 1
+      if (base_revision !== undefined && base_revision !== stored) {
+        const last = getDb().lastSaved?.[st.id]
+        const who = last ? last.by.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : 'Someone else'
+        return HttpResponse.json(
+          {
+            detail: `${who} saved revision ${stored} while you were editing revision ${base_revision}. Nothing was overwritten.`,
+            code: 'edit_conflict', changed_by: who, changed_at: last?.at ?? null, base_revision, current: st,
+          },
+          { status: 409 },
+        )
+      }
+      ;(getDb().lastSaved ??= {})[st.id] = { by: email, at: new Date().toISOString() }
+      // --- end Raj: edit conflict check ---
       if (text !== undefined) {
         st.text = text.trim()
         const db = getDb()
