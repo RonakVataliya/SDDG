@@ -119,6 +119,34 @@ paths:
                 type: object
                 required: [deleted, id]
                 properties: { deleted: { type: boolean }, id: { type: string } }
+  /projects/{project_id}/members:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: Everyone in the project with their role and join date (any member, FR24c)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } }
+        '404': { description: Not a member, or no such project }
+  /projects/{project_id}/members/{member_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: member_id, in: path, required: true, schema: { type: string }, description: The member's user id }
+    patch:
+      summary: Change a member's role (Owner only); applies on their next request
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MemberRoleUpdate' } } }
+      responses:
+        '200': { description: The members after the change, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } }
+        '403': { description: Not an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Would leave the project without an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      summary: Remove a member (Owner only), or leave the project (your own id, any member)
+      responses:
+        '204': { description: Removed; access stops on their next request }
+        '403': { description: Not an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Would leave the project without an Owner, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /projects/{project_id}/inputs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     post:
@@ -636,6 +664,20 @@ components:
       type: object
       required: [confirm_name]
       properties: { confirm_name: { type: string, maxLength: 200, description: The project's exact name } }
+    Member:
+      type: object
+      required: [user_id, email, role, joined_at, is_creator, is_you]
+      properties:
+        user_id: { type: string }
+        email: { type: [string, 'null'] }
+        role: { $ref: '#/components/schemas/Role' }
+        joined_at: { type: [string, 'null'], format: date-time }
+        is_creator: { type: boolean, description: Created the project }
+        is_you: { type: boolean, description: This member is the caller }
+    MemberRoleUpdate:
+      type: object
+      required: [role]
+      properties: { role: { $ref: '#/components/schemas/Role' } }
     ProjectClient:
       type: object
       properties:

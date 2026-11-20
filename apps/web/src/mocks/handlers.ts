@@ -7,7 +7,7 @@ import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
 import { applyInstruction } from './edit'
@@ -57,6 +57,15 @@ function ownedProject(email: string, id: unknown) {
   return getDb().projects.find((p) => p.id === id && p.owner === email)
 }
 const notFound = () => fail(404, 'Not found, or you do not have access to it.')
+/** Mock user ids follow the API's DEV_AUTH_BYPASS form. */
+const memberId = (email: string) => `dev:${email}`
+function memberViews(pid: string, me: string) {
+  const owner = getDb().projects.find((p) => p.id === pid)?.owner
+  return membersOf(pid).map((m) => ({
+    user_id: memberId(m.email), email: m.email, role: m.role, joined_at: m.joined_at,
+    is_creator: m.email === owner, is_you: m.email === me,
+  }))
+}
 
 export const handlers = [
   http.get(u('/health'), () => HttpResponse.json({ status: 'ok' })),
@@ -202,6 +211,49 @@ export const handlers = [
       touch(p.id)
       save()
       return HttpResponse.json(projectView(p))
+    }),
+  ),
+
+  // Members page (FR24c): same rules as the API, including "a project always keeps an Owner".
+  http.get(
+    u('/projects/:project_id/members'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      return HttpResponse.json(memberViews(p.id, email))
+    }),
+  ),
+  http.patch(
+    u('/projects/:project_id/members/:member_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const { role } = (await request.json()) as { role: 'owner' | 'editor' | 'viewer' }
+      const members = membersOf(p.id)
+      const m = members.find((x) => memberId(x.email) === params.member_id)
+      if (!m) return fail(404, 'That person is not a member of this project.')
+      if (m.role === 'owner' && role !== 'owner' && members.filter((x) => x.role === 'owner').length === 1)
+        return fail(409, 'A project needs at least one Owner. Make someone else an Owner first.')
+      m.role = role
+      save()
+      return HttpResponse.json(memberViews(p.id, email))
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id/members/:member_id'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const members = membersOf(p.id)
+      const i = members.findIndex((x) => memberId(x.email) === params.member_id)
+      if (i < 0) return fail(404, 'That person is not a member of this project.')
+      if (members[i].role === 'owner' && members.filter((x) => x.role === 'owner').length === 1)
+        return fail(409, members[i].email === email
+          ? 'You are the only Owner. Make someone else an Owner before you leave.'
+          : 'A project needs at least one Owner. Make someone else an Owner before removing this one.')
+      members.splice(i, 1)
+      save()
+      return new HttpResponse(null, { status: 204 })
     }),
   ),
 

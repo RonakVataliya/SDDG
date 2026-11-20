@@ -452,7 +452,7 @@ export interface paths {
             requestBody: {
                 content: {
                     "multipart/form-data": {
-                        /** Format: binary */
+                        /** @description The PDF or DOCX file (sent as FormData) */
                         file: unknown;
                     };
                 };
@@ -500,6 +500,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description OK */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -516,6 +517,177 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Everyone in the project with their role and join date (any member, FR24c) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Member"][];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                /** @description The member's user id */
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a member (Owner only), or leave the project (your own id, any member) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    /** @description The member's user id */
+                    member_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed; access stops on their next request */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not an Owner */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Would leave the project without an Owner */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change a member's role (Owner only); applies on their next request */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    /** @description The member's user id */
+                    member_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MemberRoleUpdate"];
+                };
+            };
+            responses: {
+                /** @description The members after the change */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Member"][];
+                    };
+                };
+                /** @description Not an Owner */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Would leave the project without an Owner */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/projects/{project_id}/inputs": {
@@ -2844,6 +3016,7 @@ export interface components {
             content_type: string;
             size_bytes: number;
             page_count: number;
+            /** @enum {string} */
             status: "uploaded" | "processing" | "processed" | "failed";
             warning?: string | null;
             skipped_pages?: number[];
@@ -2869,6 +3042,20 @@ export interface components {
             /** @description The project's exact name */
             confirm_name: string;
         };
+        Member: {
+            user_id: string;
+            email: string | null;
+            role: components["schemas"]["Role"];
+            /** Format: date-time */
+            joined_at: string | null;
+            /** @description Created the project */
+            is_creator: boolean;
+            /** @description This member is the caller */
+            is_you: boolean;
+        };
+        MemberRoleUpdate: {
+            role: components["schemas"]["Role"];
+        };
         ProjectClient: {
             client_name?: string | null;
             contact_email?: string | null;
@@ -2889,13 +3076,14 @@ export interface components {
             /** @description Label the input already carried */
             label?: string | null;
             source_label?: string | null;
-            metadata?: {
+            metadata?: ({
                 role?: string;
                 goal?: string;
                 reason?: string;
                 structured?: boolean;
+            } & {
                 [key: string]: unknown;
-            } | null;
+            }) | null;
             source: components["schemas"]["SourceLocation"];
             /** @description Counts up on every save, from 1. The edit conflict check compares it with the revision an edit was based on */
             revision?: number;
