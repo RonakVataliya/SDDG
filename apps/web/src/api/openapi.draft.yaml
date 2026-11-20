@@ -87,6 +87,38 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
         '422': { description: Invalid e-mail address }
+  /projects/{project_id}/documents:
+    parameters: [{ $ref: '#/components/parameters/ProjectId' }]
+    get:
+      summary: List documents uploaded to a project
+      responses:
+        '200': { description: List of project documents, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ProjectDocument' } } } } }
+    post:
+      summary: Upload a PDF or DOCX document and start extraction
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties: { file: { description: 'The PDF or DOCX file (sent as FormData)' } }
+      responses:
+        '202': { description: Upload accepted and extraction started, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentUploadResponse' } } } }
+  /projects/{project_id}/documents/{document_id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
+      - { name: document_id, in: path, required: true, schema: { type: string } }
+    delete:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, id]
+                properties: { deleted: { type: boolean }, id: { type: string } }
   /projects/{project_id}/inputs:
     parameters: [{ $ref: '#/components/parameters/ProjectId' }]
     post:
@@ -508,6 +540,36 @@ paths:
       responses:
         '200': { description: File, content: { image/png: { schema: { type: string, format: binary } } } }
         '422': { description: Invalid colour, direction or font size, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  # ---- Admin console (Nitin) ----
+  /me:
+    get:
+      summary: Who the caller is and whether they are a System Administrator (shows the Admin console button)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }
+  /admin/users:
+    get:
+      summary: Users, most recently active first, 25 per page; q matches the email (administrators only, else 403)
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string, maxLength: 100 } }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUserPage' } } } }
+        '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /admin/users/{user_id}/deactivate:
+    parameters: [{ name: user_id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Block sign-in straight away; their projects are kept. 409 for yourself or the only owner of a shared project
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } } }
+        '404': { description: Unknown user, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Refused, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /admin/users/{user_id}/reactivate:
+    parameters: [{ name: user_id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Let a deactivated user sign in again
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } } }
+        '404': { description: Unknown user, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, description: Supabase access token }
@@ -564,6 +626,31 @@ components:
         diagram_count: { type: integer }
         open_flag_count: { type: integer }
         extracted_nodes: { type: array, items: { type: string }, description: 'Extraction nodes already run on the confirmed requirements (actors, entities, ...)' }
+        document_count: { type: integer }
+        document_page_count: { type: integer }
+    ProjectDocument:
+      type: object
+      required: [id, project_id, filename, storage_path, content_type, size_bytes, page_count, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        filename: { type: string }
+        storage_path: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        page_count: { type: integer }
+        status: { type: string, enum: [uploaded, processing, processed, failed] }
+        warning: { type: [string, 'null'] }
+        skipped_pages: { type: array, items: { type: integer } }
+        job_id: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DocumentUploadResponse:
+      type: object
+      required: [document, job]
+      properties:
+        document: { $ref: '#/components/schemas/ProjectDocument' }
+        job: { $ref: '#/components/schemas/Job' }
     ProjectCreate:
       type: object
       required: [name]
@@ -603,6 +690,11 @@ components:
         ref: { type: string, description: Project-unique, never reused, e.g. R-001 }
         text: { type: string }
         label: { type: [string, 'null'], description: Label the input already carried, e.g. FR3 }
+        source_label: { type: [string, 'null'] }
+        metadata:
+          type: [object, 'null']
+          additionalProperties: true
+          properties: { role: { type: string }, goal: { type: string }, reason: { type: string }, structured: { type: boolean } }
         source: { $ref: '#/components/schemas/SourceLocation' }
     StatementWrite:
       type: object
@@ -1230,3 +1322,29 @@ components:
         failed: { $ref: '#/components/schemas/RunSelectionMode' }
         regression: { $ref: '#/components/schemas/RunSelectionMode' }
         minimal: { $ref: '#/components/schemas/RunSelectionMode' }
+    # ---- Admin console (Nitin) ----
+    Me:
+      type: object
+      required: [id, email, is_admin]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        is_admin: { type: boolean }
+    AdminUser:
+      type: object
+      required: [id, email, is_admin, projects, last_seen_at, status]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        is_admin: { type: boolean }
+        projects: { type: integer, description: Projects they are a member of }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [active, deactivated] }
+    AdminUserPage:
+      type: object
+      required: [users, total, page, page_size]
+      properties:
+        users: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }

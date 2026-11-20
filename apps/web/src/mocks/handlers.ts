@@ -10,6 +10,7 @@ import { env } from '@/lib/env'
 import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
+import { adminHandlers } from './admin'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
@@ -67,6 +68,8 @@ export const handlers = [
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
   // Stories backlog (3.4): src/mocks/stories.ts
   ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Admin console (FR23): src/mocks/admin.ts
+  ...adminHandlers({ u, authed, fail }),
   // System design (Feature 4): src/mocks/design.ts
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
 
