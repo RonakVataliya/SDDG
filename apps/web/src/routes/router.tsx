@@ -4,6 +4,7 @@ import { SignupPage } from '@/features/auth/signup-page'
 import { VerifyEmailPage } from '@/features/auth/verify-email-page'
 import { AdminLayout } from '@/features/admin/admin-layout'
 import { ErrorsPage } from '@/features/admin/errors-page'
+import { AdminSettingsPage } from '@/features/admin/settings-page'
 import { UsagePage } from '@/features/admin/usage-page'
 import { UsersPage } from '@/features/admin/users-page'
 import { BacklogPage } from '@/features/backlog/backlog-page'
@@ -69,6 +70,7 @@ export const routes = [
               { path: 'users', element: <UsersPage /> },
               { path: 'usage', element: <UsagePage /> },
               { path: 'errors', element: <ErrorsPage /> },
+              { path: 'settings', element: <AdminSettingsPage /> },
             ],
           },
           { path: '*', element: <NotFoundPage /> },

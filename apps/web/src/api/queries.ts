@@ -930,6 +930,11 @@ export function useAdminUsage() {
   return useQuery({ queryKey: ['admin', 'usage'] as const, queryFn: () => unwrap(api.GET('/admin/usage')), refetchInterval: 60_000 })
 }
 
+/** Settings page: the server's configuration, read-only. */
+export function useAdminSettings() {
+  return useQuery({ queryKey: ['admin', 'settings'] as const, queryFn: () => unwrap(api.GET('/admin/settings')) })
+}
+
 /** Errors page (FR25d): newest first, 25 per page, optionally of one type and/or severity. */
 export function useAdminErrors(type: AdminErrorType | '', severity: AdminErrorSeverity | '', page: number) {
   return useQuery({
