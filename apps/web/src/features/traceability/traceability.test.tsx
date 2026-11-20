@@ -1,9 +1,14 @@
-import { configure, screen, waitFor } from '@testing-library/react'
+import { configure, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router'
+import { useUpdateStatement } from '@/api/queries'
+import { createQueryClient } from '@/lib/query-client'
 import { getDb, save, uid } from '@/mocks/db'
 import { renderUseCase, type UseCaseModel } from '@/mocks/render'
 import { renderApp } from '@/test/render'
 import { seedDiagram } from '@/test/seed'
+import { DriftBanner } from './drift-banner'
 
 // A CI runner is slower than a laptop: the mock API needs more than the one second
 // testing-library waits by default, so these waits get a real budget.
@@ -33,6 +38,39 @@ describe('FR17d drift warning', () => {
     editVersion((m) => ({ ...m, cases: m.cases.filter((c) => c.name !== 'Issue book') }))
     renderApp('/projects/pr_1/diagrams/dg_1')
     await screen.findAllByText(/Generated/)
+    await waitFor(() => expect(screen.queryByText(/no longer has it/)).not.toBeInTheDocument())
+  })
+
+  it('clears the banner when the requirement is saved, without leaving the page', async () => {
+    // FR17d is recomputed from the current requirements, so saving one on the Review page has to refetch the
+    // warning for a diagram already on screen. Without that invalidation the banner would sit there until a reload.
+    seedDiagram()
+    const edited = editVersion((m) => ({ ...m, cases: m.cases.filter((c) => c.name !== 'Issue book') }))
+
+    function Page() {
+      const saveStatement = useUpdateStatement('pr_1')
+      return (
+        <>
+          <DriftBanner diagramId={edited.id} />
+          <button onClick={() => saveStatement.mutate({ id: 'st_1', text: 'The librarian greets every member.' })}>
+            Save requirement
+          </button>
+        </>
+      )
+    }
+
+    localStorage.setItem('sddg.mock.session', JSON.stringify({ email: 'dev@sddg.test', accessToken: 'mock-token:dev@sddg.test' }))
+    const user = userEvent.setup()
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <MemoryRouter>
+          <Page />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText(/R-001 calls for "Issue book", but this version no longer has it\./)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save requirement' }))
     await waitFor(() => expect(screen.queryByText(/no longer has it/)).not.toBeInTheDocument())
   })
 

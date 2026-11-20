@@ -112,3 +112,7 @@ function defaultMessage(status: number) {
   if (WAKING_STATUSES.has(status)) return 'The server is starting.'
   return `Request failed (${status}).`
 }
+export type Me = Schemas['Me']
+export type AdminUser = Schemas['AdminUser']
+export type AdminUserPage = Schemas['AdminUserPage']
+export type AdminUsage = Schemas['AdminUsage']

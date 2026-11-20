@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from core import db, invites
 from core.auth import User, get_current_user
 from core.notifications import notify
-from routers.integrated import NOT_FOUND, project_view
+from routers.integrated import NOT_FOUND, project_view, require_role
 
 router = APIRouter()
 
@@ -23,23 +23,21 @@ class InvitationAccept(BaseModel):
 
 
 def require_manager(project_id, user):
-    """Owners and system administrators manage invitations. Another member is refused (403); a stranger is told the
-    project does not exist (404)."""
-    how = invites.access(project_id, user)
-    if how is None:
-        raise HTTPException(404, NOT_FOUND)
-    if how == "member":
-        raise HTTPException(403, "Only an Owner can invite people or revoke invitations.")
-    return how
+    """Owners and system administrators manage invitations: require_role tells a stranger the project does not
+    exist (404) and refuses another member (403), and counts an administrator as an Owner everywhere.
+
+    Returns "owner" or "admin": require_role cannot tell them apart, and an administrator who invites someone
+    has to tell the project's real Owners, so the one lookup stays."""
+    require_role(project_id, user, "owner")
+    return "owner" if invites.member_role(project_id, user.id) == "owner" else "admin"
 
 
 @router.get("/projects/{project_id}/invitations")
 def list_invitations(project_id: str, user: User = Depends(get_current_user)):
-    """The project's open invitations. Only Owners and administrators get the link tokens."""
-    how = invites.access(project_id, user)
-    if how is None:
-        raise HTTPException(404, NOT_FOUND)
-    return [invites.view(i, with_token=how != "member") for i in invites.open_for_project(project_id)]
+    """The project's open invitations, for any member. Only Owners and administrators get the link tokens:
+    project_with_role reports an administrator as an Owner, which is exactly who may see them."""
+    project = require_role(project_id, user, "viewer")
+    return [invites.view(i, with_token=project["role"] == "owner") for i in invites.open_for_project(project_id)]
 
 
 @router.post("/projects/{project_id}/invitations", status_code=201)

@@ -1,8 +1,9 @@
 /** Members page (FR24c): who is in the project, what each role can do, and, for an Owner, changing roles and
- * removing people. Anyone can leave. The server enforces every rule here; the UI only hides what would be refused. */
+ * removing people. Anyone can leave. An Owner also invites people and manages pending invitations (FR24a, Triambika's
+ * InviteDialog and PendingInvitations). The server enforces every rule here; the UI only hides what would be refused. */
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { LogOutIcon, UserMinusIcon } from 'lucide-react'
+import { LogOutIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
 import type { Member, Role } from '@/api/client'
 import { errorMessage } from '@/api/errors'
 import { useChangeMemberRole, useMembers, useRemoveMember } from '@/api/queries'
@@ -13,6 +14,8 @@ import { fieldClass } from '@/components/ui/input'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { StepHeading } from '@/features/input/input-page'
+import { InviteDialog } from '@/features/invitations/invite-dialog'
+import { PendingInvitations } from '@/features/invitations/pending-invitations'
 import { cn, formatDate, plural } from '@/lib/utils'
 import { useWorkspace } from '@/routes/workspace-layout'
 import { RoleMatrix } from './role-matrix'
@@ -23,6 +26,8 @@ export const roleLabel = (r: Role) => r[0].toUpperCase() + r.slice(1)
 export function MembersPage() {
   const { project } = useWorkspace()
   const { data: members, isPending, error } = useMembers(project.id)
+  // Owners manage people. The project's role is the caller's real role from the API, so this also covers a System
+  // Administrator, whom the server treats as an Owner (and who may manage invitations there too).
   const isOwner = project.role === 'owner'
 
   return (
@@ -32,16 +37,39 @@ export function MembersPage() {
         description={members ? `${plural(members.length, 'person', 'people')} in this project.` : undefined}
       />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0">
-          {isPending ? (
-            <PageLoading label="Loading members" />
-          ) : error ? (
-            <Notice tone="error" title="Couldn't load the members">
-              {errorMessage(error)}
-            </Notice>
-          ) : (
-            <MembersTable members={members} isOwner={isOwner} />
-          )}
+        <div className="min-w-0 space-y-4">
+          <section aria-labelledby="members-card" className="rounded-lg border border-rule bg-surface">
+            <div className="flex items-center justify-between gap-3 border-b border-rule px-4 py-3">
+              <h3 id="members-card" className="text-sm font-medium">
+                Members {members?.length ?? ''}
+              </h3>
+              {isOwner && (
+                <InviteDialog
+                  projectId={project.id}
+                  projectName={project.name}
+                  trigger={
+                    <Button size="sm">
+                      <UserPlusIcon /> Invite
+                    </Button>
+                  }
+                />
+              )}
+            </div>
+            <div className="px-4 py-2">
+              {isPending ? (
+                <PageLoading label="Loading members" />
+              ) : error ? (
+                <Notice tone="error" title="Couldn't load the members">
+                  {errorMessage(error)}
+                </Notice>
+              ) : (
+                <MembersTable members={members} isOwner={isOwner} />
+              )}
+            </div>
+          </section>
+          {/* Everyone in the project sees who is invited; only an Owner gets Copy link and Revoke. The API leaves the
+              link token out for anyone else, so it never reaches an Editor's or Viewer's browser. */}
+          <PendingInvitations projectId={project.id} canManage={isOwner} />
         </div>
         <RoleMatrix />
       </div>

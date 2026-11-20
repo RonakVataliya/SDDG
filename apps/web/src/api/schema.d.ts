@@ -2951,6 +2951,242 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who the caller is and whether they are a System Administrator (shows the Admin console button) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Me"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users, most recently active first, 25 per page; q matches the email (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    page?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserPage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Block sign-in straight away; their projects are kept. 409 for yourself or the only owner of a shared project */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    user_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUser"];
+                    };
+                };
+                /** @description Unknown user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Let a deactivated user sign in again */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    user_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUser"];
+                    };
+                };
+                /** @description Unknown user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Active users, projects, storage and generation time of the last 7 days (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUsage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications": {
         parameters: {
             query?: never;
@@ -4285,6 +4521,69 @@ export interface components {
             failed: components["schemas"]["RunSelectionMode"];
             regression: components["schemas"]["RunSelectionMode"];
             minimal: components["schemas"]["RunSelectionMode"];
+        };
+        Me: {
+            id: string;
+            email: string;
+            is_admin: boolean;
+        };
+        AdminUser: {
+            id: string;
+            email: string;
+            is_admin: boolean;
+            /** @description Projects they are a member of */
+            projects: number;
+            /** Format: date-time */
+            last_seen_at: string | null;
+            /** @enum {string} */
+            status: "active" | "deactivated";
+        };
+        AdminUserPage: {
+            users: components["schemas"]["AdminUser"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        UsageEvent: {
+            /** @enum {string} */
+            type: "slow" | "error" | "rate_limit";
+            /** @description Built from the job kind, AI node and counts only, never requirement or error text */
+            description: string;
+            duration_seconds: number | null;
+            /** Format: date-time */
+            at: string;
+        };
+        UsageGeneration: {
+            /** @description Finished generation runs in the window */
+            runs: number;
+            median_seconds: number | null;
+            p95_seconds: number | null;
+            median_target_seconds: number;
+            p95_target_seconds: number;
+            /** @description null when there are no runs */
+            median_ok: boolean | null;
+            p95_ok: boolean | null;
+        };
+        AdminUsage: {
+            window_days: number;
+            active_window_minutes: number;
+            active_users: number;
+            /** @description Accounts that are not deactivated */
+            accounts: number;
+            /** @description Deleted projects are not counted */
+            projects: number;
+            archived_projects: number;
+            storage_bytes: number;
+            storage_limit_bytes: number;
+            /** @description 80% of the limit or more */
+            storage_warning: boolean;
+            limits: {
+                max_document_bytes: number;
+                max_documents_per_project: number;
+                max_pages_per_project: number;
+            };
+            generation: components["schemas"]["UsageGeneration"];
+            events: components["schemas"]["UsageEvent"][];
         };
         /** @enum {string} */
         NotificationType: "invitation" | "admin_invited" | "mention" | "generation_ready" | "generation_failed";
