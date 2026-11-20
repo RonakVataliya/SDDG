@@ -353,3 +353,6 @@ CREATE TABLE IF NOT EXISTS errors (
   created_at timestamptz NOT NULL);
 CREATE INDEX IF NOT EXISTS errors_created_idx ON errors (created_at DESC);
 ALTER TABLE errors ENABLE ROW LEVEL SECURITY;
+
+-- Out-of-date diagrams (migration 0017): when a requirement a diagram draws was last edited. NULL = not out of date.
+ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS out_of_date_at timestamptz;

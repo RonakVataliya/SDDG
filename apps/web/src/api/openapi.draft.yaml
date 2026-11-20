@@ -973,6 +973,7 @@ components:
         parent_id: { type: [string, 'null'], description: The version this one was edited from; null for a fresh generation }
         instruction: { type: [string, 'null'], description: The edit request that produced this version; null for a fresh generation }
         revision: { type: integer, minimum: 1, description: 1 for a fresh generation; each edited version is its parent's revision plus one }
+        out_of_date: { type: boolean, description: 'FR17c: a requirement this diagram draws was edited or deleted after it was drawn (set by the server, in the list only). Stays true until a new generation of this diagram type is made; editing the diagram does not clear it.' }
     DiagramElement:
       type: object
       required: [element_id, kind, label, statement_ids]

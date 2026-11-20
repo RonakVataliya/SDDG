@@ -12,6 +12,7 @@ from core import db
 from core.activity import log_event
 from core.auth import User, get_current_user
 from core.quality import detect
+from core.requirements import on_requirement_edited
 from routers.integrated import NOT_FOUND, require_project, require_role
 
 router = APIRouter()
@@ -47,7 +48,10 @@ def add_statement(project_id: str, body: StatementCreate, user: User = Depends(g
     [sid] = db.insert_statements(project_id, [{"text": text, "labels": [clean_label(body.label) or "unknown"]}], document="added by you")
     db.reset_model(project_id)
     detect(project_id, [sid])
-    return db.get_statement(project_id, sid)
+    statement = db.get_statement(project_id, sid)
+    log_event(project_id, user.id, "statement.added", statement["ref"])
+    on_requirement_edited(project_id, [sid], user.id)  # a new requirement is in no diagram yet, so nothing is marked
+    return statement
 
 
 def edit_conflict(project_id, statement_id, base_revision):
@@ -82,13 +86,17 @@ def edit_statement(project_id: str, statement_id: str, body: StatementUpdate, us
     db.reset_model(project_id)
     if text is not None:
         detect(project_id, [statement_id])
+        on_requirement_edited(project_id, [statement_id], user.id)  # a label change leaves the drawings correct
     return statement
 
 
 @router.delete("/projects/{project_id}/statements/{statement_id}", status_code=204)
 def delete_statement(project_id: str, statement_id: str, user: User = Depends(get_current_user)):
     require_project(project_id, user)
+    statement = db.get_statement(project_id, statement_id)
     if not db.delete_statement(project_id, statement_id):
         raise HTTPException(404, NOT_FOUND)
     db.reset_model(project_id)
+    log_event(project_id, user.id, "statement.deleted", statement["ref"])
+    on_requirement_edited(project_id, [statement_id], user.id)
     return Response(status_code=204)

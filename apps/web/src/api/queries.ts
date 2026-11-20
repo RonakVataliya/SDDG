@@ -399,6 +399,7 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
       void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
       void qc.invalidateQueries({ queryKey: keys.design(projectId) }) // design sections citing it may be Out of date
       void qc.invalidateQueries(driftQueries) // FR17d: a requirement may now match, or stop matching, an edited diagram
+      void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) }) // FR17c: diagrams that draw it are now Out of date
     },
   })
 }
@@ -499,6 +500,7 @@ export function useFlagAction(projectId: string) {
         void qc.invalidateQueries({ queryKey: keys.items(projectId) })
         void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
         void qc.invalidateQueries(driftQueries) // FR17d: the fix rewrites the requirement the warning is measured against
+        void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) }) // FR17c
       }
     },
   })
