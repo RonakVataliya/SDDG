@@ -140,8 +140,8 @@ def run(sql, *args):
 
 def get_user(email, user_id):
     return one(
-        "INSERT INTO users(id, email) VALUES (%s, %s) "
-        "ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, last_seen_at = now() RETURNING *",
+        "INSERT INTO users(id, email, last_seen_at) VALUES (%s, %s, now()) "
+        "ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, last_seen_at = EXCLUDED.last_seen_at RETURNING *",
         user_id, email,
     )
 
