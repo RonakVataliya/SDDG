@@ -1,11 +1,18 @@
 /** Members page (FR24c): the list, what each role can do, changing a role, removing someone, and never losing the
  * last Owner. */
-import { screen, waitFor, within } from '@testing-library/react'
+import { configure, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import { getDb, membersOf, save } from '@/mocks/db'
+import { env } from '@/lib/env'
+import { getDb, membersOf, projectView, save } from '@/mocks/db'
+import { server } from '@/mocks/node'
 import { renderApp } from '@/test/render'
-import { seedProject } from '@/test/seed'
+import { seedInvitation, seedProject } from '@/test/seed'
+
+// The invitation round trips go through several mock requests; give the waits the same budget as invitations.test.
+configure({ asyncUtilTimeout: 5000 })
+vi.setConfig({ testTimeout: 20000 })
 
 function seedTeam() {
   seedProject()
@@ -61,5 +68,54 @@ describe('Members page', () => {
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(screen.queryByText('priya@sddg.test')).not.toBeInTheDocument())
     expect(getDb().members?.pr_1.map((m) => m.email)).toEqual(['dev@sddg.test', 'karan@sddg.test'])
+  })
+})
+
+/** The signed-in user's role on pr_1 as the project view reports it (the mock owner sees the project as this role). */
+function signedInAs(role: 'editor' | 'viewer') {
+  server.use(
+    http.get(`${env.apiUrl.replace(/\/$/, '')}/projects/:project_id`, () =>
+      HttpResponse.json({ ...projectView(getDb().projects[0]), role, is_owner: false }),
+    ),
+  )
+}
+
+describe('Members page: invitations (FR24a)', () => {
+  it('lets an Owner invite someone, then copy or revoke the pending invitation', async () => {
+    seedTeam()
+    const user = userEvent.setup()
+    renderApp('/projects/pr_1/members')
+    expect(await screen.findByRole('heading', { name: 'Members 3' })).toBeInTheDocument()
+    expect(screen.getByText('3 people in this project.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    expect(await screen.findByText('Invite to Library system')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Viewer' })).toHaveAttribute('aria-checked', 'true')
+    await user.type(screen.getByLabelText('Email address'), 'meera@sddg.test')
+    await user.click(screen.getByRole('radio', { name: 'Editor' }))
+    await user.click(screen.getByRole('button', { name: 'Send invite' }))
+
+    const pending = await screen.findByRole('region', { name: 'Pending invitations 1' })
+    expect(within(pending).getByText('meera@sddg.test')).toBeInTheDocument()
+    expect(within(pending).getByText('Editor')).toBeInTheDocument()
+    expect(within(pending).getByText('Expires in 7 days')).toBeInTheDocument()
+    expect(within(pending).getByRole('button', { name: 'Copy link' })).toBeInTheDocument()
+
+    await user.click(within(pending).getByRole('button', { name: 'Revoke' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: /Pending invitations/ })).not.toBeInTheDocument())
+    expect(getDb().collab.invitations[0].revoked_at).toBeTruthy()
+  })
+
+  it.each(['editor', 'viewer'] as const)('shows an %s no Invite button and the pending invitations read-only', async (role) => {
+    seedTeam()
+    seedInvitation({ email: 'meera@sddg.test' })
+    signedInAs(role)
+    renderApp('/projects/pr_1/members')
+    const pending = await screen.findByRole('region', { name: 'Pending invitations 1' })
+    expect(within(pending).getByText('meera@sddg.test')).toBeInTheDocument()
+    expect(within(pending).queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument()
+    expect(within(pending).queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invite' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Members 3' })).toBeInTheDocument()
   })
 })

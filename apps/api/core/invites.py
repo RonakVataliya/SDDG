@@ -42,22 +42,8 @@ def member_role(project_id, user_id):
     return r["role"] if r else None
 
 
-def is_admin(user_id):
-    r = db.one("SELECT COALESCE(is_admin, false) AS admin FROM users WHERE id=%s", user_id)
-    return bool(r and r["admin"])
-
-
-def access(project_id, user):
-    """How this user stands with the project: 'owner' or 'admin' (may manage invitations), 'member', or None
-    (not a member, or no such project: the caller answers 404 so a stranger cannot tell the project exists)."""
-    if db.get_project(project_id) is None:
-        return None
-    role = member_role(project_id, user.id)
-    if role == "owner":
-        return "owner"
-    if is_admin(user.id):
-        return "admin"
-    return "member" if role else None
+# access() lived here until require_role (C2, #59) landed: who may manage a project is answered in one place now,
+# by db.project_with_role, which also counts a System Administrator as an Owner. is_admin() went with it.
 
 
 def owner_ids(project_id):

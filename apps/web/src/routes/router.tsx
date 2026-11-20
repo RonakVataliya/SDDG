@@ -2,6 +2,9 @@ import { createBrowserRouter, Navigate } from 'react-router'
 import { LoginPage } from '@/features/auth/login-page'
 import { SignupPage } from '@/features/auth/signup-page'
 import { VerifyEmailPage } from '@/features/auth/verify-email-page'
+import { AdminLayout } from '@/features/admin/admin-layout'
+import { UsagePage } from '@/features/admin/usage-page'
+import { UsersPage } from '@/features/admin/users-page'
 import { BacklogPage } from '@/features/backlog/backlog-page'
 import { DesignPage } from '@/features/design/design-page'
 import { GeneratePage } from '@/features/generate/generate-page'
@@ -53,6 +56,15 @@ export const routes = [
               { path: 'tests', element: <TestsPage /> },
               { path: 'design', element: <DesignPage /> },
               { path: 'diagrams/:diagramId', element: <ViewerPage /> },
+            ],
+          },
+          {
+            path: 'admin',
+            element: <AdminLayout />,
+            children: [
+              { index: true, element: <Navigate to="users" replace /> },
+              { path: 'users', element: <UsersPage /> },
+              { path: 'usage', element: <UsagePage /> },
             ],
           },
           { path: '*', element: <NotFoundPage /> },

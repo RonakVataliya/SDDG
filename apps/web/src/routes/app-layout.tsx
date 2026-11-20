@@ -7,11 +7,14 @@ import { Toaster } from '@/components/ui/toaster'
 import { Wordmark } from '@/components/wordmark'
 import { NotificationBell } from '@/features/notifications/notification-bell'
 import { useAuth } from '@/features/auth/auth-context'
+import { useMe } from '@/api/queries'
+import { Button } from '@/components/ui/button'
 
 const item = 'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-[13px] outline-none data-[highlighted]:bg-ink/5'
 
 export function AppLayout() {
   const { session, signOut } = useAuth()
+  const me = useMe()
   const navigate = useNavigate()
   const initials = (session?.email ?? '?').slice(0, 2).toUpperCase()
 
@@ -23,6 +26,11 @@ export function AppLayout() {
             <Wordmark />
           </Link>
           <div className="ml-auto flex items-center gap-1.5">
+            {me.data?.is_admin && (
+              <Button asChild variant="secondary" size="sm">
+                <Link to="/admin/users">Admin console</Link>
+              </Button>
+            )}
             <AppearanceMenu />
             <NotificationBell />
             <DropdownMenu.Root>
