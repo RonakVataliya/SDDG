@@ -77,6 +77,6 @@ describe('Edit conflict (FR24f)', () => {
       expect(getDb().statements.pr_1[0]).toMatchObject({ revision: 3, text: 'The librarian shall issue up to five books to a registered member.' }),
     )
     expect(await screen.findByText('Saved R-001 as revision 3')).toBeInTheDocument()
-    expect(screen.getByText('rev 3 · Saved')).toBeInTheDocument()
+    expect(await screen.findByText('rev 3 · Saved')).toBeInTheDocument() // the row updates after the list refetch
   })
 })
