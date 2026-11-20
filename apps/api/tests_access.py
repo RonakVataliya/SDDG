@@ -33,6 +33,8 @@ mine = {'Authorization': f'Bearer mock-token:{OWNER}'}
 theirs = {'Authorization': f'Bearer mock-token:{STRANGER}'}
 viewers = {'Authorization': f'Bearer mock-token:{VIEWER}'}
 VIEWER_MAY = {('post', '/api/v1/diagrams/{diagram_id}/preview')}  # a style preview saves nothing
+# Belong to one user, not to the project's roles: someone else's invitation or notification is simply not found.
+NOT_THE_VIEWERS = {('post', '/api/v1/invitations/{invitation_id}/accept'), ('post', '/api/v1/notifications/{notification_id}/read')}
 
 
 def sql(query, *args):
@@ -148,10 +150,12 @@ def check(client):
             r = client.request(method, path.format(**ids), headers=viewers, json=body)
             if method == 'get' or (method, path) in VIEWER_MAY:
                 assert r.status_code != 403, (method, path, r.text)
+            elif (method, path) in NOT_THE_VIEWERS:
+                assert r.status_code == 404, (method, path, r.status_code, r.text)
             else:
                 assert r.status_code == 403, (method, path, r.status_code, r.text)
                 refused += 1
-    assert refused == 40, refused  # every route that changes something; a new one needs a deliberate role
+    assert refused == 43, refused  # every project route that changes something; a new one needs a deliberate role
     sql('DELETE FROM project_members WHERE project_id=%s AND user_id=%s', pid, VIEWER_ID)
 
     # 2. A guessed id gets exactly the answer a real but foreign id gets, so nothing reveals what exists.
