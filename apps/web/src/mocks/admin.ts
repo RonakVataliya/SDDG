@@ -3,7 +3,7 @@
  * in-memory list of 30 users (so paging shows). Only emails in ADMINS are administrators.
  */
 import { http, HttpResponse, type HttpResponseResolver } from 'msw'
-import type { AdminError, AdminUsage, AdminUser } from '@/api/client'
+import type { AdminError, AdminSettings, AdminUsage, AdminUser } from '@/api/client'
 
 type Helpers = {
   u: (path: string) => string
@@ -55,6 +55,15 @@ const ERROR_KINDS: Pick<AdminError, 'type' | 'severity' | 'message'>[] = [
 export const MOCK_ERRORS: AdminError[] = Array.from({ length: 30 }, (_, i) => ({
   id: `err_${i + 1}`, ...ERROR_KINDS[i % 4], project_id: i % 4 === 0 ? null : 'proj_1', at: new Date(Date.now() - (i + 1) * 600_000).toISOString(),
 }))
+/** Shaped like GET /admin/settings: the values the real server shows. */
+export const MOCK_SETTINGS: AdminSettings = {
+  ai: {
+    reachable: true, job_deadline_seconds: 600,
+    providers: [{ name: 'groq', model: 'openai/gpt-oss-120b', available: true }, { name: 'gemini', model: 'gemini-3.5-flash', available: true }],
+  },
+  ai_key_set: true, storage_limit_bytes: 500 * 1048576, invitation_expiry_days: 7,
+  session_timeout_hours: 24, failed_logins_before_lock: 5, lock_minutes: 15,
+}
 const view = ({ shared_owned: _, ...r }: Row): AdminUser => r
 
 export function adminHandlers({ u, authed, fail }: Helpers) {
@@ -78,6 +87,7 @@ export function adminHandlers({ u, authed, fail }: Helpers) {
       }),
     ),
     http.get(u('/admin/usage'), asAdmin(() => HttpResponse.json(MOCK_USAGE))),
+    http.get(u('/admin/settings'), asAdmin(() => HttpResponse.json(MOCK_SETTINGS))),
     http.get(
       u('/admin/errors'),
       asAdmin((_, __, request) => {

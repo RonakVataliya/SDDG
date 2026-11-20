@@ -1,7 +1,9 @@
 """Database access for the admin console (FR23): the user list and deactivation. Same pool as core/db.py."""
 import os
 
-from core import db
+import httpx
+
+from core import ai_client, db, invites
 
 PAGE_SIZE = 25
 USER_SQL = (
@@ -110,3 +112,37 @@ def list_errors(type_, severity, page):
     rows = db.many("SELECT id, type, severity, message, project_id, created_at FROM errors" + where
                    + " ORDER BY created_at DESC, id LIMIT %s OFFSET %s", *args, PAGE_SIZE, (page - 1) * PAGE_SIZE)
     return [{**r, "at": r["created_at"]} for r in rows], total
+
+
+# ---- Settings (read-only) ----
+def _optional_int(name):
+    """A value this app only knows if someone declares it in the environment; None when unset or not a number."""
+    v = os.getenv(name, "").strip()
+    return int(v) if v.isdigit() else None
+
+
+def ai_providers():
+    """The AI service's providers in preference order, from its GET /llm/status. Names, models and whether a key is set;
+    the service never sends a key. (False, []) when it can't be reached."""
+    try:
+        r = httpx.get(f"{ai_client.AI_URL}/llm/status", headers={"X-Internal-Key": os.getenv("INTERNAL_API_KEY", "")}, timeout=3)
+        r.raise_for_status()
+        return True, [{"name": p["provider"], "model": p["model"], "available": bool(p["available"])} for p in r.json()["providers"]]
+    except Exception:  # noqa: BLE001 -- the page still shows everything else
+        return False, []
+
+
+def settings():
+    """What the server is configured with, for the Settings page. Never a secret: whether the AI key is set is a yes/no
+    the AI service reports, and nothing here reads the key itself."""
+    reachable, providers = ai_providers()
+    return {
+        "ai": {"reachable": reachable, "providers": providers, "job_deadline_seconds": int(ai_client.JOB_DEADLINE)},
+        "ai_key_set": any(p["available"] for p in providers) if reachable else None,
+        "storage_limit_bytes": STORAGE_LIMIT_BYTES,
+        "invitation_expiry_days": invites.EXPIRES_DAYS,
+        # Supabase Auth owns these two; set the env vars to the values in the Supabase dashboard to show them here.
+        "session_timeout_hours": _optional_int("SESSION_TIMEOUT_HOURS"),
+        "failed_logins_before_lock": _optional_int("FAILED_LOGINS_BEFORE_LOCK"),
+        "lock_minutes": _optional_int("LOGIN_LOCK_MINUTES"),
+    }

@@ -606,6 +606,12 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUsage' } } } }
         '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /admin/settings:
+    get:
+      summary: Read-only server configuration for the Settings page. Never a secret (administrators only, else 403)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AdminSettings' } } } }
+        '403': { description: Not an administrator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /admin/errors:
     get:
       summary: Recorded errors, newest first, 25 per page; filter by type and severity. Kinds and IDs only, never document text (administrators only, else 403)
@@ -1568,6 +1574,32 @@ components:
             max_pages_per_project: { type: integer }
         generation: { $ref: '#/components/schemas/UsageGeneration' }
         events: { type: array, items: { $ref: '#/components/schemas/UsageEvent' } }
+    AdminSettings:
+      type: object
+      required: [ai, ai_key_set, storage_limit_bytes, invitation_expiry_days, session_timeout_hours, failed_logins_before_lock, lock_minutes]
+      properties:
+        ai:
+          type: object
+          required: [reachable, providers, job_deadline_seconds]
+          properties:
+            reachable: { type: boolean, description: false when the AI service did not answer }
+            providers:
+              type: array
+              description: In preference order; the first is used, the rest are fallbacks
+              items:
+                type: object
+                required: [name, model, available]
+                properties:
+                  name: { type: string }
+                  model: { type: string }
+                  available: { type: boolean, description: Its key is set }
+            job_deadline_seconds: { type: integer, description: How long a job waits for AI capacity before it fails }
+        ai_key_set: { type: boolean, nullable: true, description: 'Whether an AI key is set. null when the AI service did not answer. The key itself is never sent.' }
+        storage_limit_bytes: { type: integer }
+        invitation_expiry_days: { type: integer }
+        session_timeout_hours: { type: integer, nullable: true, description: Declared by the server; null when not declared (Supabase Auth owns it) }
+        failed_logins_before_lock: { type: integer, nullable: true }
+        lock_minutes: { type: integer, nullable: true }
     AdminErrorType: { type: string, enum: [api, job, ai, rate_limit], description: 'api = a crash in a route, job = a failed job, ai = a failed AI call' }
     AdminErrorSeverity: { type: string, enum: [error, warning] }
     AdminError:
