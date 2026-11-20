@@ -476,8 +476,23 @@ export const handlers = [
       const p = ownedProject(email, params.project_id)
       const st = p && (getDb().statements[p.id] ?? []).find((s) => s.id === params.statement_id)
       if (!p || !st) return notFound()
-      const { text, label } = (await request.json()) as { text?: string; label?: string | null }
+      const { text, label, base_revision } = (await request.json()) as { text?: string; label?: string | null; base_revision?: number }
       if (text !== undefined && !text.trim()) return fail(422, 'Requirement text can’t be empty.')
+      // --- Raj: edit conflict check (FR24f): same 409 as the API when the stored revision is newer ---
+      const stored = st.revision ?? 1
+      if (base_revision !== undefined && base_revision !== stored) {
+        const last = getDb().lastSaved?.[st.id]
+        const who = last ? last.by.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : 'Someone else'
+        return HttpResponse.json(
+          {
+            detail: `${who} saved revision ${stored} while you were editing revision ${base_revision}. Nothing was overwritten.`,
+            code: 'edit_conflict', changed_by: who, changed_at: last?.at ?? null, base_revision, current: st,
+          },
+          { status: 409 },
+        )
+      }
+      ;(getDb().lastSaved ??= {})[st.id] = { by: email, at: new Date().toISOString() }
+      // --- end Raj: edit conflict check ---
       if (text !== undefined) {
         st.text = text.trim()
         const db = getDb()
