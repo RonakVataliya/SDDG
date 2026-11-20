@@ -2,7 +2,7 @@
 Administrator act as owner. Also checks that the project response carries the caller's real role and that a role
 change applies on the next request.
 
-Runs against the Postgres in DATABASE_URL (schema.sql applied, including migrations 0005-0007) with no AI or Kroki
+Runs against the Postgres in DATABASE_URL (schema.sql applied, including migration 0009) with no AI or Kroki
 calls. Uses throwaway users and deletes what it creates. Run: python tests_roles.py
 """
 import os

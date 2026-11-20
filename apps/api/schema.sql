@@ -221,10 +221,10 @@ ALTER TABLE test_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE test_counters ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Raj: roles, revisions and comments (Sprint 3 shared contracts). Same statements as migrations/0005-0007.
+-- Raj: roles, revisions and comments (Sprint 3 shared contracts). Same statements as migrations/0009.
 -- ---------------------------------------------------------------------------------------------------------------
 
--- 0005 Roles (shared contract, FR24): every project member has exactly one role, read from here on every request.
+-- Roles (shared contract, FR24): every project member has exactly one role, read from here on every request.
 -- viewer < editor < owner. Existing members (each project's creator) become owners. Safe to run twice.
 ALTER TABLE project_members ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'owner';
 ALTER TABLE project_members DROP CONSTRAINT IF EXISTS project_members_role_check;
@@ -240,7 +240,7 @@ ALTER TABLE project_members ALTER COLUMN joined_at SET DEFAULT now();
 -- console (Nitin, 0015-0019); is_admin is added here too, with IF NOT EXISTS, so roles work whichever runs first.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;
 
--- 0006 Revisions (shared contract, FR24f edit conflict check): every save of a requirement, item or diagram version
+-- Revisions (shared contract, FR24f edit conflict check): every save of a requirement, item or diagram version
 -- counts up its revision, starting at 1. A save sends the revision it was based on; a newer stored one means someone
 -- else saved in between (409). revised_by / revised_at say who saved the current revision and when (user id only,
 -- never content). A diagram edit is a new row, so its revision is its parent's plus one. Safe to run twice.
@@ -253,7 +253,7 @@ ALTER TABLE items ADD COLUMN IF NOT EXISTS revised_at timestamptz;
 ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS revision int NOT NULL DEFAULT 1;
 ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS revised_by text;
 
--- 0007 Comments and issue reports (shared contract, FR32, FR27a-c). Any member, even a Viewer, can comment on a
+-- Comments and issue reports (shared contract, FR32, FR27a-c). Any member, even a Viewer, can comment on a
 -- requirement or a diagram version; is_issue_report turns a comment into a feedback report that Owners (their
 -- projects) and admins (all projects) see on the Feedback page. 'project' is for reports about the project as a
 -- whole, e.g. its export. body is encrypted (core/db.py SECRET); author_id and resolved_by are user ids.

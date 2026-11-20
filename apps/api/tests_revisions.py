@@ -2,7 +2,7 @@
 records who saved it; a diagram version's revision is its parent's plus one. The API returns the revision with each
 requirement, item and diagram.
 
-Runs against the Postgres in DATABASE_URL (schema.sql applied, including migrations 0005-0007) with no AI or Kroki
+Runs against the Postgres in DATABASE_URL (schema.sql applied, including migration 0009) with no AI or Kroki
 calls (the quality checker is unreachable and skipped). Uses a throwaway user and deletes what it creates.
 Run: python tests_revisions.py
 """
