@@ -4,6 +4,7 @@
   GET  /admin/users?q=&page=            25 users per page, search by email
   POST /admin/users/{id}/deactivate     blocks sign-in straight away; their projects are kept
   POST /admin/users/{id}/reactivate     lets them sign in again
+  GET  /admin/usage                     active users, projects, storage and generation time of the last 7 days
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -53,3 +54,8 @@ def reactivate(user_id: str, admin: User = Depends(require_admin)):
     admin_db.set_deactivated(user_id, False)
     db.log_event(None, admin.id, "user.reactivated", user_id)
     return admin_db.get_user(user_id)
+
+
+@router.get("/admin/usage")
+def usage(_: User = Depends(require_admin)):
+    return admin_db.usage()

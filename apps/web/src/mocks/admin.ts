@@ -3,7 +3,7 @@
  * in-memory list of 30 users (so paging shows). Only emails in ADMINS are administrators.
  */
 import { http, HttpResponse, type HttpResponseResolver } from 'msw'
-import type { AdminUser } from '@/api/client'
+import type { AdminUsage, AdminUser } from '@/api/client'
 
 type Helpers = {
   u: (path: string) => string
@@ -33,6 +33,18 @@ export function resetAdminMock() {
   ADMINS.clear()
   ADMINS.add('admin@sddg.test')
 }
+/** Fixed numbers, shaped like the API's GET /admin/usage; tests and the demo read these. */
+export const MOCK_USAGE: AdminUsage = {
+  window_days: 7, active_window_minutes: 15, active_users: 14, accounts: 21, projects: 23, archived_projects: 4,
+  storage_bytes: 182 * 1048576, storage_limit_bytes: 500 * 1048576, storage_warning: false,
+  limits: { max_document_bytes: 10 * 1048576, max_documents_per_project: 15, max_pages_per_project: 100 },
+  generation: { runs: 42, median_seconds: 38.4, p95_seconds: 131.2, median_target_seconds: 60, p95_target_seconds: 120, median_ok: true, p95_ok: false },
+  events: [
+    { type: 'slow', description: 'Generation took 131 s', duration_seconds: 131.2, at: new Date(Date.now() - 2 * 60_000).toISOString() },
+    { type: 'rate_limit', description: 'groq extract hit a rate limit, tried 3 time(s)', duration_seconds: 4, at: new Date(Date.now() - 3_600_000).toISOString() },
+    { type: 'error', description: 'generation job failed', duration_seconds: 12.5, at: new Date(Date.now() - 86_400_000).toISOString() },
+  ],
+}
 const view = ({ shared_owned: _, ...r }: Row): AdminUser => r
 
 export function adminHandlers({ u, authed, fail }: Helpers) {
@@ -55,6 +67,7 @@ export function adminHandlers({ u, authed, fail }: Helpers) {
         return HttpResponse.json({ users, total: found.length, page, page_size: PAGE_SIZE })
       }),
     ),
+    http.get(u('/admin/usage'), asAdmin(() => HttpResponse.json(MOCK_USAGE))),
     http.post(
       u('/admin/users/:user_id/deactivate'),
       asAdmin((email, params) => {

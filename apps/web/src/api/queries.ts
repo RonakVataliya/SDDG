@@ -918,6 +918,11 @@ export function useSetUserActive() {
   })
 }
 
+/** Usage page: refreshed every minute while the page is open (FR25a). */
+export function useAdminUsage() {
+  return useQuery({ queryKey: ['admin', 'usage'] as const, queryFn: () => unwrap(api.GET('/admin/usage')), refetchInterval: 60_000 })
+}
+
 /* ---------- notifications bell (FR24a, FR32) ---------- */
 
 export const BELL_POLL_MS = 30_000
