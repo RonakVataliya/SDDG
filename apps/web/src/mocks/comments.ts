@@ -6,6 +6,7 @@
 import { http, HttpResponse, type HttpResponseResolver } from 'msw'
 import type { Schemas } from '@/api/client'
 import { typeLabel } from '@/features/generate/diagram-types'
+import { collabState } from './collab'
 import { getDb, membersOf, save, uid } from './db'
 
 type Comment = Schemas['Comment']
@@ -67,6 +68,19 @@ export function commentsHandlers({ u, authed, ownedProject, fail, notFound }: He
           resolved_by: null, resolved_at: null, created_at: new Date().toISOString(),
         }
         rows().push(row)
+        // FR32: everyone named with @, except yourself, gets a 'mention' in the bell. IDs and the target's label
+        // only, exactly like core/notifications.py notify_mentions: never the comment's text.
+        for (const id of new Set(b.mentions ?? [])) {
+          if (id === memberId(email)) continue
+          collabState().notifications.push({
+            id: uid('nt'), user: id.replace(/^dev:/, ''), type: 'mention',
+            payload: {
+              project_id: p.id, comment_id: row.id, from_user_id: email,
+              target_type: b.target_type, target_id: b.target_id, target: label,
+            },
+            read_at: null, created_at: row.created_at,
+          })
+        }
         save()
         return HttpResponse.json(view(row), { status: 201 })
       }),
