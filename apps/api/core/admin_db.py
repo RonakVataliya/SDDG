@@ -95,3 +95,18 @@ def usage():
         "events": [{"type": e["type"], "description": e["description"], "duration_seconds": e["seconds"], "at": e["at"]}
                    for e in events],
     }
+
+
+# ---- Errors (FR25d) ----
+ERROR_TYPES = ("api", "job", "ai", "rate_limit")
+ERROR_SEVERITIES = ("error", "warning")
+
+
+def list_errors(type_, severity, page):
+    """One page of recorded errors, newest first, optionally of one type and/or severity. Returns (errors, total).
+    The table holds kinds, class names and IDs only (core/db.py record_error), so any column is safe to return."""
+    where, args = " WHERE (%s::text IS NULL OR type = %s) AND (%s::text IS NULL OR severity = %s)", (type_, type_, severity, severity)
+    total = db.one("SELECT count(*) AS n FROM errors" + where, *args)["n"]
+    rows = db.many("SELECT id, type, severity, message, project_id, created_at FROM errors" + where
+                   + " ORDER BY created_at DESC, id LIMIT %s OFFSET %s", *args, PAGE_SIZE, (page - 1) * PAGE_SIZE)
+    return [{**r, "at": r["created_at"]} for r in rows], total

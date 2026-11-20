@@ -81,6 +81,8 @@ export type MockDb = {
   jobs: JobRow[]
   diagrams: DiagramRow[]
   nextStatement: Record<string, number>
+  /** Raj, edit conflict (FR24f): who saved a requirement's current revision, and when (by statement id). */
+  lastSaved?: Record<string, { by: string; at: string }>
   /** Members page: missing means just the creator, as owner. */
   members?: Record<string, MemberRow[]>
   stories: StoryRow[]

@@ -3,6 +3,8 @@ import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } f
 import {
   api,
   unwrap,
+  type AdminErrorSeverity,
+  type AdminErrorType,
   type ConditionUpdate,
   type Diagram,
   type DesignKind,
@@ -19,6 +21,7 @@ import {
   type TestCaseCreate,
   type TestCaseUpdate,
 } from './client'
+import { ApiError } from './errors'
 import type { paths } from './schema'
 
 export const keys = {
@@ -384,6 +387,10 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
   const qc = useQueryClient()
   return useMutation({
     mutationFn: fn,
+    // FR24f: after an edit conflict the list must show the version someone else saved.
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === 'edit_conflict') void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
       void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
@@ -405,7 +412,7 @@ export function useAddStatement(projectId: string) {
 }
 
 export function useUpdateStatement(projectId: string) {
-  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel }) =>
+  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel; base_revision?: number; resolves_conflict?: boolean }) =>
     unwrap(api.PATCH('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } }, body })),
   )
 }
@@ -921,6 +928,27 @@ export function useSetUserActive() {
 /** Usage page: refreshed every minute while the page is open (FR25a). */
 export function useAdminUsage() {
   return useQuery({ queryKey: ['admin', 'usage'] as const, queryFn: () => unwrap(api.GET('/admin/usage')), refetchInterval: 60_000 })
+}
+
+/** Errors page (FR25d): newest first, 25 per page, optionally of one type and/or severity. */
+export function useAdminErrors(type: AdminErrorType | '', severity: AdminErrorSeverity | '', page: number) {
+  return useQuery({
+    queryKey: ['admin', 'errors', type, severity, page] as const,
+    queryFn: () => unwrap(api.GET('/admin/errors', { params: { query: { type: type || undefined, severity: severity || undefined, page } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export type ActivityGroup = 'all' | 'members' | 'requirements' | 'diagrams' | 'comments'
+
+/** Activity tab (FR22): the project's log, newest first, 25 per page. Owners and administrators only (else 403). */
+export function useProjectActivity(projectId: string, group: ActivityGroup, actor: string, page: number) {
+  return useQuery({
+    queryKey: [...keys.project(projectId), 'activity', group, actor, page] as const,
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/activity', { params: { path: { project_id: projectId }, query: { group, actor: actor || undefined, page } } })),
+    placeholderData: keepPreviousData,
+    retry: false,
+  })
 }
 
 /* ---------- notifications bell (FR24a, FR32) ---------- */
