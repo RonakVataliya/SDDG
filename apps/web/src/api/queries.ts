@@ -7,6 +7,7 @@ import {
   type Diagram,
   type DesignKind,
   type DiagramType,
+  type InvitationCreate,
   type ItemCategory,
   type Job,
   type Point,
@@ -23,6 +24,7 @@ import type { paths } from './schema'
 export const keys = {
   projects: ['projects'] as const,
   project: (id: string) => ['projects', id] as const,
+  members: (id: string) => ['projects', id, 'members'] as const,
   statements: (id: string) => ['projects', id, 'statements'] as const,
   items: (id: string) => ['projects', id, 'items'] as const,
   itemPage: (id: string, category: ItemCategory | undefined, page: number) =>
@@ -48,6 +50,12 @@ export const keys = {
   runSelection: (id: string) => ['projects', id, 'tests', 'selection'] as const,
   flags: (id: string) => ['projects', id, 'flags'] as const,
   documents: (id: string) => ['projects', id, 'documents'] as const,
+  // Notifications bell, invitations (FR24a) and traceability (FR17)
+  notifications: ['notifications'] as const, // the list and the count below it refresh together
+  unread: ['notifications', 'unread'] as const,
+  invitations: (id: string) => ['projects', id, 'invitations'] as const,
+  naming: (id: string) => ['projects', id, 'naming'] as const,
+  drift: (diagramId: string) => ['diagrams', diagramId, 'drift'] as const,
 }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
@@ -117,6 +125,51 @@ export function useDeleteProject(projectId: string) {
     onSuccess: () => {
       qc.removeQueries({ queryKey: keys.project(projectId) }) // the project and everything under it
       void qc.invalidateQueries({ queryKey: keys.projects, exact: true })
+    },
+  })
+}
+
+/** FR24c Members page: everyone in the project with their role. */
+export function useMembers(projectId: string) {
+  return useQuery({
+    queryKey: keys.members(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/members', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+/** Owner only. The server answers with the updated list; 409 if it would leave the project with no Owner. */
+export function useChangeMemberRole(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: Schemas['Role'] }) =>
+      unwrap(
+        api.PATCH('/projects/{project_id}/members/{member_id}', {
+          params: { path: { project_id: projectId, member_id: userId } },
+          body: { role },
+        }),
+      ),
+    onSuccess: (members) => {
+      qc.setQueryData(keys.members(projectId), members)
+      void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true }) // my own role may have changed
+    },
+  })
+}
+
+/** Remove someone (Owner), or leave (your own id). Leaving drops the project from this browser's cache. */
+export function useRemoveMember(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId }: { userId: string; leaving: boolean }) =>
+      unwrap(
+        api.DELETE('/projects/{project_id}/members/{member_id}', {
+          params: { path: { project_id: projectId, member_id: userId } },
+        }),
+      ),
+    onSuccess: (_, { leaving }) => {
+      if (leaving) {
+        qc.removeQueries({ queryKey: keys.project(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.projects, exact: true })
+      } else void qc.invalidateQueries({ queryKey: keys.members(projectId) })
     },
   })
 }
@@ -459,11 +512,10 @@ export function useDiagrams(projectId: string) {
   })
 }
 
-/** The single-diagram response also lists the labelled elements drawn in the diagram (used by search). */
-export type DiagramDetail = Diagram & { elements?: { label: string }[] }
+/** The single-diagram response also lists the elements drawn in the diagram and the requirements behind them. */
 
 const fetchDiagram = (diagramId: string) =>
-  unwrap(api.GET('/diagrams/{diagram_id}', { params: { path: { diagram_id: diagramId } } })) as Promise<DiagramDetail>
+  unwrap(api.GET('/diagrams/{diagram_id}', { params: { path: { diagram_id: diagramId } } }))
 
 export function useDiagram(diagramId: string) {
   return useQuery({
@@ -852,5 +904,147 @@ export function useSetUserActive() {
     mutationFn: ({ userId, active }: { userId: string; active: boolean }) =>
       unwrap(api.POST(active ? '/admin/users/{user_id}/reactivate' : '/admin/users/{user_id}/deactivate', { params: { path: { user_id: userId } } })),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  })
+}
+
+/* ---------- notifications bell (FR24a, FR32) ---------- */
+
+export const BELL_POLL_MS = 30_000
+
+/** The red number on the bell. Polled; the list is only fetched while the dropdown is open. */
+export function useUnreadCount() {
+  return useQuery({
+    queryKey: keys.unread,
+    queryFn: () => unwrap(api.GET('/notifications/unread-count')),
+    refetchInterval: BELL_POLL_MS,
+    staleTime: 0,
+  })
+}
+
+export function useNotifications(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.notifications,
+    queryFn: () => unwrap(api.GET('/notifications')),
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useMarkRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST('/notifications/{notification_id}/read', { params: { path: { notification_id: id } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.notifications }),
+  })
+}
+
+export function useMarkAllRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => unwrap(api.POST('/notifications/read-all')),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.notifications }),
+  })
+}
+
+/* ---------- invitations (FR24a) ---------- */
+
+function useJoined() {
+  const qc = useQueryClient()
+  return () => {
+    void qc.invalidateQueries({ queryKey: keys.notifications })
+    void qc.invalidateQueries({ queryKey: keys.projects }) // the project is in the list straight away
+  }
+}
+
+/** Accept from the bell. Returns the project, with the invited role. */
+export function useAcceptInvitation() {
+  const joined = useJoined()
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      unwrap(api.POST('/invitations/{invitation_id}/accept', { params: { path: { invitation_id: invitationId } } })),
+    onSuccess: joined,
+  })
+}
+
+/** Accept through the invitation's link (the fallback when there is no email service). */
+export function useAcceptInvitationLink() {
+  const joined = useJoined()
+  return useMutation({
+    mutationFn: (token: string) => unwrap(api.POST('/invitations/accept', { body: { token } })),
+    onSuccess: joined,
+  })
+}
+
+export function useInvitations(projectId: string) {
+  return useQuery({
+    queryKey: keys.invitations(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/invitations', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+export function useInvite(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: InvitationCreate) =>
+      unwrap(api.POST('/projects/{project_id}/invitations', { params: { path: { project_id: projectId } }, body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.invitations(projectId) }),
+  })
+}
+
+export function useRevokeInvitation(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      unwrap(
+        api.DELETE('/projects/{project_id}/invitations/{invitation_id}', {
+          params: { path: { project_id: projectId, invitation_id: invitationId } },
+        }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.invitations(projectId) }),
+  })
+}
+
+/* ---------- traceability (FR17) ---------- */
+
+
+/** FR17d: how this version drifted from the requirements. Depends on the requirements too, so never cached for long. */
+export function useDrift(diagramId: string) {
+  return useQuery({
+    queryKey: keys.drift(diagramId),
+    queryFn: () => unwrap(api.GET('/diagrams/{diagram_id}/drift', { params: { path: { diagram_id: diagramId } } })),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+}
+
+/** FR17e: model items the diagrams name differently. */
+export function useNamingIssues(projectId: string) {
+  return useQuery({
+    queryKey: keys.naming(projectId),
+    queryFn: () =>
+      unwrap(api.GET('/projects/{project_id}/traceability/naming', { params: { path: { project_id: projectId } } })),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+}
+
+/** "Apply this name to all diagrams": new versions of every diagram that named the item differently. */
+export function useApplyName(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { model_item_id: string; name: string }) =>
+      unwrap(
+        api.POST('/projects/{project_id}/traceability/naming/apply', {
+          params: { path: { project_id: projectId } },
+          body,
+        }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.naming(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.requirementCoverage(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+    },
   })
 }

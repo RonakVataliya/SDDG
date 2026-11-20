@@ -102,6 +102,7 @@ function buildAreas(project: Project): Area[] {
     { to: 'items', label: 'Building blocks', locked: project.item_count > 0 ? undefined : 'Nothing extracted yet' },
     { to: 'search', label: 'Search' },
   ]
+  areas.push({ to: 'members', label: 'Members' })
   if (project.is_owner) areas.push({ to: 'settings', label: 'Settings' })
   return areas
 }
@@ -141,7 +142,7 @@ function AreaNav({ areas }: { areas: Area[] }) {
 }
 
 /** Pages that came from the older panel layout get the same card frame the pipeline pages draw themselves. */
-const FRAMED = ['tests', 'design', 'backlog', 'coverage', 'search', 'settings']
+const FRAMED = ['tests', 'design', 'backlog', 'coverage', 'search', 'members', 'settings']
 
 export type WorkspaceContext = { project: Project }
 export const useWorkspace = () => useOutletContext<WorkspaceContext>()

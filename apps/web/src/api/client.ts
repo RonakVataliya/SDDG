@@ -7,10 +7,21 @@ import type { components, paths } from './schema'
 
 export type Schemas = components['schemas']
 export type Project = Schemas['Project']
+export type Member = Schemas['Member']
+export type Role = Schemas['Role']
 export type Job = Schemas['Job']
 export type ExtractedItem = Schemas['ExtractedItem']
 export type ItemCategory = Schemas['ItemCategory']
 export type RequirementStatement = Schemas['RequirementStatement']
+// Notifications bell, invitations (FR24a) and traceability (FR17)
+export type ServerNotification = Schemas['Notification'] // not "Notification": that is a browser global
+export type NotificationList = Schemas['NotificationList']
+export type Invitation = Schemas['Invitation']
+export type InvitationCreate = Schemas['InvitationCreate']
+export type Drift = Schemas['Drift']
+export type DriftWarning = Schemas['DriftWarning']
+export type NamingIssue = Schemas['NamingIssue']
+export type NamingReport = Schemas['NamingReport']
 export type Diagram = Schemas['Diagram']
 export type DiagramType = Schemas['DiagramType']
 export type DiagramLayout = Schemas['DiagramLayout']

@@ -7,7 +7,7 @@ import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
 import { adminHandlers } from './admin'
@@ -16,6 +16,7 @@ import { layoutView } from './layout'
 import { renderUseCase } from './render'
 import { storiesHandlers } from './stories'
 import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
+import { acceptedProjects, collabHandlers } from './collab'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
 
@@ -58,6 +59,15 @@ function ownedProject(email: string, id: unknown) {
   return getDb().projects.find((p) => p.id === id && p.owner === email)
 }
 const notFound = () => fail(404, 'Not found, or you do not have access to it.')
+/** Mock user ids follow the API's DEV_AUTH_BYPASS form. */
+const memberId = (email: string) => `dev:${email}`
+function memberViews(pid: string, me: string) {
+  const owner = getDb().projects.find((p) => p.id === pid)?.owner
+  return membersOf(pid).map((m) => ({
+    user_id: memberId(m.email), email: m.email, role: m.role, joined_at: m.joined_at,
+    is_creator: m.email === owner, is_you: m.email === me,
+  }))
+}
 
 export const handlers = [
   http.get(u('/health'), () => HttpResponse.json({ status: 'ok' })),
@@ -72,6 +82,8 @@ export const handlers = [
   ...adminHandlers({ u, authed, fail }),
   // System design (Feature 4): src/mocks/design.ts
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts
+  ...collabHandlers({ u, authed, ownedProject, fail, notFound, projectView }, http),
 
   http.get(
     u('/me/consent'),
@@ -102,12 +114,19 @@ export const handlers = [
   http.get(
     u('/projects'),
     authed(({ email }) =>
-      HttpResponse.json(
-        getDb()
+      HttpResponse.json([
+        ...getDb()
           .projects.filter((p) => p.owner === email)
           .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
           .map(projectView),
-      ),
+        // FR24a: a project you joined through an invitation is in your list too, with the role you were given.
+        ...acceptedProjects(email).map(({ project, role, joined_at, owner_email }) => ({
+          ...projectView(project),
+          role,
+          joined_at,
+          owner_email,
+        })),
+      ]),
     ),
   ),
   http.post(
@@ -205,6 +224,49 @@ export const handlers = [
       touch(p.id)
       save()
       return HttpResponse.json(projectView(p))
+    }),
+  ),
+
+  // Members page (FR24c): same rules as the API, including "a project always keeps an Owner".
+  http.get(
+    u('/projects/:project_id/members'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      return HttpResponse.json(memberViews(p.id, email))
+    }),
+  ),
+  http.patch(
+    u('/projects/:project_id/members/:member_id'),
+    authed(async ({ email, params, request }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const { role } = (await request.json()) as { role: 'owner' | 'editor' | 'viewer' }
+      const members = membersOf(p.id)
+      const m = members.find((x) => memberId(x.email) === params.member_id)
+      if (!m) return fail(404, 'That person is not a member of this project.')
+      if (m.role === 'owner' && role !== 'owner' && members.filter((x) => x.role === 'owner').length === 1)
+        return fail(409, 'A project needs at least one Owner. Make someone else an Owner first.')
+      m.role = role
+      save()
+      return HttpResponse.json(memberViews(p.id, email))
+    }),
+  ),
+  http.delete(
+    u('/projects/:project_id/members/:member_id'),
+    authed(({ email, params }) => {
+      const p = ownedProject(email, params.project_id)
+      if (!p) return notFound()
+      const members = membersOf(p.id)
+      const i = members.findIndex((x) => memberId(x.email) === params.member_id)
+      if (i < 0) return fail(404, 'That person is not a member of this project.')
+      if (members[i].role === 'owner' && members.filter((x) => x.role === 'owner').length === 1)
+        return fail(409, members[i].email === email
+          ? 'You are the only Owner. Make someone else an Owner before you leave.'
+          : 'A project needs at least one Owner. Make someone else an Owner before removing this one.')
+      members.splice(i, 1)
+      save()
+      return new HttpResponse(null, { status: 204 })
     }),
   ),
 
@@ -403,7 +465,7 @@ export const handlers = [
       const db = getDb()
       const n = db.nextStatement[p.id] ?? (db.statements[p.id]?.length ?? 0) + 1
       db.nextStatement[p.id] = n + 1
-      const st = { id: uid('st'), ref: `R-${String(n).padStart(3, '0')}`, text: text.trim(), label: label ?? null, source: { document: 'added by you', page: null, paragraph: null } }
+      const st = { id: uid('st'), ref: `R-${String(n).padStart(3, '0')}`, text: text.trim(), label: label ?? null, source: { document: 'added by you', page: null, paragraph: null }, revision: 1 }
       db.statements[p.id] = [...(db.statements[p.id] ?? []), st]
       db.flags[p.id] = [...(db.flags[p.id] ?? []), ...detectFlags([st], db.statements[p.id], uid)]
       resetModel(p.id)
@@ -425,6 +487,7 @@ export const handlers = [
         db.flags[p.id] = [...(db.flags[p.id] ?? []).filter((f) => f.statement_id !== st.id || f.status === 'resolved'), ...detectFlags([st], db.statements[p.id], uid)]
       }
       if (label) st.label = label
+      st.revision = (st.revision ?? 1) + 1 // every save counts up, like the API
       resetModel(p.id)
       save()
       return HttpResponse.json(st)
@@ -477,6 +540,7 @@ export const handlers = [
       if (body.name !== undefined) item.name = body.name.trim()
       if (body.description !== undefined) item.description = body.description
       if (item.origin === 'system-extracted') item.origin = 'user-edited' // FR5b
+      item.revision = (item.revision ?? 1) + 1
       touch(p.id) // requirements-first: an item fix only makes diagrams stale
       save()
       return HttpResponse.json(item)
@@ -557,6 +621,7 @@ export const handlers = [
         id: uid('dg'),
         created_at: new Date().toISOString(),
         parent_id: d.id,
+        revision: (d.revision ?? 1) + 1,
         instruction: text,
         model: result.model,
         svg: renderUseCase(result.model),
@@ -595,6 +660,7 @@ export const handlers = [
         id: uid('dg'),
         created_at: new Date().toISOString(),
         parent_id: d.id,
+        revision: (d.revision ?? 1) + 1,
         instruction: `Moved ${moved.length} element(s)`,
         layout: { ...d.layout, ...Object.fromEntries(moved.map(([id, p]) => [id, [p.x as number, p.y as number]])) },
       }
