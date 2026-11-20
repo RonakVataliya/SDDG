@@ -33,6 +33,8 @@ export type DiagramRow = Diagram & {
   /** A package diagram (from the Design step): its PlantUML source and the statements its section cites, as the API stores. */
   source?: string
   statement_ids?: string[]
+  /** FR17c: when a requirement this diagram draws was edited (the API's out_of_date_at). Mock simplification: any text edit or delete marks every diagram of the project, and an edited version does not inherit it. */
+  out_of_date_at?: string
   /** #38: the look chosen by the user; undefined = inherit from parent_id, else the default */
   style?: DiagramStyle
 }
@@ -239,6 +241,12 @@ function extractBuildingBlocks(pid: string) {
   p.extracted_nodes = ['actors', 'dataflows', 'entities', 'interactions', 'processes', 'relationships']
 }
 
+/** FR17c: a requirement was edited or deleted, so the project's diagrams no longer match it. */
+export function markOutOfDate(pid: string) {
+  const at = new Date().toISOString()
+  for (const d of db.diagrams) if (d.project_id === pid) d.out_of_date_at = at
+}
+
 const TYPE_LABEL: Record<string, string> = { use_case: 'Use Case', class: 'Class', activity: 'Activity', sequence: 'Sequence', dfd: 'Data Flow', component: 'Component', package: 'Package' }
 
 function applyGeneration(job: JobRow) {
@@ -318,6 +326,8 @@ export function diagramView(d: DiagramRow): Diagram {
     parent_id: d.parent_id ?? null,
     instruction: d.instruction ?? null,
     revision: d.revision ?? 1,
+    // Out of date until a fresh generation of its type is made after the edit, like the API.
+    out_of_date: !!d.out_of_date_at && !db.diagrams.some((n) => n.project_id === d.project_id && n.type === d.type && !n.parent_id && n.created_at > d.out_of_date_at!),
     svg: d.svg,
     elements: elementsOf(d),
     statements: db.statements[d.project_id] ?? [],

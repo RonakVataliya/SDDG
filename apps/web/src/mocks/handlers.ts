@@ -7,7 +7,7 @@ import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, markOutOfDate, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
 import { activityHandlers } from './activity'
@@ -506,6 +506,7 @@ export const handlers = [
       }
       if (label) st.label = label
       st.revision = (st.revision ?? 1) + 1 // every save counts up, like the API
+      if (text !== undefined) markOutOfDate(p.id) // FR17c
       resetModel(p.id)
       save()
       return HttpResponse.json(st)
@@ -519,6 +520,7 @@ export const handlers = [
       if (!p || !(db.statements[p.id] ?? []).some((s) => s.id === params.statement_id)) return notFound()
       db.statements[p.id] = db.statements[p.id].filter((s) => s.id !== params.statement_id)
       db.flags[p.id] = (db.flags[p.id] ?? []).filter((f) => f.statement_id !== params.statement_id && f.related_statement_id !== params.statement_id)
+      markOutOfDate(p.id) // FR17c
       resetModel(p.id)
       save()
       return new HttpResponse(null, { status: 204 })
@@ -986,6 +988,7 @@ function flagHandlers() {
             const st = (getDb().statements[p.id] ?? []).find((s) => s.id === flag.statement_id)
             if (st) st.text = fix
             resolve()
+            markOutOfDate(p.id) // FR17c
             resetModel(p.id)
             // The fix also settles the other side of a conflict.
             for (const f of getDb().flags[p.id] ?? [])

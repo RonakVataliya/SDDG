@@ -170,7 +170,10 @@ export function GeneratePage() {
                   >
                     <DiagramGlyph type={d.type} className="h-6 w-10 shrink-0" />
                     <span className="min-w-0">
-                      <span className="block font-medium">{typeLabel[d.type]}</span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        {typeLabel[d.type]}
+                        {d.out_of_date && <Badge tone="amber">Out of date</Badge>}
+                      </span>
                       <span className="block truncate text-[11.5px] text-slate">
                         {d.instruction ? `Edited: “${d.instruction}”` : d.type === 'package' ? 'From the Design step' : 'Generated'} · {formatRelative(d.created_at)}
                       </span>

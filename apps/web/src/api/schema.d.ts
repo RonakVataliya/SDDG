@@ -4172,6 +4172,8 @@ export interface components {
             instruction: string | null;
             /** @description 1 for a fresh generation; each edited version is its parent's revision plus one */
             revision?: number;
+            /** @description FR17c: a requirement this diagram draws was edited or deleted after it was drawn (set by the server, in the list only). Stays true until a new generation of this diagram type is made; editing the diagram does not clear it. */
+            out_of_date?: boolean;
         };
         DiagramElement: {
             /** @description Matches data-element-id in the SVG */
