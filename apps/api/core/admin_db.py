@@ -146,3 +146,27 @@ def settings():
         "failed_logins_before_lock": _optional_int("FAILED_LOGINS_BEFORE_LOCK"),
         "lock_minutes": _optional_int("LOGIN_LOCK_MINUTES"),
     }
+
+
+# ---- Feedback (FR27c, Raj) ----
+# Only what a member chose to send as an issue report (comments.is_issue_report). A plain comment never shows here.
+FEEDBACK_SQL = (
+    "SELECT c.id, c.project_id, c.target_type, c.target_id, c.author_id, c.body, c.status, c.resolved_by, c.resolved_at, "
+    "c.created_at, p.name, COALESCE(u.email, CASE WHEN c.author_id LIKE 'dev:%%' THEN substr(c.author_id, 5) END) AS author_email "
+    "FROM comments c JOIN projects p ON p.id = c.project_id LEFT JOIN users u ON u.id = c.author_id "
+    "WHERE c.is_issue_report")  # p.name keeps its column name, so db.many decrypts it (core/db.py SECRET)
+
+
+def list_feedback(status, page):
+    """One page of issue reports from every project, newest first, optionally only open or resolved ones.
+    Returns (reports, total)."""
+    where, args = " AND (%s::text IS NULL OR c.status = %s)", (status, status)
+    total = db.one("SELECT count(*) AS n FROM comments c WHERE c.is_issue_report" + where, *args)["n"]
+    rows = db.many(FEEDBACK_SQL + where + " ORDER BY c.created_at DESC, c.id LIMIT %s OFFSET %s",
+                   *args, PAGE_SIZE, (page - 1) * PAGE_SIZE)
+    return rows, total
+
+
+def get_feedback(comment_id):
+    """One issue report by id, or None (also for a plain comment, which is not a report)."""
+    return db.one(FEEDBACK_SQL + " AND c.id = %s", comment_id)
