@@ -1099,3 +1099,49 @@ export function useApplyName(projectId: string) {
     },
   })
 }
+
+// --- Raj: comments and issue reports (FR32, FR27a-b) ---------------------------------------------------------------
+type CommentTargetType = Schemas['CommentTargetType']
+const commentKeys = {
+  all: (projectId: string) => ['projects', projectId, 'comments'] as const,
+  of: (projectId: string, type: CommentTargetType, id?: string) => ['projects', projectId, 'comments', type, id ?? 'all'] as const,
+}
+
+/** Comments on one target (a requirement, a diagram version, the project), or on every target of a kind when targetId
+ * is left out (for the counts on each row). Oldest first. Any member. */
+export function useComments(projectId: string, targetType: CommentTargetType, targetId?: string) {
+  return useQuery({
+    queryKey: commentKeys.of(projectId, targetType, targetId),
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{project_id}/comments', {
+          params: { path: { project_id: projectId }, query: { target_type: targetType, ...(targetId ? { target_id: targetId } : {}) } },
+        }),
+      ),
+  })
+}
+
+/** Any member, a Viewer too. mentions: user ids of members picked with @. */
+export function usePostComment(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Schemas['CommentCreate']) =>
+      unwrap(api.POST('/projects/{project_id}/comments', { params: { path: { project_id: projectId } }, body })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: commentKeys.all(projectId) }),
+  })
+}
+
+/** An Editor or Owner, or the comment's author. */
+export function useResolveComment(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (commentId: string) =>
+      unwrap(
+        api.POST('/projects/{project_id}/comments/{comment_id}/resolve', {
+          params: { path: { project_id: projectId, comment_id: commentId } },
+        }),
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: commentKeys.all(projectId) }),
+  })
+}
+// --- end Raj: comments ----------------------------------------------------------------------------------------------

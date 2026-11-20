@@ -690,6 +690,212 @@ export interface paths {
         };
         trace?: never;
     };
+    "/projects/{project_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Comments on a project's requirements, diagram versions or the project itself, oldest first (any member) */
+        get: {
+            parameters: {
+                query?: {
+                    target_type?: components["schemas"]["CommentTargetType"];
+                    /** @description Leave out for every comment on that kind of target (for counts) */
+                    target_id?: string;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"][];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Comment, or send an issue report (any member, a Viewer too) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CommentCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Empty or too long */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/comments/{comment_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve a thread (Editor or Owner, or its author). Resolving a resolved thread changes nothing */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    comment_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The comment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description A Viewer resolving someone else's thread */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Issue reports, newest first. An Owner (or System Administrator) sees all; anyone else only their own */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"][];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/inputs": {
         parameters: {
             query?: never;
@@ -4012,6 +4218,40 @@ export interface components {
         ProjectDelete: {
             /** @description The project's exact name */
             confirm_name: string;
+        };
+        /** @enum {string} */
+        CommentTargetType: "statement" | "diagram" | "project";
+        CommentCreate: {
+            target_type: components["schemas"]["CommentTargetType"];
+            /** @description A requirement id, a diagram version id, or the project id */
+            target_id: string;
+            /** @description 1 to 2000 characters after trimming */
+            body: string;
+            /** @description Send as an issue report (FR27a) */
+            is_issue_report?: boolean;
+            /** @description User ids of project members picked with @ */
+            mentions?: string[];
+        };
+        Comment: {
+            id: string;
+            target_type: components["schemas"]["CommentTargetType"];
+            target_id: string;
+            /** @description R-006, Use Case diagram v3 or Project */
+            target_label: string | null;
+            body: string;
+            is_issue_report: boolean;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            author: {
+                id: string;
+                email: string | null;
+            };
+            /** @description First name of who resolved it */
+            resolved_by: string | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            created_at: string;
         };
         Member: {
             user_id: string;

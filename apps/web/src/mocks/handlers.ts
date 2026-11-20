@@ -18,6 +18,7 @@ import { renderUseCase } from './render'
 import { storiesHandlers } from './stories'
 import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
 import { acceptedProjects, collabHandlers } from './collab'
+import { commentsHandlers } from './comments'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
 
@@ -87,6 +88,8 @@ export const handlers = [
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
   // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts
   ...collabHandlers({ u, authed, ownedProject, fail, notFound, projectView }, http),
+  // Comments and issue reports (FR32, FR27a-b): src/mocks/comments.ts
+  ...commentsHandlers({ u, authed, ownedProject, fail, notFound }),
 
   http.get(
     u('/me/consent'),
