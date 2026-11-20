@@ -20,10 +20,13 @@ from core import db  # noqa: E402
 from main import app  # noqa: E402
 
 API = '/api/v1'
-OWNER, STRANGER, VIEWER = (f'trace-{uuid.uuid4().hex[:8]}@example.com' for _ in range(3))
+OWNER, STRANGER, VIEWER, EDITOR, ADMIN = (f'trace-{uuid.uuid4().hex[:8]}@example.com' for _ in range(5))
+EVERYONE = [f'dev:{e}' for e in (OWNER, STRANGER, VIEWER, EDITOR, ADMIN)]
 owner = {'Authorization': f'Bearer mock-token:{OWNER}'}
 stranger = {'Authorization': f'Bearer mock-token:{STRANGER}'}
 viewer = {'Authorization': f'Bearer mock-token:{VIEWER}'}
+editor = {'Authorization': f'Bearer mock-token:{EDITOR}'}
+admin = {'Authorization': f'Bearer mock-token:{ADMIN}'}
 
 
 def sql(query, *args):
@@ -80,6 +83,19 @@ def check_drift(client, pid, s1, root, spec, elements):
     assert client.get(url(v3), headers=owner).json()['warnings'] == []
     assert client.get(url(root), headers=owner).json()['warnings'] == []
 
+    # FR17d end to end on one warning: it appears on the edited version, and updating the requirement to match
+    # clears it completely. Nothing is stored, so the same GET gives a different answer once the text changes.
+    only_removed = {**spec, 'usecases': [spec['usecases'][1]], 'associations': [spec['associations'][1]]}
+    v4 = db.create_diagram(pid, 'use_case', root['title'], root['svg'], kept, root['statement_ids'], spec=only_removed,
+                           parent_id=v3['id'], instruction='Remove Issue book again')
+    warnings = client.get(url(v4), headers=owner).json()['warnings']
+    assert [(w['kind'], w['element_id'], w['ref']) for w in warnings] == [('element_removed', 'uc_issue', 'R-001')], warnings
+
+    db.set_statement_text(pid, s1, 'The librarian greets every member at the door.')
+    assert client.get(url(v4), headers=owner).json()['warnings'] == []  # the requirement no longer calls for it
+    db.set_statement_text(pid, s1, 'The librarian issues a book to a member.')
+    assert len(client.get(url(v4), headers=owner).json()['warnings']) == 1  # and it comes back when the text does
+
 
 def check_naming(client, pid, s1):
     base = f'{API}/projects/{pid}/traceability/naming'
@@ -104,13 +120,33 @@ def check_naming(client, pid, s1):
     assert client.post(f'{base}/apply', headers=owner, json={'model_item_id': 'it_lib', 'name': '  '}).status_code == 422
     assert client.post(f'{base}/apply', headers=stranger, json={'model_item_id': 'it_lib', 'name': 'X'}).status_code == 404
 
-    # A Viewer may read the flag but not rename across diagrams, and nothing is written when they try.
+
+def check_roles(client, pid):
+    """Renaming across diagrams writes to every diagram of the project, so it needs Editor (require_role, #59):
+    a Viewer may read the flag but not apply it, and a stranger is never told the project is there."""
+    base = f'{API}/projects/{pid}/traceability/naming'
     sql("INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, 'viewer')", pid, f'dev:{VIEWER}')
+    sql("INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, 'editor')", pid, f'dev:{EDITOR}')
+    sql('INSERT INTO users(id, email, is_admin) VALUES (%s, %s, true) '
+        'ON CONFLICT (id) DO UPDATE SET is_admin=true', f'dev:{ADMIN}', ADMIN)
+
+    # A Viewer reads the flag but cannot apply it, and nothing is written when they try.
     before = len(db.many('SELECT id FROM diagrams WHERE project_id=%s', pid))
     assert client.get(base, headers=viewer).status_code == 200
     r = client.post(f'{base}/apply', headers=viewer, json={'model_item_id': 'it_lib', 'name': 'Staff'})
-    assert r.status_code == 403 and 'Viewer' in r.json()['detail'], r.text
+    assert r.status_code == 403, r.text
     assert len(db.many('SELECT id FROM diagrams WHERE project_id=%s', pid)) == before
+
+    # Not a member: 404 on both, the same answer a project that does not exist gives.
+    assert client.get(base, headers=stranger).status_code == 404
+    assert client.post(f'{base}/apply', headers=stranger, json={'model_item_id': 'it_lib', 'name': 'X'}).status_code == 404
+
+    # An Editor may rename, and so may a System Administrator who is not a member at all.
+    assert client.post(f'{base}/apply', headers=editor,
+                       json={'model_item_id': 'it_lib', 'name': 'Library staff'}).status_code == 200
+    assert client.post(f'{base}/apply', headers=admin,
+                       json={'model_item_id': 'it_lib', 'name': 'Librarian'}).status_code == 200
+    assert client.get(base, headers=owner).json() == {'issues': []}  # and the project agrees on the name again
 
 
 def main():
@@ -119,9 +155,11 @@ def main():
             pid, s1, s2, root, spec, elements = seed(client)
             check_drift(client, pid, s1, root, spec, elements)
             check_naming(client, pid, s1)
+            check_roles(client, pid)
         print('traceability test passed')
     finally:
         sql('DELETE FROM projects WHERE owner_id = ANY(%s)', [f'dev:{OWNER}'])
+        sql('DELETE FROM users WHERE id = ANY(%s)', EVERYONE)
 
 
 if __name__ == '__main__':
