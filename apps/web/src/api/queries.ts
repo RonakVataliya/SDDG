@@ -881,6 +881,32 @@ export function useAnswerFlag(projectId: string) {
   })
 }
 
+/* ---------- admin console (FR23) ---------- */
+
+const adminKeys = { me: ['me'] as const, users: (q: string, page: number) => ['admin', 'users', q, page] as const }
+
+/** Who the caller is; `is_admin` decides whether the Admin console is shown (the API checks it again on every call). */
+export function useMe() {
+  return useQuery({ queryKey: adminKeys.me, queryFn: () => unwrap(api.GET('/me')), staleTime: 5 * 60_000 })
+}
+
+export function useAdminUsers(q: string, page: number) {
+  return useQuery({
+    queryKey: adminKeys.users(q, page),
+    queryFn: () => unwrap(api.GET('/admin/users', { params: { query: { q, page } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useSetUserActive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, active }: { userId: string; active: boolean }) =>
+      unwrap(api.POST(active ? '/admin/users/{user_id}/reactivate' : '/admin/users/{user_id}/deactivate', { params: { path: { user_id: userId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  })
+}
+
 /* ---------- notifications bell (FR24a, FR32) ---------- */
 
 export const BELL_POLL_MS = 30_000
