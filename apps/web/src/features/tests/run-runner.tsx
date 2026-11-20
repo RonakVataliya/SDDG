@@ -70,7 +70,7 @@ function Runner({ projectId, run, onClose }: { projectId: string; run: TestRun; 
 
   return (
     <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <section aria-label="Cases in this run" className="flex min-h-0 flex-col rounded-lg border border-rule bg-surface">
+      <section aria-label="Cases in this run" className="flex min-h-0 flex-col rounded-xl border border-rule bg-field">
         <header className="border-b border-rule px-3 py-2.5">
           <Button variant="ghost" size="sm" className="-ml-2" onClick={onClose}>
             <ArrowLeftIcon /> All runs
@@ -80,7 +80,7 @@ function Runner({ projectId, run, onClose }: { projectId: string; run: TestRun; 
             {marked} of {run.case_count} marked{finished && ' · finished'}
           </p>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink/8" aria-hidden>
-            <div className="h-full bg-teal" style={{ width: `${(marked / Math.max(1, run.case_count)) * 100}%` }} />
+            <div className="h-full bg-accent" style={{ width: `${(marked / Math.max(1, run.case_count)) * 100}%` }} />
           </div>
         </header>
         <ol className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -90,7 +90,7 @@ function Runner({ projectId, run, onClose }: { projectId: string; run: TestRun; 
                 type="button"
                 onClick={() => setIndex(n)}
                 aria-current={n === index || undefined}
-                className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-paper', n === index && 'bg-teal-wash/70')}
+                className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-paper', n === index && 'bg-accent-wash/70')}
               >
                 <span className={cn('size-2 shrink-0 rounded-full', i.result ? RESULT[i.result.status].dot : 'border border-rule-strong')} />
                 <span className="font-mono text-xs">{i.case.number}</span>
@@ -102,7 +102,7 @@ function Runner({ projectId, run, onClose }: { projectId: string; run: TestRun; 
       </section>
 
       {item && (
-        <section aria-label={`Case ${item.case.number}`} className="min-w-0 space-y-4 overflow-y-auto rounded-lg border border-rule bg-surface p-5">
+        <section aria-label={`Case ${item.case.number}`} className="min-w-0 space-y-4 overflow-y-auto rounded-xl border border-rule bg-field p-5">
           <div className="flex flex-wrap items-center gap-2">
             <RefTag>{item.case.number}</RefTag>
             <Badge>{item.case.technique}</Badge>
@@ -128,10 +128,10 @@ function Runner({ projectId, run, onClose }: { projectId: string; run: TestRun; 
                   aria-pressed={active}
                   className={cn(
                     'justify-between',
-                    active && status === 'pass' && 'border-teal bg-teal text-white hover:bg-teal-deep',
-                    active && status === 'fail' && 'border-danger bg-danger text-white hover:bg-danger/90',
-                    active && status === 'blocked' && 'border-amber bg-amber text-white hover:bg-amber/90',
-                    active && status === 'skipped' && 'border-slate bg-slate text-white hover:bg-slate/90',
+                    active && status === 'pass' && 'border-accent bg-accent text-on-ink hover:bg-accent-deep',
+                    active && status === 'fail' && 'border-danger bg-danger text-on-ink hover:bg-danger/90',
+                    active && status === 'blocked' && 'border-amber bg-amber text-on-ink hover:bg-amber/90',
+                    active && status === 'skipped' && 'border-slate bg-slate text-on-ink hover:bg-slate/90',
                   )}
                 >
                   <span className="inline-flex items-center gap-2">

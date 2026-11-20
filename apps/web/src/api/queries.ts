@@ -5,6 +5,7 @@ import {
   unwrap,
   type ConditionUpdate,
   type Diagram,
+  type DesignKind,
   type DiagramType,
   type ItemCategory,
   type Job,
@@ -12,6 +13,8 @@ import {
   type ResultStatus,
   type RunMode,
   type Schemas,
+  type StoryCreate,
+  type StoryUpdate,
   type TestCaseCreate,
   type TestCaseUpdate,
 } from './client'
@@ -25,6 +28,9 @@ export const keys = {
   itemPage: (id: string, category: ItemCategory | undefined, page: number) =>
     ['projects', id, 'items', category ?? 'all', page] as const,
   diagrams: (id: string) => ['projects', id, 'diagrams'] as const,
+  requirementCoverage: (id: string) => ['projects', id, 'coverage'] as const,
+  stories: (id: string) => ['projects', id, 'stories'] as const,
+  design: (id: string) => ['projects', id, 'design'] as const,
   diagram: (id: string) => ['diagrams', id] as const,
   diagramImage: (id: string) => ['diagrams', id, 'png'] as const,
   diagramStyle: (id: string) => ['diagrams', id, 'style'] as const,
@@ -40,6 +46,8 @@ export const keys = {
   testRuns: (id: string) => ['projects', id, 'tests', 'runs'] as const,
   testRun: (id: string, runId: string) => ['projects', id, 'tests', 'runs', runId] as const,
   runSelection: (id: string) => ['projects', id, 'tests', 'selection'] as const,
+  flags: (id: string) => ['projects', id, 'flags'] as const,
+  documents: (id: string) => ['projects', id, 'documents'] as const,
 }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
@@ -64,8 +72,149 @@ export function useProject(projectId: string) {
 export function useCreateProject() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => unwrap(api.POST('/projects', { body: { name } })),
+    mutationFn: (body: Schemas['ProjectCreate']) => unwrap(api.POST('/projects', { body })),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.projects }),
+  })
+}
+
+/** Project settings (owner only): the API answers with the updated project. */
+function useProjectChange<V>(projectId: string, fn: (v: V) => Promise<Schemas['Project']>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (project) => {
+      qc.setQueryData(keys.project(projectId), project)
+      void qc.invalidateQueries({ queryKey: keys.projects, exact: true })
+    },
+  })
+}
+
+export function useRenameProject(projectId: string) {
+  return useProjectChange(projectId, (name: string) =>
+    unwrap(api.PATCH('/projects/{project_id}', { params: { path: { project_id: projectId } }, body: { name } })),
+  )
+}
+
+export function useSetProjectClient(projectId: string) {
+  return useProjectChange(projectId, (body: Schemas['ProjectClient']) =>
+    unwrap(api.PATCH('/projects/{project_id}/client', { params: { path: { project_id: projectId } }, body })),
+  )
+}
+
+/** archived=true archives, false reopens. */
+export function useArchiveProject(projectId: string) {
+  return useProjectChange(projectId, (archived: boolean) => {
+    const params = { params: { path: { project_id: projectId } } }
+    return unwrap(archived ? api.POST('/projects/{project_id}/archive', params) : api.DELETE('/projects/{project_id}/archive', params))
+  })
+}
+
+export function useDeleteProject(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (confirmName: string) =>
+      unwrap(api.DELETE('/projects/{project_id}', { params: { path: { project_id: projectId } }, body: { confirm_name: confirmName } })),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: keys.project(projectId) }) // the project and everything under it
+      void qc.invalidateQueries({ queryKey: keys.projects, exact: true })
+    },
+  })
+}
+
+/** FR20: requirement coverage over the latest diagram versions. */
+export function useRequirementCoverage(projectId: string) {
+  return useQuery({
+    queryKey: keys.requirementCoverage(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/coverage', { params: { path: { project_id: projectId } } })),
+    staleTime: 0, // diagram and requirement changes don't invalidate this key; refetch whenever the page opens
+  })
+}
+
+/* ---------- stories backlog (3.4) ---------- */
+
+export function useStories(projectId: string) {
+  return useQuery({
+    queryKey: keys.stories(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/stories', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+export function useCreateStory(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: StoryCreate) => unwrap(api.POST('/projects/{project_id}/stories', { params: { path: { project_id: projectId } }, body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.stories(projectId) }),
+  })
+}
+
+export function useUpdateStory(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ storyId, body }: { storyId: string; body: StoryUpdate }) =>
+      unwrap(api.PATCH('/projects/{project_id}/stories/{story_id}', { params: { path: { project_id: projectId, story_id: storyId } }, body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.stories(projectId) }),
+  })
+}
+
+export function useDeleteStory(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (storyId: string) =>
+      unwrap(api.DELETE('/projects/{project_id}/stories/{story_id}', { params: { path: { project_id: projectId, story_id: storyId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.stories(projectId) }),
+  })
+}
+
+/* ---------- system design (Feature 4) ---------- */
+
+const sectionPath = (projectId: string, kind: DesignKind) => ({ params: { path: { project_id: projectId, kind } } })
+
+export function useDesign(projectId: string) {
+  return useQuery({
+    queryKey: keys.design(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/design', projectPath(projectId))),
+  })
+}
+
+/** Polls a section's draft job and refreshes the sections once it finishes, so the draft shows up. */
+export function useDesignJob(projectId: string, jobId: string | null | undefined) {
+  const qc = useQueryClient()
+  const job = useJob(jobId)
+  const done = job.data && !isActive(job.data)
+  useEffect(() => {
+    if (done) void qc.invalidateQueries({ queryKey: keys.design(projectId) })
+  }, [done, projectId, qc])
+  return job
+}
+
+export function useStartDesignDraft(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (kind: DesignKind) => unwrap(api.POST('/projects/{project_id}/design/{kind}/draft-jobs', sectionPath(projectId, kind))),
+    onSuccess: (job) => {
+      qc.setQueryData(keys.job(job.id), job)
+      void qc.invalidateQueries({ queryKey: keys.design(projectId) })
+    },
+  })
+}
+
+export function useSaveDesignSection(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ kind, content }: { kind: DesignKind; content: Record<string, unknown> }) =>
+      unwrap(api.PUT('/projects/{project_id}/design/{kind}', { ...sectionPath(projectId, kind), body: { content } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.design(projectId) }),
+  })
+}
+
+export function useConfirmDesignSection(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (kind: DesignKind) => unwrap(api.POST('/projects/{project_id}/design/{kind}/confirm', sectionPath(projectId, kind))),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) }) // confirming the decomposition stores its package diagram
+      return qc.invalidateQueries({ queryKey: keys.design(projectId) })
+    },
   })
 }
 
@@ -95,6 +244,61 @@ export function useSubmitInput(projectId: string) {
   })
 }
 
+/* ---------- documents (FR1b/c, FR2) ---------- */
+
+export function useDocuments(projectId: string) {
+  return useQuery({
+    queryKey: keys.documents(projectId),
+    queryFn: () =>
+      unwrap(api.GET('/projects/{project_id}/documents', { params: { path: { project_id: projectId } } })),
+    refetchInterval: (q) =>
+      q.state.data?.some((d) => d.status === 'uploaded' || d.status === 'processing') ? 1500 : false,
+  })
+}
+
+export function useUploadDocument(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData()
+      formData.append('file', file, file.name)
+      return unwrap(
+        api.POST('/projects/{project_id}/documents', {
+          params: { path: { project_id: projectId } },
+          headers: {
+            'x-filename': encodeURIComponent(file.name),
+            'x-filesize': String(file.size),
+          },
+          body: formData as unknown as { file: unknown },
+          bodySerializer: (body) => body as unknown as FormData,
+        }),
+      )
+    },
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: keys.documents(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId) })
+      if (data?.job) qc.setQueryData(keys.job(data.job.id), data.job)
+    },
+  })
+}
+
+export function useDeleteDocument(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (documentId: string) =>
+      unwrap(
+        api.DELETE('/projects/{project_id}/documents/{document_id}', {
+          params: { path: { project_id: projectId, document_id: documentId } },
+        }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.documents(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.project(projectId) })
+    },
+  })
+}
+
+
 /** FR10g: poll a job until it finishes. */
 export function useJob(jobId: string | null | undefined) {
   return useQuery({
@@ -122,9 +326,11 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
     mutationFn: fn,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+      void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
       void qc.invalidateQueries({ queryKey: keys.items(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
       void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
+      void qc.invalidateQueries({ queryKey: keys.design(projectId) }) // design sections citing it may be Out of date
     },
   })
 }
@@ -186,6 +392,46 @@ export function useConfirmExtraction(projectId: string) {
     mutationFn: () =>
       unwrap(api.POST('/projects/{project_id}/confirmation', { params: { path: { project_id: projectId } } })),
     onSuccess: (project) => qc.setQueryData(keys.project(projectId), project),
+  })
+}
+
+/* ---------- requirement flags (issue #34): advisory, never block anything ---------- */
+
+export function useFlags(projectId: string) {
+  return useQuery({
+    queryKey: keys.flags(projectId),
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/flags', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+export function useFlagSummary(projectId: string) {
+  return useQuery({
+    queryKey: [...keys.flags(projectId), 'summary'],
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/flags/summary', { params: { path: { project_id: projectId } } })),
+  })
+}
+
+type FlagAction = { flagId: string } & ({ kind: 'answer'; answer: string } | { kind: 'resolve' | 'reopen' | 'apply-fix' })
+
+export function useFlagAction(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (a: FlagAction) => {
+      const params = { path: { project_id: projectId, flag_id: a.flagId } }
+      if (a.kind === 'answer') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/answer', { params, body: { answer: a.answer } }))
+      if (a.kind === 'resolve') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/resolve', { params }))
+      if (a.kind === 'reopen') return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/reopen', { params }))
+      return unwrap(api.POST('/projects/{project_id}/flags/{flag_id}/apply-fix', { params }))
+    },
+    onSuccess: (_flag, a) => {
+      void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
+      // Apply fix rewrites the requirement (and can close the related conflict flag): refetch statements too.
+      if (a.kind === 'apply-fix') {
+        void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.items(projectId) })
+        void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      }
+    },
   })
 }
 
@@ -257,6 +503,13 @@ export function fetchProjectDiagramsZip(projectId: string, versions: 'all' | 'la
       params: { path: { project_id: projectId }, query: { versions } },
       parseAs: 'blob',
     }),
+  ) as Promise<Blob>
+}
+
+/** The combined project report: one self-contained, print-styled HTML page (no scripts allowed by its own CSP). */
+export function fetchProjectReport(projectId: string) {
+  return unwrap(
+    api.GET('/projects/{project_id}/report.html', { params: { path: { project_id: projectId } }, parseAs: 'blob' }),
   ) as Promise<Blob>
 }
 

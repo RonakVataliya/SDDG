@@ -1,10 +1,10 @@
 /** Shared wording and badge tones for the Tests feature, so every tab names things the same way. */
 import type { CaseKind, CasePriority, CaseTechnique, ResultStatus, RunMode } from '@/api/client'
 
-type Tone = 'neutral' | 'teal' | 'amber' | 'violet' | 'danger'
+type Tone = 'neutral' | 'accent' | 'amber' | 'violet' | 'danger'
 
 export const KIND: Record<CaseKind, { label: string; tone: Tone }> = {
-  positive: { label: 'Positive', tone: 'teal' },
+  positive: { label: 'Positive', tone: 'accent' },
   negative: { label: 'Negative', tone: 'danger' },
   edge: { label: 'Edge', tone: 'amber' },
 }
@@ -22,7 +22,7 @@ export const TECHNIQUE: Record<CaseTechnique, string> = {
 }
 
 export const RESULT: Record<ResultStatus, { label: string; tone: Tone; dot: string }> = {
-  pass: { label: 'Pass', tone: 'teal', dot: 'bg-teal' },
+  pass: { label: 'Pass', tone: 'accent', dot: 'bg-accent' },
   fail: { label: 'Fail', tone: 'danger', dot: 'bg-danger' },
   blocked: { label: 'Blocked', tone: 'amber', dot: 'bg-amber' },
   skipped: { label: 'Skipped', tone: 'neutral', dot: 'bg-slate' },

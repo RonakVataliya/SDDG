@@ -79,7 +79,7 @@ export function DesignTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
-      <section aria-label="Requirements to test" className="flex min-h-0 flex-col rounded-lg border border-rule bg-surface">
+      <section aria-label="Requirements to test" className="flex min-h-0 flex-col rounded-xl border border-rule bg-field">
         <header className="flex items-baseline justify-between border-b border-rule px-4 py-3">
           <h3 className="text-sm font-semibold">
             Requirements <span className="font-normal text-slate tabular-nums">{list.length}</span>
@@ -141,7 +141,7 @@ export function DesignTab({ projectId }: { projectId: string }) {
           </Notice>
         )}
         {canEdit && keptTotal > 0 && !busy && (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-rule bg-surface px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-rule bg-field px-4 py-3">
             <div className="min-w-0 flex-1 text-sm">
               <p>
                 <span className="font-semibold">{keptTotal} cases kept</span>{' '}
@@ -199,7 +199,7 @@ function RequirementRow({
   onFocus: () => void
 }) {
   return (
-    <li className={cn('flex gap-3 px-4 py-3', focused && 'bg-teal-wash/60 shadow-[inset_3px_0_0_var(--color-teal)]')}>
+    <li className={cn('flex gap-3 px-4 py-3', focused && 'bg-accent-wash/60 shadow-[inset_3px_0_0_var(--accent)]')}>
       <Checkbox
         checked={ticked}
         disabled={disabled}
@@ -219,7 +219,7 @@ function RequirementRow({
           <span className="mt-1.5 flex flex-wrap gap-1">
             {r.criteria_count > 0 && <Badge>{plural(r.criteria_count, 'criterion', 'criteria')}</Badge>}
             {r.draft_count > 0 && <Badge>{plural(r.draft_count, 'draft')}</Badge>}
-            {r.ready_count > 0 && <Badge tone="teal">{r.ready_count} ready</Badge>}
+            {r.ready_count > 0 && <Badge tone="accent">{r.ready_count} ready</Badge>}
             {r.open_question && <Badge tone="violet">1 question</Badge>}
           </span>
         )}

@@ -3,8 +3,8 @@
 - At job start the provider is chosen from GET /llm/status: the one that produced the project's items (sticky,
   so re-extraction keeps names stable) unless its wait is too long, else the first in the service's preference
   order with an acceptable wait. It is sent as X-LLM-Provider on every call of the job and stored on the job.
-- Busy is not failure: a 429 `ai_busy` puts the job in status 'waiting' ("Waiting for AI capacity, about N s"),
-  waits Retry-After and tries again, until LLM_JOB_DEADLINE_SECONDS after the job started.
+- Busy is not failure: a 429 (`ai_busy`, or a rate limit from Render's edge) or a gateway 502/503/504 puts the
+  job in status 'waiting' ("Waiting for AI capacity, about N s"), waits Retry-After (or backs off) and tries again, until LLM_JOB_DEADLINE_SECONDS after the job started.
 - Every response's X-LLM-Usage header (metadata only) is written to llm_calls.
 """
 from __future__ import annotations
@@ -29,19 +29,36 @@ class AIBusyTimeout(Exception):
     """The AI service stayed busy past the job's deadline."""
 
 
-def busy_retry_after(response: httpx.Response) -> float | None:
-    """Seconds to wait when the response is the AI service's 429 ai_busy, else None."""
-    if getattr(response, "status_code", 200) != 429:
+RETRYABLE_STATUS = {429, 502, 503, 504}  # busy or a gateway in front of the AI service (Render's edge, a restart)
+
+
+def busy_retry_after(response: httpx.Response, attempt: int = 0) -> float | None:
+    """Seconds to wait before trying again, or None when the response is not a temporary condition.
+
+    - 429 ai_busy from the AI service: its Retry-After.
+    - Any other 429 (e.g. Render's edge rate limit, which has no `code` body) or a 502/504 gateway error: the
+      Retry-After header if sent, else exponential backoff (2, 4, 8, 16, 30 s ...).
+    - 503 counts only without the AI service's JSON body: the app itself answers 503 for a missing key/provider,
+      which waiting would not fix.
+    """
+    status = getattr(response, "status_code", 200)
+    if status not in RETRYABLE_STATUS:
         return None
     try:
-        if response.json().get("code") != "ai_busy":
-            return None
+        body = response.json()
     except ValueError:
-        return None
-    try:
-        return max(1.0, float(response.headers.get("retry-after", "5")))
-    except ValueError:
+        body = None
+    if status == 503 and isinstance(body, dict) and body.get("detail"):
+        return None  # the AI service's own 503: misconfiguration, not capacity
+    header = response.headers.get("retry-after")
+    if header:
+        try:
+            return max(1.0, float(header))
+        except ValueError:
+            pass
+    if status == 429 and isinstance(body, dict) and body.get("code") == "ai_busy":
         return 5.0
+    return float(min(30, 2 ** (attempt + 1)))
 
 
 def pick_provider(status: dict, sticky_model: str | None) -> str | None:
@@ -87,10 +104,12 @@ class AIJob:
 
     async def post(self, path: str, payload: dict) -> dict:
         headers = {"X-LLM-Provider": self.provider} if self.provider else {}
+        attempt = 0
         while True:
             response = await self.client.post(f"{AI_URL}{path}", json=payload, headers=headers)
             self._record(response)
-            wait = busy_retry_after(response)
+            wait = busy_retry_after(response, attempt)
+            attempt += 1
             if wait is None:
                 response.raise_for_status()
                 return response.json()

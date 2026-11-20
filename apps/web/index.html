@@ -5,6 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SDDG · Software Design Diagram Generator</title>
+    <script>
+      // Apply the saved theme before first paint so the page never flashes the wrong colours (see src/lib/theme.ts).
+      try {
+        var m = localStorage.getItem('sddg.theme') || 'system'
+        var d = m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = d ? 'dark' : 'light'
+        document.documentElement.dataset.accent = localStorage.getItem('sddg.accent') || 'blue'
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

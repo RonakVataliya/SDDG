@@ -3,9 +3,9 @@
  * Bump POLICY_VERSION on any change. Bump AI_SECTION_VERSION only when the AI-processing section changes:
  * that is what re-asks every user for consent.
  */
-export const POLICY_VERSION = '2026-09-01'
-export const POLICY_DATE = '2026-09-01'
-export const AI_SECTION_VERSION = '2026-09-01'
+export const POLICY_VERSION = '2026-11-16'
+export const POLICY_DATE = '2026-11-16'
+export const AI_SECTION_VERSION = '2026-11-16'
 
 export type PolicySection = { id: string; heading: string; body: string[] }
 
@@ -13,7 +13,7 @@ export const aiSection: PolicySection = {
   id: 'ai-processing',
   heading: 'How your requirements are processed',
   body: [
-    'To extract actors, entities and other modelling information, the text you submit is sent to Groq, an external AI service. Nothing is sent until you agree on the consent screen.',
+    'To extract actors, entities and other modelling information, the text you submit is sent to an external AI service: Groq, or Google Gemini when Groq is busy or unavailable. Nothing is sent until you agree on the consent screen.',
     'To draw a diagram, a text description of the diagram (not your original document) is sent to Kroki, an external rendering service.',
     'We record the date and time you agreed and the version of this section you agreed to. If this section changes, we ask you again before sending anything further.',
   ],

@@ -188,10 +188,32 @@ class AIService:
         """
         gateway = get_gateway()
         est = estimate_tokens(system_prompt, user_content, json.dumps(schema.model_json_schema()), node_name)
-        provider = gateway.choose(est)
+        provider = gateway.choose(est)  # skips providers whose per-request budget this call exceeds
         spec = gateway.providers[provider]
         if est > spec.max_request_tokens:
             raise RequestTooLarge(f"node={node_name} needs ~{est} tokens; {provider} allows {spec.max_request_tokens} per call")
+        tried: set[str] = set()
+        while True:
+            tried.add(provider)
+            try:
+                return self._call_provider(provider, est, node_name, system_prompt, user_content, schema)
+            except AIBusy:
+                raise
+            except Exception as exc:
+                nxt = gateway.fallback(est, tried)
+                if nxt is None:
+                    raise
+                # Error type and status only: the message can hold the model's output.
+                logger.warning("ai_call_failover node=%s from=%s to=%s error_type=%s status=%s",
+                               node_name, provider, nxt, type(exc).__name__, _status(exc))
+                provider = nxt
+
+    def _call_provider(
+        self, provider: str, est: int, node_name: str, system_prompt: str, user_content: str, schema: Type[TSchema],
+    ) -> tuple[TSchema, dict]:
+        """One provider, with its retries; records and logs the call's metadata either way."""
+        gateway = get_gateway()
+        spec = gateway.providers[provider]
         limiter = gateway.limiters[provider]
         structured_llm = _get_llm(provider=provider).with_structured_output(schema, include_raw=True)
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_content)]
