@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from core import db, invites, traceability
 from core.auth import User, get_current_user
 from core.reporting import diagram_versions, latest_versions
-from routers.integrated import NOT_FOUND, require_diagram, require_project
+from routers.integrated import NOT_FOUND, require_diagram, require_role
 from routers.layout import lines
 
 router = APIRouter()
@@ -59,7 +59,7 @@ def get_drift(diagram_id: str, user: User = Depends(get_current_user)):
 def get_naming(project_id: str, user: User = Depends(get_current_user)):
     """FR17e. Model items that the latest version of each diagram names differently (matched by model item ID, so two
     different items that share a name are not flagged), with the name the project's own item has."""
-    require_project(project_id, user)
+    require_role(project_id, user, "viewer")
     issues = traceability.naming_issues(latest_diagrams(project_id))
     names = {i["id"]: i["name"] for i in db.many(
         "SELECT id, name FROM items WHERE project_id=%s AND id = ANY(%s)", project_id,
@@ -72,14 +72,12 @@ def apply_naming(project_id: str, body: NamingApply, user: User = Depends(get_cu
     """FR17e 'Apply this name to all diagrams': makes a new version of every diagram whose latest version names this
     model item differently (the old versions stay) and gives the project's own item the name.
 
-    This writes to every diagram of the project, so a Viewer cannot run it. When C2's require_role lands this
-    becomes require_role(project_id, user, "editor") and this local check goes.
+    This writes to every diagram of the project, so it needs Editor: a Viewer is refused (403) and someone who is
+    not a member is told the project does not exist (404). A System Administrator counts as an Owner.
     All the new versions and the item's new name are written in one transaction: a half-renamed project, where
     some diagrams say the new name and others the old one, is worse than nothing happening at all.
     """
-    require_project(project_id, user)
-    if invites.member_role(project_id, user.id) == "viewer":
-        raise HTTPException(403, "You're a Viewer on this project, so you can't rename items across diagrams.")
+    require_role(project_id, user, "editor")
     name = traceability.norm(body.name)
     if not name:
         raise HTTPException(422, "Choose a name.")

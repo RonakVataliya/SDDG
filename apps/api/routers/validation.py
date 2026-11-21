@@ -175,7 +175,7 @@ def find_warning(d, warning_id):
 
 @router.post("/diagrams/{diagram_id}/validation/accept")
 def accept(diagram_id: str, body: WarningRef, user: User = Depends(get_current_user)):
-    d = require_diagram(diagram_id, user)
+    d = require_diagram(diagram_id, user, need="edit")
     find_warning(d, body.warning_id)
     db.accept_warning(diagram_id, body.warning_id, user.email)
     return validation_view(d)
@@ -183,7 +183,7 @@ def accept(diagram_id: str, body: WarningRef, user: User = Depends(get_current_u
 
 @router.post("/diagrams/{diagram_id}/validation/fix", status_code=201)
 async def fix(diagram_id: str, body: WarningRef, user: User = Depends(get_current_user)):
-    d = require_diagram(diagram_id, user)
+    d = require_diagram(diagram_id, user, need="edit")
     w = find_warning(d, body.warning_id)
     if not w["fix"]:
         raise HTTPException(409, "No suggested fix. Edit the diagram instead.")

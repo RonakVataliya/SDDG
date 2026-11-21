@@ -42,6 +42,8 @@ const state = (): CollabState => {
   db.collab ??= emptyCollab()
   return db.collab
 }
+/** The same store, for the comments mock to add a 'mention' to the bell (FR32). */
+export const collabState = state
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const DAY = 86_400_000
@@ -154,6 +156,11 @@ const latestOf = (projectId: string) => {
 
 export function collabHandlers({ u, authed, ownedProject, fail, notFound, projectView }: Deps, http: typeof import('msw').http) {
   const project = (email: string, id: unknown) => ownedProject(email, id) ?? getDb().projects.find((p) => p.id === id && state().invitations.some((i) => i.project_id === p.id && i.email === email && i.accepted_at))
+  /** The caller's role on a project they can reach: the owner is an Owner, everyone else joined with a role. */
+  const roleOf = (email: string, p: { id: string; owner: string }): Role =>
+    p.owner === email
+      ? 'owner'
+      : (state().invitations.find((i) => i.project_id === p.id && i.email === email && i.accepted_at)?.role ?? 'viewer')
 
   return [
     http.get(u('/notifications'), authed(({ email }) => {
@@ -295,6 +302,8 @@ export function collabHandlers({ u, authed, ownedProject, fail, notFound, projec
     http.post(u('/projects/:project_id/traceability/naming/apply'), authed(async ({ email, params, request }) => {
       const p = project(email, params.project_id)
       if (!p) return notFound()
+      // Like the API: renaming across diagrams needs Editor, so a Viewer is refused even if the UI offered it.
+      if (roleOf(email, p) === 'viewer') return fail(403, 'Not permitted: your role on this project does not allow this.')
       const body = (await request.json()) as { model_item_id?: string; name?: string }
       const name = (body.name ?? '').trim().replace(/\s+/g, ' ')
       if (!name) return fail(422, 'Choose a name.')

@@ -13,6 +13,7 @@ export type Job = Schemas['Job']
 export type ExtractedItem = Schemas['ExtractedItem']
 export type ItemCategory = Schemas['ItemCategory']
 export type RequirementStatement = Schemas['RequirementStatement']
+export type StatementConflict = Schemas['StatementConflict']
 // Notifications bell, invitations (FR24a) and traceability (FR17)
 export type ServerNotification = Schemas['Notification'] // not "Notification": that is a browser global
 export type NotificationList = Schemas['NotificationList']
@@ -103,7 +104,7 @@ export async function unwrap<T>(
   if (response.ok) return data as T
   const body = (error ?? {}) as { detail?: unknown; code?: string }
   const detail = typeof body.detail === 'string' ? body.detail : defaultMessage(response.status)
-  throw new ApiError(response.status, detail, body.code)
+  throw new ApiError(response.status, detail, body.code, error)
 }
 
 function defaultMessage(status: number) {
@@ -112,3 +113,14 @@ function defaultMessage(status: number) {
   if (WAKING_STATUSES.has(status)) return 'The server is starting.'
   return `Request failed (${status}).`
 }
+export type Me = Schemas['Me']
+export type AdminUser = Schemas['AdminUser']
+export type AdminUserPage = Schemas['AdminUserPage']
+export type AdminUsage = Schemas['AdminUsage']
+export type AdminSettings = Schemas['AdminSettings']
+export type AdminError = Schemas['AdminError']
+export type AdminErrorType = Schemas['AdminErrorType']
+export type AdminErrorSeverity = Schemas['AdminErrorSeverity']
+export type AdminErrorPage = Schemas['AdminErrorPage']
+export type ActivityEvent = Schemas['ActivityEvent']
+export type ActivityPage = Schemas['ActivityPage']

@@ -7,15 +7,18 @@ import { styleProblems, type DiagramStyle } from '@/features/viewer/style'
 import { slugify } from '@/features/viewer/export-formats'
 import { jpegToPdf } from '@/features/viewer/pdf'
 import { env } from '@/lib/env'
-import { advance, createJob, diagramView, getDb, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
+import { advance, createJob, diagramView, getDb, markOutOfDate, membersOf, projectView, publicJob, resetModel, save, styleFor, touch, uid, type DiagramRow } from './db'
 import { designHandlers } from './design'
 import { detectFlags } from './flags'
+import { activityHandlers } from './activity'
+import { adminHandlers } from './admin'
 import { applyInstruction } from './edit'
 import { layoutView } from './layout'
 import { renderUseCase } from './render'
 import { storiesHandlers } from './stories'
 import { findTestFlag, testFlagView, testingHandlers, testFlagViews } from './testing'
 import { acceptedProjects, collabHandlers } from './collab'
+import { commentsHandlers } from './comments'
 import { useCaseSource } from './source'
 import { makeZip } from './zip'
 
@@ -77,10 +80,16 @@ export const handlers = [
   ...testingHandlers({ u, authed, ownedProject, fail, notFound }),
   // Stories backlog (3.4): src/mocks/stories.ts
   ...storiesHandlers({ u, authed, ownedProject, fail, notFound }),
+  // Admin console (FR23): src/mocks/admin.ts
+  ...adminHandlers({ u, authed, fail }),
+  // Project Activity tab (FR22): src/mocks/activity.ts
+  ...activityHandlers({ u, authed, ownedProject, notFound }),
   // System design (Feature 4): src/mocks/design.ts
   ...designHandlers({ u, authed, ownedProject, fail, notFound }),
   // Bell, invitations (FR24a) and traceability (FR17): src/mocks/collab.ts
   ...collabHandlers({ u, authed, ownedProject, fail, notFound, projectView }, http),
+  // Comments and issue reports (FR32, FR27a-b): src/mocks/comments.ts
+  ...commentsHandlers({ u, authed, ownedProject, fail, notFound }),
 
   http.get(
     u('/me/consent'),
@@ -476,8 +485,23 @@ export const handlers = [
       const p = ownedProject(email, params.project_id)
       const st = p && (getDb().statements[p.id] ?? []).find((s) => s.id === params.statement_id)
       if (!p || !st) return notFound()
-      const { text, label } = (await request.json()) as { text?: string; label?: string | null }
+      const { text, label, base_revision } = (await request.json()) as { text?: string; label?: string | null; base_revision?: number }
       if (text !== undefined && !text.trim()) return fail(422, 'Requirement text can’t be empty.')
+      // --- Raj: edit conflict check (FR24f): same 409 as the API when the stored revision is newer ---
+      const stored = st.revision ?? 1
+      if (base_revision !== undefined && base_revision !== stored) {
+        const last = getDb().lastSaved?.[st.id]
+        const who = last ? last.by.split('@')[0].replace(/^./, (c) => c.toUpperCase()) : 'Someone else'
+        return HttpResponse.json(
+          {
+            detail: `${who} saved revision ${stored} while you were editing revision ${base_revision}. Nothing was overwritten.`,
+            code: 'edit_conflict', changed_by: who, changed_at: last?.at ?? null, base_revision, current: st,
+          },
+          { status: 409 },
+        )
+      }
+      ;(getDb().lastSaved ??= {})[st.id] = { by: email, at: new Date().toISOString() }
+      // --- end Raj: edit conflict check ---
       if (text !== undefined) {
         st.text = text.trim()
         const db = getDb()
@@ -485,6 +509,7 @@ export const handlers = [
       }
       if (label) st.label = label
       st.revision = (st.revision ?? 1) + 1 // every save counts up, like the API
+      if (text !== undefined) markOutOfDate(p.id) // FR17c
       resetModel(p.id)
       save()
       return HttpResponse.json(st)
@@ -498,6 +523,7 @@ export const handlers = [
       if (!p || !(db.statements[p.id] ?? []).some((s) => s.id === params.statement_id)) return notFound()
       db.statements[p.id] = db.statements[p.id].filter((s) => s.id !== params.statement_id)
       db.flags[p.id] = (db.flags[p.id] ?? []).filter((f) => f.statement_id !== params.statement_id && f.related_statement_id !== params.statement_id)
+      markOutOfDate(p.id) // FR17c
       resetModel(p.id)
       save()
       return new HttpResponse(null, { status: 204 })
@@ -965,6 +991,7 @@ function flagHandlers() {
             const st = (getDb().statements[p.id] ?? []).find((s) => s.id === flag.statement_id)
             if (st) st.text = fix
             resolve()
+            markOutOfDate(p.id) // FR17c
             resetModel(p.id)
             // The fix also settles the other side of a conflict.
             for (const f of getDb().flags[p.id] ?? [])

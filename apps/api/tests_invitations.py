@@ -3,6 +3,7 @@
 Runs against the Postgres in DATABASE_URL with no AI or Kroki calls. Uses throwaway users and deletes what it
 creates. Needs migrations 0010 and 0011 (or schema.sql). Run: python tests_invitations.py
 """
+import json
 import os
 import uuid
 
@@ -18,10 +19,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 from main import app  # noqa: E402
 
 API = '/api/v1'
-OWNER, VIEWER, INVITEE, OUTSIDER, ADMIN, CO_OWNER = (f'inv-{uuid.uuid4().hex[:8]}@example.com' for _ in range(6))
-EMAILS = [OWNER, VIEWER, INVITEE, OUTSIDER, ADMIN, CO_OWNER]
+OWNER, VIEWER, INVITEE, OUTSIDER, ADMIN, CO_OWNER, EDITOR = (f'inv-{uuid.uuid4().hex[:8]}@example.com' for _ in range(7))
+EMAILS = [OWNER, VIEWER, INVITEE, OUTSIDER, ADMIN, CO_OWNER, EDITOR]
 IDS = [f'dev:{e}' for e in EMAILS]
-owner, viewer, invitee, outsider, admin, co_owner = ({'Authorization': f'Bearer mock-token:{e}'} for e in EMAILS)
+owner, viewer, invitee, outsider, admin, co_owner, editor = ({'Authorization': f'Bearer mock-token:{e}'} for e in EMAILS)
 
 
 def sql(query, *args):
@@ -38,6 +39,7 @@ def setup(client):
     pid = r.json()['id']
     sql("INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, 'viewer')", pid, IDS[1])
     sql("INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, 'owner')", pid, IDS[5])
+    sql("INSERT INTO project_members(project_id, user_id, role) VALUES (%s, %s, 'editor')", pid, IDS[6])
     return pid
 
 
@@ -47,6 +49,7 @@ def check_invite_rules(client, pid):
     assert client.get(url, headers=outsider).status_code == 404
     r = client.post(url, headers=viewer, json={'email': INVITEE})
     assert r.status_code == 403, r.text  # a member who is not an Owner
+    assert client.post(url, headers=editor, json={'email': INVITEE}).status_code == 403  # nor is an Editor
     assert client.post(url, headers=owner, json={'email': 'not-an-email'}).status_code == 422
     assert client.post(url, headers=owner, json={'email': INVITEE, 'role': 'boss'}).status_code == 422
     assert client.post(url, headers=owner, json={'email': VIEWER}).status_code == 409  # already a member
@@ -60,9 +63,18 @@ def check_invite_rules(client, pid):
     assert days == 7, days
     assert client.post(url, headers=owner, json={'email': INVITEE}).status_code == 409  # one open invitation each
 
+    # FR22: the Activity tab shows "<who> invited <email> as <Role>", so the detail carries the role and the
+    # address. IDs and small values only, and nothing longer than log_event accepts.
+    logged = sql("SELECT action, detail FROM activity_log WHERE target=%s AND action='member.invited'", inv['id'])
+    assert len(logged) == 1, logged
+    detail = json.loads(logged[0][1])
+    assert detail == {'role': 'viewer', 'email': INVITEE}, detail
+    assert all(len(v) <= 100 for v in detail.values()), detail
+
     listed = client.get(url, headers=owner).json()
     assert [i['id'] for i in listed] == [inv['id']] and listed[0]['token'] == inv['token']
     assert client.get(url, headers=viewer).json()[0]['token'] is None  # only Owners get the link
+    assert client.get(url, headers=editor).json()[0]['token'] is None  # an Editor may look, but gets no link
     return inv
 
 
@@ -94,6 +106,7 @@ def check_revoke_expiry_and_link(client, pid):
     url = f'{API}/projects/{pid}/invitations'
     inv = client.post(url, headers=owner, json={'email': OUTSIDER, 'role': 'editor'}).json()
     assert client.delete(f'{url}/{inv["id"]}', headers=viewer).status_code == 403
+    assert client.delete(f'{url}/{inv["id"]}', headers=editor).status_code == 403  # an Editor cannot revoke either
     assert client.delete(f'{url}/{inv["id"]}', headers=owner).status_code == 204
     assert client.delete(f'{url}/{inv["id"]}', headers=owner).status_code == 404  # already revoked
     r = client.post(f'{API}/invitations/{inv["id"]}/accept', headers=outsider)

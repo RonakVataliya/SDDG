@@ -20,6 +20,9 @@ function line(n: ServerNotification) {
   if (n.type === 'admin_invited') return `${who} (administrator) invited ${n.invitation?.email ?? 'someone'} to ${project}`
   if (n.type === 'generation_ready') return `Your diagram is ready in ${project}`
   if (n.type === 'generation_failed') return `Generating a diagram in ${project} did not finish`
+  // FR32: the server sends the target's short label (a ref like R-006, or "Use Case diagram v3"), never the
+  // comment's text. Older notifications have no target, so they keep the wording they were written with.
+  if (n.payload.target) return `${who} mentioned you on ${n.payload.target} in ${project}`
   return `${who} mentioned you in ${project}`
 }
 
@@ -27,6 +30,13 @@ function line(n: ServerNotification) {
 function destination(n: ServerNotification) {
   const projectId = n.payload.project_id
   if (!projectId) return null
+  if (n.type === 'mention') {
+    // FR32: take them to the thing that was commented on, not to the comment: a requirement lives on Review.
+    if (n.payload.target_type === 'statement') return { to: `/projects/${projectId}/review`, label: 'View requirement' }
+    if (n.payload.target_type === 'diagram' && n.payload.target_id)
+      return { to: `/projects/${projectId}/diagrams/${n.payload.target_id}`, label: 'View diagram' }
+    return { to: `/projects/${projectId}`, label: 'Open project' }
+  }
   if (n.payload.diagram_id) return { to: `/projects/${projectId}/diagrams/${n.payload.diagram_id}`, label: 'View diagram' }
   if (n.type === 'generation_failed') return { to: `/projects/${projectId}/generate`, label: 'Try again' }
   if (n.type === 'generation_ready') return { to: `/projects/${projectId}/generate`, label: 'Open project' }

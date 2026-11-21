@@ -162,6 +162,16 @@ def log_event(project_id, actor_id, action, target=None, detail=None):
         logging.getLogger(__name__).exception("activity_log write failed: %s", action)
 
 
+def record_error(type_, severity, message, project_id=None, ref=None):
+    """Appends to errors (FR25d) for the admin Errors page. Kinds, class names and IDs only: never requirement or
+    document text, so never an exception's message. Never breaks the caller."""
+    try:
+        run("INSERT INTO errors(id, type, severity, message, project_id, ref, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            uid("err"), type_, severity, message[:200], project_id, ref, now())
+    except Exception:
+        logging.getLogger(__name__).exception("errors write failed: %s", type_)
+
+
 def get_project(pid):
     return one("SELECT * FROM projects WHERE id=%s", pid)
 
@@ -558,6 +568,22 @@ def update_job(jid, **fields):
         fields["error"] = encrypt(fields["error"])
     sets = ", ".join(f"{k}=%s" for k in fields)
     run(f"UPDATE jobs SET {sets} WHERE id=%s", *fields.values(), jid)
+    if fields.get("status") == "failed":
+        job = one("SELECT kind, project_id FROM jobs WHERE id=%s", jid)  # kind and ID only, never jobs.error
+        if job:
+            record_error("job", "error", job["kind"].replace("_", " ") + " job failed", job["project_id"], jid)
+
+
+# A diagram is out of date (FR17c) once a requirement it draws was edited (out_of_date_at), until a fresh generation of
+# its type is made after that edit. An edited version of it (parent_id) inherits the mark: see create_diagram.
+OUT_OF_DATE_SQL = ("(d.out_of_date_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM diagrams n WHERE n.project_id = d.project_id "
+                   "AND n.type = d.type AND n.parent_id IS NULL AND n.created_at > d.out_of_date_at))")
+
+
+def diagram_types_made(pid):
+    """{diagram type: True if one of that type is out of date} for the types the project already has."""
+    return {r["type"]: r["out_of_date"] for r in many(
+        f"SELECT d.type, bool_or({OUT_OF_DATE_SQL}) AS out_of_date FROM diagrams d WHERE d.project_id=%s GROUP BY d.type", pid)}
 
 
 def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_source=None,
@@ -583,6 +609,8 @@ def create_diagram(pid, dtype, title, svg, elements, statement_ids, plantuml_sou
         if parent_id:  # accepted warnings stay accepted on versions made from this one
             c.execute("INSERT INTO accepted_warnings SELECT %s, warning_id, accepted_by, accepted_at "
                       "FROM accepted_warnings WHERE diagram_id=%s", (d["id"], parent_id))
+            c.execute("UPDATE diagrams SET out_of_date_at = (SELECT out_of_date_at FROM diagrams WHERE id=%s) WHERE id=%s",
+                      (parent_id, d["id"]))  # an edit does not make an out-of-date diagram current
     return _decode(d)
 
 
@@ -594,6 +622,11 @@ def accept_warning(did, warning_id, email):
     run("INSERT INTO accepted_warnings VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING", did, warning_id, email, now())
 
 
+def get_diagram_row(did):
+    """A diagram version by id, whoever asks: the caller checks the role (routers.integrated.require_diagram)."""
+    return one("SELECT * FROM diagrams WHERE id=%s", did)
+
+
 def member_diagram(did, user_id):
     return one(
         "SELECT d.* FROM diagrams d JOIN project_members m ON m.project_id=d.project_id WHERE d.id=%s AND m.user_id=%s",
@@ -603,8 +636,8 @@ def member_diagram(did, user_id):
 
 def list_diagrams(pid):
     return many(
-        "SELECT id, type, title, created_at, parent_id, instruction, revision FROM diagrams WHERE project_id=%s "
-        "ORDER BY created_at DESC",
+        f"SELECT d.id, d.type, d.title, d.created_at, d.parent_id, d.instruction, d.revision, {OUT_OF_DATE_SQL} AS out_of_date "
+        "FROM diagrams d WHERE d.project_id=%s ORDER BY d.created_at DESC",
         pid,
     )
 
@@ -682,12 +715,42 @@ def get_statement(pid, sid):
     return next((s for s in get_statements(pid) if s["id"] == sid), None)
 
 
-def update_statement(pid, sid, text=None, label=None, by=None):
-    """text/label None keeps the current value. Every save counts the revision up; by = the editing user's id."""
-    run("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label), "
-        "revision=revision+1, revised_by=%s, revised_at=%s WHERE id=%s AND project_id=%s",
-        encrypt(text), label, by, now(), sid, pid)
-    return get_statement(pid, sid)
+# --- Raj: edit conflict check (FR24f) ------------------------------------------------------------------------------
+CONFLICT = "conflict"  # someone saved since the revision an edit was based on; nothing was changed
+
+
+def update_statement(pid, sid, text=None, label=None, by=None, base_revision=None):
+    """text/label None keeps the current value. Every save counts the revision up; by = the editing user's id.
+
+    With base_revision (FR24f) the save only happens if the stored revision is still that one; otherwise nothing
+    changes and CONFLICT is returned. The check and the write are one UPDATE ... WHERE revision = base, so of two
+    saves based on the same revision exactly one wins, even at the same moment (a read-then-write could let both
+    through). None means there is no such requirement."""
+    r = one("UPDATE statements SET text=COALESCE(%s, text), label=COALESCE(%s, label), "
+            "revision=revision+1, revised_by=%s, revised_at=%s "
+            "WHERE id=%s AND project_id=%s AND (%s::int IS NULL OR revision=%s) RETURNING id",
+            encrypt(text), label, by, now(), sid, pid, base_revision, base_revision)
+    if r:
+        return get_statement(pid, sid)
+    return CONFLICT if base_revision is not None and get_statement(pid, sid) else None
+
+
+def statement_last_change(pid, sid):
+    """Who saved a requirement's current revision (user id) and when, for the edit conflict message."""
+    r = one("SELECT revised_by, revised_at FROM statements WHERE id=%s AND project_id=%s", sid, pid)
+    return (r["revised_by"], r["revised_at"]) if r else (None, None)
+
+
+def first_name(user_id):
+    """A short name for a person: their email before the @, capitalised ("priya@acme.test" -> "Priya"). Uses the
+    users row, or the email inside a DEV_AUTH_BYPASS id (dev:<email>)."""
+    if not user_id:
+        return None
+    r = one("SELECT email FROM users WHERE id=%s", user_id)
+    email = r["email"] if r else user_id.removeprefix("dev:")
+    local = email.split("@")[0]
+    return local[:1].upper() + local[1:] if local else None
+# --- end Raj: edit conflict check ---------------------------------------------------------------------------------
 
 
 def delete_statement(pid, sid):
@@ -732,6 +795,12 @@ def add_llm_calls(job_id, pid, calls, mixed):
             f"VALUES (%s,%s,{','.join(['%s'] * len(cols))},%s)",
             [(job_id, pid, *(call.get(k) for k in cols), mixed) for call in calls],
         )
+    for call in calls:  # a rate limit is a warning (the call retried); a failed call is an error
+        what = f"{call.get('provider') or 'AI'} {call.get('node') or 'call'}"
+        if call.get("status") == "error":
+            record_error("ai", "error", f"{what} failed, tried {call.get('attempts') or 1} time(s)", pid, job_id)
+        elif call.get("rate_limited"):
+            record_error("rate_limit", "warning", f"{what} hit a rate limit, tried {call.get('attempts') or 1} time(s)", pid, job_id)
 
 # ---------------------------------------------------------------------------
 # Document management

@@ -9,6 +9,7 @@ project), 'mention' (an @mention in a comment), and 'generation_ready' / 'genera
 generation finished or failed; every member of the project is told).
 """
 import json
+import logging
 
 from core import db
 
@@ -40,6 +41,25 @@ def notify(user_id, type, payload=None):
         "INSERT INTO notifications(id, user_id, type, payload, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *",
         db.uid("nt"), user_id, type, json.dumps(payload or {}), db.now(),
     ))
+
+
+def notify_mentions(project_id, mentioned_ids, author_id, comment_id, target_type, target_id, label):
+    """FR32: tells each person named with @ in a comment, once each, and never the author themselves.
+
+    IDs and the target's short label only ("R-006", "Use Case diagram v3"), never a word of the comment: the bell
+    looks the wording up when it reads. A notification that cannot be written must not make a comment that was
+    saved look like it failed, so a failure here is logged and swallowed, as in db.log_event.
+    """
+    try:
+        for user_id in dict.fromkeys(mentioned_ids):
+            if user_id == author_id:  # mentioning yourself tells you nothing you do not already know
+                continue
+            notify(user_id, "mention", {
+                "project_id": project_id, "comment_id": comment_id, "from_user_id": author_id,
+                "target_type": target_type, "target_id": target_id, "target": label,
+            })
+    except Exception:
+        logging.getLogger(__name__).exception("mention notifications failed for comment %s", comment_id)
 
 
 def notify_project(project_id, type, payload=None):

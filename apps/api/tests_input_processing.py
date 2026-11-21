@@ -291,7 +291,7 @@ def test_upload_document_requires_storage_configuration(monkeypatch):
 
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "consent", lambda uid: {"policy_version": integrated.POLICY_VERSION})
     monkeypatch.setattr(integrated.db, "project_document_totals", lambda pid: {"document_count": 0, "total_pages": 0})
 
@@ -314,7 +314,7 @@ def test_upload_document_rejects_mock_token_for_storage(monkeypatch):
 
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "consent", lambda uid: {"policy_version": integrated.POLICY_VERSION})
     monkeypatch.setattr(integrated.db, "project_document_totals", lambda pid: {"document_count": 0, "total_pages": 0})
 
@@ -339,7 +339,7 @@ def test_upload_document_links_job_and_document(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "project-documents")
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "consent", lambda uid: {"policy_version": integrated.POLICY_VERSION})
     monkeypatch.setattr(integrated.db, "project_document_totals", lambda pid: {"document_count": 0, "total_pages": 0})
 
@@ -430,7 +430,7 @@ def test_upload_document_cleans_up_storage_on_db_failure(monkeypatch):
 
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "consent", lambda uid: {"policy_version": integrated.POLICY_VERSION})
     monkeypatch.setattr(integrated.db, "project_document_totals", lambda pid: {"document_count": 0, "total_pages": 0})
 
@@ -480,7 +480,7 @@ def test_paste_empty_or_whitespace_rejected():
     import routers.integrated as integrated
 
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    integrated.require_project = lambda pid, u: {"id": pid, "name": "Test Project"}
+    integrated.require_project = lambda pid, u, need="view": {"id": pid, "name": "Test Project"}
 
     client = TestClient(app)
     res_empty = client.post("/api/v1/projects/proj_1/inputs", json={"text": ""})
@@ -498,7 +498,7 @@ def test_upload_document_enforces_15_document_limit(monkeypatch):
     import routers.integrated as integrated
 
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "consent", lambda uid: {"policy_version": integrated.POLICY_VERSION})
     monkeypatch.setattr(integrated.db, "project_document_totals", lambda pid: {"document_count": 15, "total_pages": 30})
 
@@ -520,7 +520,7 @@ def test_upload_document_enforces_100_page_project_limit(monkeypatch):
     import routers.integrated as integrated
 
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "consent", lambda uid: {"policy_version": integrated.POLICY_VERSION})
     monkeypatch.setattr(integrated.db, "project_document_totals", lambda pid: {"document_count": 5, "total_pages": 99})
 
@@ -543,7 +543,7 @@ def test_delete_document_removes_storage_and_metadata(monkeypatch):
     import routers.integrated as integrated
 
     app.dependency_overrides[get_current_user] = lambda: User(id="user_123", email="user@example.com")
-    monkeypatch.setattr(integrated, "require_project", lambda pid, u: {"id": pid, "name": "Test Project"})
+    monkeypatch.setattr(integrated, "require_project", lambda pid, u, need="view": {"id": pid, "name": "Test Project"})
     monkeypatch.setattr(integrated.db, "get_document", lambda pid, did: {
         "id": did,
         "project_id": pid,

@@ -65,7 +65,7 @@ def list_cases(project_id: str, user: User = Depends(get_current_user)):
 @router.post("/projects/{project_id}/tests/cases", status_code=201)
 def add_case(project_id: str, body: TestCaseCreate, user: User = Depends(get_current_user)):
     """A hand-written case is ready at once (it has steps) and is linked to one requirement."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     statement = tdb.get_statement(project_id, body.statement_id)
     if not statement:
         raise HTTPException(422, "Pick the requirement this case tests.")
@@ -85,7 +85,7 @@ def update_case(project_id: str, case_id: str, body: TestCaseUpdate, user: User 
 
     A draft can only be kept or discarded: drafts are rebuilt whenever their conditions change, so any other edit
     would be lost. Once AI request 2 has written its steps, the case is ready and every field can be edited."""
-    require_project(project_id, user)
+    require_project(project_id, user, need="edit")
     case = tdb.get_case(project_id, case_id)
     if not case:
         raise HTTPException(404, NOT_FOUND)

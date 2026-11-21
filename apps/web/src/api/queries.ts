@@ -3,6 +3,8 @@ import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } f
 import {
   api,
   unwrap,
+  type AdminErrorSeverity,
+  type AdminErrorType,
   type ConditionUpdate,
   type Diagram,
   type DesignKind,
@@ -19,6 +21,7 @@ import {
   type TestCaseCreate,
   type TestCaseUpdate,
 } from './client'
+import { ApiError } from './errors'
 import type { paths } from './schema'
 
 export const keys = {
@@ -57,6 +60,13 @@ export const keys = {
   naming: (id: string) => ['projects', id, 'naming'] as const,
   drift: (diagramId: string) => ['diagrams', diagramId, 'drift'] as const,
 }
+
+/**
+ * FR17d: drift is not stored — it is recomputed from the current requirements on every read. So any change to a
+ * requirement, and any new diagram version, can change or clear a banner that is on screen right now. One key per
+ * diagram, so this matches every drift query rather than naming a diagram.
+ */
+const driftQueries = { predicate: (q: { queryKey: readonly unknown[] }) => q.queryKey[0] === 'diagrams' && q.queryKey[2] === 'drift' }
 
 export const ITEMS_PAGE_SIZE = 200 // FR5a: paginate only above 200 items
 
@@ -377,6 +387,10 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
   const qc = useQueryClient()
   return useMutation({
     mutationFn: fn,
+    // FR24f: after an edit conflict the list must show the version someone else saved.
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === 'edit_conflict') void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
       void qc.invalidateQueries({ queryKey: keys.flags(projectId) })
@@ -384,6 +398,8 @@ function useStatementChange<V>(projectId: string, fn: (v: V) => Promise<unknown>
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
       void qc.invalidateQueries({ queryKey: keys.tests(projectId) }) // their test cases may now be Out of date
       void qc.invalidateQueries({ queryKey: keys.design(projectId) }) // design sections citing it may be Out of date
+      void qc.invalidateQueries(driftQueries) // FR17d: a requirement may now match, or stop matching, an edited diagram
+      void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) }) // FR17c: diagrams that draw it are now Out of date
     },
   })
 }
@@ -397,7 +413,7 @@ export function useAddStatement(projectId: string) {
 }
 
 export function useUpdateStatement(projectId: string) {
-  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel }) =>
+  return useStatementChange(projectId, ({ id, ...body }: { id: string; text?: string; label?: StatementLabel; base_revision?: number; resolves_conflict?: boolean }) =>
     unwrap(api.PATCH('/projects/{project_id}/statements/{statement_id}', { params: { path: { project_id: projectId, statement_id: id } }, body })),
   )
 }
@@ -483,6 +499,8 @@ export function useFlagAction(projectId: string) {
         void qc.invalidateQueries({ queryKey: keys.statements(projectId) })
         void qc.invalidateQueries({ queryKey: keys.items(projectId) })
         void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+        void qc.invalidateQueries(driftQueries) // FR17d: the fix rewrites the requirement the warning is measured against
+        void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) }) // FR17c
       }
     },
   })
@@ -629,6 +647,7 @@ export function useReviseDiagram(projectId: string) {
       qc.setQueryData(keys.diagram(diagram.id), diagram)
       void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      void qc.invalidateQueries(driftQueries) // FR17d: a new version drifts, or no longer does
     },
   })
 }
@@ -657,6 +676,7 @@ export function useSaveLayout(projectId: string) {
       qc.setQueryData(keys.diagram(diagram.id), diagram)
       void qc.invalidateQueries({ queryKey: keys.diagrams(projectId) })
       void qc.invalidateQueries({ queryKey: keys.project(projectId), exact: true })
+      void qc.invalidateQueries(driftQueries) // FR17d: a new version drifts, or no longer does
     },
   })
 }
@@ -881,6 +901,83 @@ export function useAnswerFlag(projectId: string) {
   })
 }
 
+/* ---------- admin console (FR23) ---------- */
+
+const adminKeys = { me: ['me'] as const, users: (q: string, page: number) => ['admin', 'users', q, page] as const }
+
+/** Who the caller is; `is_admin` decides whether the Admin console is shown (the API checks it again on every call). */
+export function useMe() {
+  return useQuery({ queryKey: adminKeys.me, queryFn: () => unwrap(api.GET('/me')), staleTime: 5 * 60_000 })
+}
+
+export function useAdminUsers(q: string, page: number) {
+  return useQuery({
+    queryKey: adminKeys.users(q, page),
+    queryFn: () => unwrap(api.GET('/admin/users', { params: { query: { q, page } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useSetUserActive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, active }: { userId: string; active: boolean }) =>
+      unwrap(api.POST(active ? '/admin/users/{user_id}/reactivate' : '/admin/users/{user_id}/deactivate', { params: { path: { user_id: userId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+  })
+}
+
+/** Usage page: refreshed every minute while the page is open (FR25a). */
+export function useAdminUsage() {
+  return useQuery({ queryKey: ['admin', 'usage'] as const, queryFn: () => unwrap(api.GET('/admin/usage')), refetchInterval: 60_000 })
+}
+
+/** Settings page: the server's configuration, read-only. */
+export function useAdminSettings() {
+  return useQuery({ queryKey: ['admin', 'settings'] as const, queryFn: () => unwrap(api.GET('/admin/settings')) })
+}
+
+/** Errors page (FR25d): newest first, 25 per page, optionally of one type and/or severity. */
+export function useAdminErrors(type: AdminErrorType | '', severity: AdminErrorSeverity | '', page: number) {
+  return useQuery({
+    queryKey: ['admin', 'errors', type, severity, page] as const,
+    queryFn: () => unwrap(api.GET('/admin/errors', { params: { query: { type: type || undefined, severity: severity || undefined, page } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+// --- Raj: admin Feedback page (FR27c) ---
+/** Issue reports from every project, newest first, 25 per page; status '' means open and resolved. */
+export function useAdminFeedback(status: 'open' | 'resolved' | '', page: number) {
+  return useQuery({
+    queryKey: ['admin', 'feedback', status, page] as const,
+    queryFn: () => unwrap(api.GET('/admin/feedback', { params: { query: { status: status || undefined, page } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Close a report. */
+export function useCloseFeedback() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (reportId: string) => unwrap(api.POST('/admin/feedback/{report_id}/resolve', { params: { path: { report_id: reportId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'feedback'] }),
+  })
+}
+// --- end Raj: admin Feedback ---
+
+export type ActivityGroup = 'all' | 'members' | 'requirements' | 'diagrams' | 'comments'
+
+/** Activity tab (FR22): the project's log, newest first, 25 per page. Owners and administrators only (else 403). */
+export function useProjectActivity(projectId: string, group: ActivityGroup, actor: string, page: number) {
+  return useQuery({
+    queryKey: [...keys.project(projectId), 'activity', group, actor, page] as const,
+    queryFn: () => unwrap(api.GET('/projects/{project_id}/activity', { params: { path: { project_id: projectId }, query: { group, actor: actor || undefined, page } } })),
+    placeholderData: keepPreviousData,
+    retry: false,
+  })
+}
+
 /* ---------- notifications bell (FR24a, FR32) ---------- */
 
 export const BELL_POLL_MS = 30_000
@@ -1022,3 +1119,49 @@ export function useApplyName(projectId: string) {
     },
   })
 }
+
+// --- Raj: comments and issue reports (FR32, FR27a-b) ---------------------------------------------------------------
+type CommentTargetType = Schemas['CommentTargetType']
+const commentKeys = {
+  all: (projectId: string) => ['projects', projectId, 'comments'] as const,
+  of: (projectId: string, type: CommentTargetType, id?: string) => ['projects', projectId, 'comments', type, id ?? 'all'] as const,
+}
+
+/** Comments on one target (a requirement, a diagram version, the project), or on every target of a kind when targetId
+ * is left out (for the counts on each row). Oldest first. Any member. */
+export function useComments(projectId: string, targetType: CommentTargetType, targetId?: string) {
+  return useQuery({
+    queryKey: commentKeys.of(projectId, targetType, targetId),
+    queryFn: () =>
+      unwrap(
+        api.GET('/projects/{project_id}/comments', {
+          params: { path: { project_id: projectId }, query: { target_type: targetType, ...(targetId ? { target_id: targetId } : {}) } },
+        }),
+      ),
+  })
+}
+
+/** Any member, a Viewer too. mentions: user ids of members picked with @. */
+export function usePostComment(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Schemas['CommentCreate']) =>
+      unwrap(api.POST('/projects/{project_id}/comments', { params: { path: { project_id: projectId } }, body })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: commentKeys.all(projectId) }),
+  })
+}
+
+/** An Editor or Owner, or the comment's author. */
+export function useResolveComment(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (commentId: string) =>
+      unwrap(
+        api.POST('/projects/{project_id}/comments/{comment_id}/resolve', {
+          params: { path: { project_id: projectId, comment_id: commentId } },
+        }),
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: commentKeys.all(projectId) }),
+  })
+}
+// --- end Raj: comments ----------------------------------------------------------------------------------------------

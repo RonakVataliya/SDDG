@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Notice } from '@/components/ui/notice'
 import { PageLoading, Spinner } from '@/components/ui/spinner'
 import { projectStage } from '@/features/projects/stage'
+import { OutOfDateBanner } from '@/features/viewer/out-of-date-banner'
 import { cn, plural } from '@/lib/utils'
 import { NotFoundPage } from './not-found-page'
 
@@ -103,6 +104,7 @@ function buildAreas(project: Project): Area[] {
     { to: 'search', label: 'Search' },
   ]
   areas.push({ to: 'members', label: 'Members' })
+  if (project.role === 'owner') areas.push({ to: 'activity', label: 'Activity' }) // the log is for Owners and administrators
   if (project.is_owner) areas.push({ to: 'settings', label: 'Settings' })
   return areas
 }
@@ -142,10 +144,12 @@ function AreaNav({ areas }: { areas: Area[] }) {
 }
 
 /** Pages that came from the older panel layout get the same card frame the pipeline pages draw themselves. */
-const FRAMED = ['tests', 'design', 'backlog', 'coverage', 'search', 'members', 'settings']
+const FRAMED = ['tests', 'design', 'backlog', 'coverage', 'search', 'members', 'activity', 'settings']
 
 export type WorkspaceContext = { project: Project }
 export const useWorkspace = () => useOutletContext<WorkspaceContext>()
+/** FR24e: Editors and Owners change things; a Viewer reads, comments and exports. The server refuses the rest (403). */
+export const useCanEdit = () => useWorkspace().project.role !== 'viewer'
 
 export function WorkspaceLayout() {
   const { projectId = '' } = useParams()
@@ -195,6 +199,14 @@ export function WorkspaceLayout() {
       <div className="border-b border-rule bg-surface px-3 py-1.5 sm:px-6">
         <AreaNav areas={buildAreas(project)} />
       </div>
+      {project.role === 'viewer' && (
+        <div className="border-b border-rule bg-surface px-4 py-2 sm:px-7">
+          <Notice tone="warning" title="You're a Viewer">
+            You can read, comment and export. Ask an Owner on the Members page if you need to make changes.
+          </Notice>
+        </div>
+      )}
+      <OutOfDateBanner projectId={project.id} confirmed={!!project.confirmed} canGenerate={project.role !== 'viewer'} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         {FRAMED.includes(area) ? (
           <div className="mx-auto flex w-full max-w-[1400px] min-h-0 flex-1 flex-col p-4 sm:p-7">

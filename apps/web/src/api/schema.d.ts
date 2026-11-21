@@ -690,6 +690,212 @@ export interface paths {
         };
         trace?: never;
     };
+    "/projects/{project_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Comments on a project's requirements, diagram versions or the project itself, oldest first (any member) */
+        get: {
+            parameters: {
+                query?: {
+                    target_type?: components["schemas"]["CommentTargetType"];
+                    /** @description Leave out for every comment on that kind of target (for counts) */
+                    target_id?: string;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"][];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Comment, or send an issue report (any member, a Viewer too) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CommentCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Empty or too long */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/comments/{comment_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve a thread (Editor or Owner, or its author). Resolving a resolved thread changes nothing */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                    comment_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The comment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description A Viewer resolving someone else's thread */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** Issue reports, newest first. An Owner (or System Administrator) sees all; anyone else only their own */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"][];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/inputs": {
         parameters: {
             query?: never;
@@ -869,6 +1075,24 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["RequirementStatement"];
+                    };
+                };
+                /** @description A Viewer cannot edit requirements */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Someone saved since base_revision; nothing was overwritten (Raj */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StatementConflict"];
                     };
                 };
             };
@@ -2951,6 +3175,503 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who the caller is and whether they are a System Administrator (shows the Admin console button) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Me"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users, most recently active first, 25 per page; q matches the email (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: {
+                    q?: string;
+                    page?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserPage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Block sign-in straight away; their projects are kept. 409 for yourself or the only owner of a shared project */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    user_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUser"];
+                    };
+                };
+                /** @description Unknown user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Let a deactivated user sign in again */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    user_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUser"];
+                    };
+                };
+                /** @description Unknown user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Active users, projects, storage and generation time of the last 7 days (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUsage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read-only server configuration for the Settings page. Never a secret (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminSettings"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recorded errors, newest first, 25 per page; filter by type and severity. Kinds and IDs only, never document text (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: {
+                    type?: components["schemas"]["AdminErrorType"];
+                    severity?: components["schemas"]["AdminErrorSeverity"];
+                    page?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminErrorPage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Issue reports from every project, newest first, 25 per page; filter open or resolved. Only what members sent as an issue report (administrators only, else 403) */
+        get: {
+            parameters: {
+                query?: {
+                    status?: "open" | "resolved";
+                    page?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminFeedbackPage"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/feedback/{report_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close a report (administrators only). Closing a closed one changes nothing */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    report_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The report */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminFeedback"];
+                    };
+                };
+                /** @description Not an administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No such report (a plain comment is not a report) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        /** The project's activity log (FR22), newest first, 25 per page. Owners and administrators only (Editor or Viewer 403, not a member 404). IDs and small values only, never requirement text. */
+        get: {
+            parameters: {
+                query?: {
+                    group?: "all" | "members" | "requirements" | "diagrams" | "comments";
+                    /** @description Only this person's actions (a user id from actors) */
+                    actor?: string;
+                    page?: number;
+                };
+                header?: never;
+                path: {
+                    project_id: components["parameters"]["ProjectId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActivityPage"];
+                    };
+                };
+                /** @description Not an Owner or administrator */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not a member */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications": {
         parameters: {
             query?: never;
@@ -3604,6 +4325,40 @@ export interface components {
             /** @description The project's exact name */
             confirm_name: string;
         };
+        /** @enum {string} */
+        CommentTargetType: "statement" | "diagram" | "project";
+        CommentCreate: {
+            target_type: components["schemas"]["CommentTargetType"];
+            /** @description A requirement id, a diagram version id, or the project id */
+            target_id: string;
+            /** @description 1 to 2000 characters after trimming */
+            body: string;
+            /** @description Send as an issue report (FR27a) */
+            is_issue_report?: boolean;
+            /** @description User ids of project members picked with @ */
+            mentions?: string[];
+        };
+        Comment: {
+            id: string;
+            target_type: components["schemas"]["CommentTargetType"];
+            target_id: string;
+            /** @description R-006, Use Case diagram v3 or Project */
+            target_label: string | null;
+            body: string;
+            is_issue_report: boolean;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            author: {
+                id: string;
+                email: string | null;
+            };
+            /** @description First name of who resolved it */
+            resolved_by: string | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
         Member: {
             user_id: string;
             email: string | null;
@@ -3654,6 +4409,23 @@ export interface components {
             text?: string;
             /** @enum {string|null} */
             label?: "functional" | "non_functional" | "user_story" | "constraint" | "unknown" | null;
+            /** @description The revision this edit was based on; a newer stored revision answers 409. Optional: without it the save works as before */
+            base_revision?: number;
+            /** @description This save resolves an edit conflict (recorded in the activity log); false when left out */
+            resolves_conflict?: boolean;
+        };
+        /** @description A save based on an older revision. Nothing was overwritten; the editor shows the current version next to the change */
+        StatementConflict: {
+            /** @description "Priya saved revision 3 while you were editing revision 2. Nothing was overwritten." */
+            detail: string;
+            /** @enum {string} */
+            code: "edit_conflict";
+            /** @description The part of their email before the @, capitalised */
+            changed_by: string;
+            /** Format: date-time */
+            changed_at: string | null;
+            base_revision: number;
+            current: components["schemas"]["RequirementStatement"];
         };
         FlagSummary: {
             statement_id: string;
@@ -3746,6 +4518,8 @@ export interface components {
             instruction: string | null;
             /** @description 1 for a fresh generation; each edited version is its parent's revision plus one */
             revision?: number;
+            /** @description FR17c: a requirement this diagram draws was edited or deleted after it was drawn (set by the server, in the list only). Stays true until a new generation of this diagram type is made; editing the diagram does not clear it. */
+            out_of_date?: boolean;
         };
         DiagramElement: {
             /** @description Matches data-element-id in the SVG */
@@ -4285,6 +5059,177 @@ export interface components {
             failed: components["schemas"]["RunSelectionMode"];
             regression: components["schemas"]["RunSelectionMode"];
             minimal: components["schemas"]["RunSelectionMode"];
+        };
+        Me: {
+            id: string;
+            email: string;
+            is_admin: boolean;
+        };
+        AdminUser: {
+            id: string;
+            email: string;
+            is_admin: boolean;
+            /** @description Projects they are a member of */
+            projects: number;
+            /** Format: date-time */
+            last_seen_at: string | null;
+            /** @enum {string} */
+            status: "active" | "deactivated";
+        };
+        AdminUserPage: {
+            users: components["schemas"]["AdminUser"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        UsageEvent: {
+            /** @enum {string} */
+            type: "slow" | "error" | "rate_limit";
+            /** @description Built from the job kind, AI node and counts only, never requirement or error text */
+            description: string;
+            duration_seconds: number | null;
+            /** Format: date-time */
+            at: string;
+        };
+        UsageGeneration: {
+            /** @description Finished generation runs in the window */
+            runs: number;
+            median_seconds: number | null;
+            p95_seconds: number | null;
+            median_target_seconds: number;
+            p95_target_seconds: number;
+            /** @description null when there are no runs */
+            median_ok: boolean | null;
+            p95_ok: boolean | null;
+        };
+        AdminUsage: {
+            window_days: number;
+            active_window_minutes: number;
+            active_users: number;
+            /** @description Accounts that are not deactivated */
+            accounts: number;
+            /** @description Deleted projects are not counted */
+            projects: number;
+            archived_projects: number;
+            storage_bytes: number;
+            storage_limit_bytes: number;
+            /** @description 80% of the limit or more */
+            storage_warning: boolean;
+            limits: {
+                max_document_bytes: number;
+                max_documents_per_project: number;
+                max_pages_per_project: number;
+            };
+            generation: components["schemas"]["UsageGeneration"];
+            events: components["schemas"]["UsageEvent"][];
+        };
+        AdminSettings: {
+            ai: {
+                /** @description false when the AI service did not answer */
+                reachable: boolean;
+                /** @description In preference order; the first is used, the rest are fallbacks */
+                providers: {
+                    name: string;
+                    model: string;
+                    /** @description Its key is set */
+                    available: boolean;
+                }[];
+                /** @description How long a job waits for AI capacity before it fails */
+                job_deadline_seconds: number;
+            };
+            /** @description Whether an AI key is set. null when the AI service did not answer. The key itself is never sent. */
+            ai_key_set: boolean | null;
+            storage_limit_bytes: number;
+            invitation_expiry_days: number;
+            /** @description Declared by the server; null when not declared (Supabase Auth owns it) */
+            session_timeout_hours: number | null;
+            failed_logins_before_lock: number | null;
+            lock_minutes: number | null;
+        };
+        /**
+         * @description api = a crash in a route, job = a failed job, ai = a failed AI call
+         * @enum {string}
+         */
+        AdminErrorType: "api" | "job" | "ai" | "rate_limit";
+        /** @enum {string} */
+        AdminErrorSeverity: "error" | "warning";
+        AdminFeedback: {
+            id: string;
+            /** @description The text the member sent as an issue report */
+            report: string;
+            /** @description The requirement ref (R-006), the diagram version (Use Case diagram v3) or Project export */
+            on: string | null;
+            target_type: components["schemas"]["CommentTargetType"];
+            target_id: string;
+            project_id: string;
+            project_name: string;
+            /** @description The author's email */
+            from: string | null;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            /** @description First name of who closed it */
+            resolved_by: string | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            at: string;
+        };
+        AdminFeedbackPage: {
+            reports: components["schemas"]["AdminFeedback"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        AdminError: {
+            id: string;
+            type: components["schemas"]["AdminErrorType"];
+            severity: components["schemas"]["AdminErrorSeverity"];
+            /** @description Built from kinds and class names, e.g. "ValueError in POST /projects/{project_id}/generate" */
+            message: string;
+            project_id: string | null;
+            /** Format: date-time */
+            at: string;
+        };
+        AdminErrorPage: {
+            errors: components["schemas"]["AdminError"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        ActivityEvent: {
+            id: string;
+            /** @description member.invited, member.joined, role.changed, member.removed, member.left, statement.edited, statement.conflict_saved, comment.created, comment.resolved, diagram.saved, diagram.regenerated, ... */
+            action: string;
+            /**
+             * @description Which filter the action belongs to
+             * @enum {string|null}
+             */
+            group: "members" | "requirements" | "diagrams" | "comments" | null;
+            /** @description Who did it (a user id) */
+            actor_id: string;
+            actor_email: string | null;
+            /** @description Who it was done to (invited, role changed, removed) */
+            subject_email: string | null;
+            /** @description What it was done to, e.g. "R-004 - rev 3" */
+            target: string | null;
+            /** @description IDs and small values only */
+            detail: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: date-time */
+            at: string;
+        };
+        ActivityActor: {
+            id: string;
+            email: string | null;
+        };
+        ActivityPage: {
+            events: components["schemas"]["ActivityEvent"][];
+            /** @description Everyone who appears in this project's log */
+            actors: components["schemas"]["ActivityActor"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         /** @enum {string} */
         NotificationType: "invitation" | "admin_invited" | "mention" | "generation_ready" | "generation_failed";
